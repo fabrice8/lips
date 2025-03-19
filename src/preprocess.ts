@@ -1,4 +1,8 @@
-import { META_ATTRIBUTES } from './utils'
+import { 
+  META_ATTRIBUTES,
+  FUNCTION_ATTR_FLAG,
+  EVENT_LISTENER_FLAG
+} from './utils'
 
 function matchEventHandlers( input: string ): string {
   const pattern = /on-([a-zA-Z-]+)\s*\(/g
@@ -23,7 +27,7 @@ function matchEventHandlers( input: string ): string {
       const 
       expression = input.slice( startIndex, position - 1 ).trim(),
       prefix = input.slice( 0, match.index ),
-      replacement = `on-${event}="${expression}"`,
+      replacement = `${EVENT_LISTENER_FLAG}${event}="${expression}"`,
       suffix = input.slice( position )
       
       result = prefix + replacement + suffix
@@ -153,7 +157,9 @@ function processAttribute( attr: string ): string {
    * - Method functions
    * - Event handlers
    */
-  if( name.startsWith('fn:') || name.startsWith('on-') ) return attr
+  if( name.startsWith( FUNCTION_ATTR_FLAG ) 
+      || name.startsWith( EVENT_LISTENER_FLAG ) )
+    return attr
   
   // Check for quoted values
   if( ( value.startsWith('"') && value.endsWith('"') ) 
@@ -206,7 +212,7 @@ export function preprocessor( str: string ): string {
                 .replace(/<if\(\s*(.*?)\s*\)>/g, '<if @by="$1">')
                 .replace(/<else-if\(\s*(.*?)\s*\)>/g, '<else-if @by="$1">')
                 .replace(/<switch\(\s*(.*?)\s*\)>/g, '<switch @by="$1">')
-                .replace(/<async await\(\s*(.*?)\s*\)>/g, '<async fn:await="$1">')
+                .replace(/<async await\(\s*(.*?)\s*\)>/g, `<async ${FUNCTION_ATTR_FLAG}await="$1">`)
                 .replace(/<log\(\s*(.*?)\s*\)>/g, '<log @args="$1">')
                 .replace(/\[(.*?)\]/g, match => match.replace(/\s+/g, '') )
 

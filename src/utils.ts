@@ -29,7 +29,9 @@ $.fn.extend({
 })
 
 export const ROOT_PATH = '#0'
-export const SYNCTAX_VAR_FLAG = 'SYNTAX:'
+export const SYNCTAX_VAR_FLAG = 'syn:'
+export const FUNCTION_ATTR_FLAG = 'fn:'
+export const EVENT_LISTENER_FLAG = 'on-'
 export const SPREAD_VAR_PATTERN = /^\.\.\./
 export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
 export const META_ATTRIBUTES = ['@html', '@text']
