@@ -4,13 +4,11 @@ export interface Input {
   await: Promise<any>
   then: MeshTemplate
   catch?: MeshTemplate
-  finally?: MeshTemplate
   loading?: MeshTemplate
   renderer: MeshRenderer
 }
 export interface State {
   renderer: MeshRenderer | null
-  finally: MeshRenderer | null
   props: VariableSet
 }
 
@@ -20,13 +18,11 @@ export const declaration: Declaration = {
   tags: {
     'then': { type: 'child' },
     'catch': { type: 'child', optional: true },
-    'finally': { type: 'child', optional: true },
     'loading': { type: 'child', optional: true }
   }
 }
 export const state: State = {
   renderer: null,
-  finally: null,
   props: {}
 }
 
@@ -64,16 +60,7 @@ export const handler: Handler<Metavars<Input, State>> = {
         [evar]: { value: error, type: 'arg' }
       }
     })
-    .finally( () => {
-      if( !this.input.finally ) return
-      this.state.finally = this.input.finally.renderer
-    })
   }
 }
 
-export default `
-  <{state.renderer} #=state.props/>
-
-  <!-- REVIEW: Opportunity to use finally -->
-  <if( state.finally )><{state.finally}/></if>
-`
+export default `<{state.renderer} #=state.props/>`
