@@ -14,24 +14,30 @@ type Route = RouteDef<any> & {
   pathVars: string[]
   pathRegex: RegExp
 }
+type State = {
+  page: Template<any> | null
+  params: Record<string, any>
+  query: Record<string, any>
+}
 type Static = {
   global: boolean
   routes: Route[]
   defaultPath: string | null
   currentPath: string | null
   currentRoute: Route | null
-  params: Record<string, any>
-  query: Record<string, any>
 }
 
+export const state: State = {
+  page: null,
+  params: {},
+  query: {}
+}
 export const _static: Static = {
   global: false,
   routes: [],
   defaultPath: null,
   currentPath: null,
-  currentRoute: null,
-  params: {},
-  query: {}
+  currentRoute: null
 }
 
 function parseQuery( str: string ){
@@ -125,7 +131,7 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
     if( this.static.currentRoute ){
       fromState = {
         path: this.static.currentRoute.path,
-        params: this.static.params
+        params: this.state.params
       }
 
       // Before match and render page event
@@ -137,8 +143,8 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
     // Page not found
     if( !result ){
       this.static.currentRoute = null
-      this.static.params = {}
-      this.static.query = {}
+      this.state.params = {}
+      this.state.query = {}
 
       this.emit('not-found', path )
       return
@@ -157,20 +163,11 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
     
     this.static.currentPath = path
     this.static.currentRoute = route
-    this.static.params = params
-    this.static.query = query
 
-    // Input passed routing arguments
-    route.template.input = { params, query }
-
-    const
-    page = this.lips?.render( path, route.template )
-    if( !page ){
-      this.emit('not-found', path )
-      return
-    }
-    
-    this.node.empty().append( page.node )
+    // Render page
+    this.state.params = params
+    this.state.query = query
+    this.state.page = route.template
   },
   match( path ){
     const params: any = {}
@@ -196,4 +193,4 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
   }
 }
 
-export default `<wrapper/>`
+export default `<{state.page} params=state.params query=state.query/>`

@@ -1,10 +1,12 @@
 import type Lips from './lips'
 import type {
   Handler,
+  Template,
   Metavars,
   ComponentScope,
   ComponentOptions,
   InteractiveMetavars,
+  Macro,
   Variable,
   VariableSet,
   MeshRenderer,
@@ -16,9 +18,9 @@ import type {
   FragmentBoundaries,
   VirtualEvent,
   VirtualEventsRegistry,
-  Macro,
   MeshWireSetup,
-  SyntaxAttributes
+  SyntaxAttributes,
+  DynamicTemplate
 } from '.'
 
 import UQS from './uqs'
@@ -407,9 +409,14 @@ export default class Component<MT extends Metavars> extends Events {
     let _$ = $()
 
     function generatePath( type: string ): string {
-      const key = (type === 'component' ? 'c' : '')+ self.__pathCounter++
+      const key = generateComponentName( type )
+      
+      self.__pathCounter++
 
       return self.__path ? `${self.__path}/${key}` : `${inpath ? inpath +'/' : '#'}${key}`
+    }
+    function generateComponentName( type: string ){
+      return (type === 'component' ? 'c' : '')+ self.__pathCounter
     }
     function isMesh( arg: any ){
       return arg !== null
@@ -440,15 +447,22 @@ export default class Component<MT extends Metavars> extends Events {
       if( isMesh( result ) || result === null )
         return execDynamicElement( $node, dtag, result )
 
-      // else if( isTemplate( result ) )
+      /**
+       * Process dynamic component rendering tag set by:
+       * 
+       * Syntax `<{[template-object]}/>`
+       * processed to `<lips :dtag="[template-object]"></lips>`
+       */
+      else if( isTemplate( result ) )
+        return execComponent( $node, { template: result } )
 
       /**
       * Process dynamic tag set by:
       * 
-      * Syntax `<{dynamic-name}/>`
+      * Syntax `<{[dynamic-name]}/>`
       * processed to `<lips :dtag="[dynamic-name]"></lips>`
       */
-      else return execComponent( $node, result )
+      else return execComponent( $node, { name: result } )
     }
 
     function execLog( $node: Cash ){
@@ -832,19 +846,31 @@ export default class Component<MT extends Metavars> extends Events {
 
       return $fragment
     }
-    function execComponent( $node: Cash, dynamicName?: string ): Cash {
-      const name = dynamicName || $node.prop('tagName')?.toLowerCase() as string
-      
-      if( !name ) throw new Error('Invalid component')
-      if( name === self.__name__ ) throw new Error('Render component within itself is forbidden')
+    function execComponent( $node: Cash, dynamic?: DynamicTemplate<any> ): Cash {
+      let
+      template,
+      name
 
-      /**
-       * Render the whole component for first time
-       */
-      const template = self.lips.import<any>( name )
-      if( !template )
-        throw new Error(`<${name}> template not found`)
+      // Dynamic component template
+      if( dynamic?.template ){
+        template = dynamic.template
+        name = generateComponentName('component')
+      }
       
+      // Lookup component by its name
+      else {
+        name = dynamic?.name || $node.prop('tagName')?.toLowerCase() as string
+        
+        if( !name ) throw new Error('Invalid component')
+        if( name === self.__name__ ) throw new Error('Render component within itself is forbidden')
+
+        // Import template from lips registry
+        template = self.lips.import<any>( name )
+      }
+      
+      if( !template || !name )
+        throw new Error(`<${name}> template not found`)
+
       const
       componentPath = generatePath('component'),
       boundaries = self.__getBoundaries__( componentPath ),
@@ -1795,7 +1821,14 @@ export default class Component<MT extends Metavars> extends Events {
     this.__macros.clear()
     this.__stylesheet?.clear()
 
-    // this.__previous = {}
+    // @ts-ignore
+    this.__previous = null
+    // @ts-ignore
+    this.state = null
+    // @ts-ignore
+    this.input = null
+    // @ts-ignore
+    this.context = null
 
     // Clear DOM references
     if( this.$ ){
@@ -2206,7 +2239,7 @@ export default class Component<MT extends Metavars> extends Events {
      *  `attr="e => self.onChange(e)"`
      */
     if( /(\s*\w+|\s*\([^)]*\)|\s*)\s*=>\s*(\s*\{[^}]*\}|\s*[^\n;"]+)/g.test( expr ) )
-      return this.__evaluate__( expr, scope )()
+      return this.__evaluate__( expr, scope )( ...params )
 
     /**
      * Execute reference handler function

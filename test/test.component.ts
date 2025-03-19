@@ -6,6 +6,41 @@ import french from '../../@modela/src/languages/fr.json'
 
 const lips = new Lips({ debug: true })
 
+function createEasyCount(){
+  type TemplateInput = {
+    initial: number
+    limit: number
+  }
+  type TemplateState = {
+    count: number
+  }
+
+  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
+    state: {
+      count: 0
+    },
+    handler: {
+      onInput(){ this.state.count = Number( this.input.initial ) },
+      handleClick( e: Event ){
+        if( this.state.count >= this.input.limit )
+          return
+
+        this.state.count++
+        this.emit('count-change', this.state.count )
+      }
+    },
+    default: `
+      <div>
+        <span @text=state.count></span>
+        <br>
+        <button on-click( handleClick )>Count</button>
+      </div>
+    `
+  }
+
+  return easyCount
+}
+
 function DemoState(){
   type State = {
     name: string
@@ -223,6 +258,23 @@ function DemoComponent(){
   
   lips
   .render<Metavars<any, State>>('DemoComponent', { default: template, state, handler, stylesheet })
+  .appendTo('body')
+}
+
+function DemoDynamicComponent(){
+  const
+  _static = {
+    easycount: createEasyCount()
+  },
+  template = `
+    <div>
+      <p>Beat it</p>
+      <{static.easycount} on-count-change( count => console.log('No.', count ) )/>
+    </div>
+  `
+  
+  lips
+  .render('DemoDynamicComponent', { default: template, _static })
   .appendTo('body')
 }
 
@@ -489,7 +541,8 @@ function DemoSyntaxInteract(){
 // DemoContext()
 // DemoForloop()
 // DemoComponent()
-DemoAsyncAwait()
+// DemoDynamicComponent()
+// DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
@@ -616,37 +669,7 @@ function DemoDeepNexted(){
 }
 
 function DemoSubcomponent(){
-  type TemplateInput = {
-    initial: number
-    limit: number
-  }
-  type TemplateState = {
-    count: number
-  }
-
-  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
-    state: {
-      count: 0
-    },
-    handler: {
-      onInput(){ this.state.count = Number( this.input.initial ) },
-      handleClick( e: Event ){
-        if( this.state.count >= this.input.limit )
-          return
-
-        this.state.count++
-      }
-    },
-    default: `
-      <div>
-        <span @text=state.count></span>
-        <br>
-        <button on-click( handleClick )>Count</button>
-      </div>
-    `
-  }
-
-  lips.register('easycount', easyCount )
+  lips.register('easycount', createEasyCount() )
 
   const
   _static = {

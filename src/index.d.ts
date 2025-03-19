@@ -56,6 +56,10 @@ export type Template<MT extends Metavars> = {
   stylesheet?: string
   declaration?: Declaration
 }
+export type DynamicTemplate<MT extends Metavars> = {
+  name?: string,
+  template?: Template<MT>
+}
 export type ComponentScope<MT extends Metavars> = {
   input?: MT['Input']
   state?: MT['State']
@@ -98,6 +102,7 @@ export type SyntaxAttributes = {
   functions: Record<string, any>
   expressions: Record<string, any>
 }
+
 export type VirtualEvent = {
   $fragment: Cash
   _event: string
@@ -108,6 +113,7 @@ export type VirtualEventsRegistry<T> = {
   element: Cash | T
   _event: string
 }
+
 /**
  * (FGU) Fine-Grain Update Dependencies
  */
@@ -142,6 +148,7 @@ export type FragmentBoundaries = {
   start: Comment
   end: Comment
 }
+
 export interface MeshRenderer {
   path: string | null
   argv: string[]
