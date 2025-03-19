@@ -35,7 +35,9 @@ import {
   deepAssign,
   SPREAD_VAR_PATTERN,
   ARGUMENT_VAR_PATTERN,
-  SYNCTAX_VAR_FLAG
+  SYNCTAX_VAR_FLAG,
+  FUNCTION_ATTR_FLAG,
+  EVENT_LISTENER_FLAG
 } from './utils'
 
 export default class Component<MT extends Metavars> extends Events {
@@ -101,8 +103,6 @@ export default class Component<MT extends Metavars> extends Events {
     this.__name__ = name
     this.__path__ = `${this.prepath}/${this.__name__}`
     this.__template__ = preprocessor( template )
-
-    console.log( this.__template__ )
 
     this.declaration = declaration || { name }
 
@@ -652,7 +652,7 @@ export default class Component<MT extends Metavars> extends Events {
       argvalues: VariableSet = {},
       activeRenderer = renderer
 
-      if( renderer ){
+      if( activeRenderer ){
         attrs.literals && Object
         .entries( attrs.literals )
         .forEach( ([ key, value ]) => argvalues[ key ] = { type: 'arg', value } )
@@ -660,6 +660,8 @@ export default class Component<MT extends Metavars> extends Events {
         attrs.expressions && Object
         .entries( attrs.expressions )
         .forEach( ([ key, value ]) => {
+          if( !activeRenderer ) return
+          
           if( SPREAD_VAR_PATTERN.test( key ) ){
             const
             spreads = self.__evaluate__( key.replace( SPREAD_VAR_PATTERN, '' ) as string, scope )
@@ -668,7 +670,7 @@ export default class Component<MT extends Metavars> extends Events {
 
             for( const _key in spreads ){
               // Only consume declared arguments' value
-              if( _key !== '#' && !renderer.argv.includes( _key ) ) continue
+              if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
 
               argvalues[ _key ] = {
                 type: 'arg',
@@ -678,7 +680,7 @@ export default class Component<MT extends Metavars> extends Events {
           }
           else {
             // Only consume declared arguments' value
-            if( key !== '#' && !renderer.argv.includes( key ) ) return
+            if( key !== '#' && !activeRenderer.argv.includes( key ) ) return
 
             argvalues[ key ] = {
               type: 'arg',
@@ -687,7 +689,7 @@ export default class Component<MT extends Metavars> extends Events {
           }
         })
 
-        const $log = renderer.mesh( argvalues )
+        const $log = activeRenderer.mesh( argvalues )
         if( $log && $log.length )
           $fragment = $fragment.add( $log )
         
@@ -700,6 +702,8 @@ export default class Component<MT extends Metavars> extends Events {
         attrs.expressions && Object
         .entries( attrs.expressions )
         .forEach( ([ key, value ]) => {
+          if( !activeRenderer ) return
+          
           if( SPREAD_VAR_PATTERN.test( key ) && self.__isReactive__( key as string, scope ) ){
             const
             deps = self.__extractExpressionDeps__( key as string, scope ),
@@ -717,6 +721,7 @@ export default class Component<MT extends Metavars> extends Events {
                 // Only update declared arguments' value
                 if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
 
+                argvalues[ _key ] =
                 extracted[ _key ] = {
                   type: 'arg',
                   value: spreads[ _key ]
@@ -726,7 +731,7 @@ export default class Component<MT extends Metavars> extends Events {
                  * Schedule only what changed to be
                  * updated.
                  */
-                !isEqual( spreads[ _key ], memo[ _key ].value ) 
+                ;( !memo[ _key ] || !isEqual( spreads[ _key ], memo[ _key ].value ) )
                 && toUpdateDeps.push( _key )
               }
 
@@ -743,18 +748,20 @@ export default class Component<MT extends Metavars> extends Events {
               batch: true
             }) )
           }
-          else if( ( key === '#' || renderer.argv.includes( key ) ) && self.__isReactive__( value as string, scope ) ) {
+          else if( ( key === '#' || activeRenderer.argv.includes( key ) ) && self.__isReactive__( value as string, scope ) ) {
             const 
             deps = self.__extractExpressionDeps__( value as string, scope ),
             partialUpdate = ( memo: VariableSet, by?: string ) => {
               if( !activeRenderer ) return
 
-              activeRenderer.update( [ key ], {
-                [key]: {
-                  type: 'arg',
-                  value: value ? self.__evaluate__( value, memo ) : true
-                }
-              }, boundaries )
+              const
+              _value: Variable =
+              argvalues[ key ] = {
+                type: 'arg',
+                value: value ? self.__evaluate__( value, memo ) : true
+              }
+
+              activeRenderer.update( [ key ], { [ key ]: _value }, boundaries )
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
@@ -773,16 +780,19 @@ export default class Component<MT extends Metavars> extends Events {
       if( self.__isReactive__( dtag as string, scope ) ){
         const
         updateDynamicElement = ( memo: VariableSet, by?: string ) => {
-          // Update the mesh scope with new values
-          argvalues = { ...memo, ...argvalues }
-          
           /**
            * Re-evaluate dynamic tag expression before 
            * re-rendering the element
            */
           const newRenderer = self.__evaluate__( dtag, memo )
+
           let $newContent
           if( isMesh( newRenderer ) ){
+            // Update the mesh argvalues with new values
+            argvalues = '#' in argvalues
+                                ? { ...memo, ...argvalues['#'].value }
+                                : { ...memo, ...argvalues }
+                                
             activeRenderer = newRenderer
             $newContent = newRenderer ? newRenderer.mesh( argvalues ) : null
           }
@@ -813,7 +823,7 @@ export default class Component<MT extends Metavars> extends Events {
           boundaries,
           path: elementPath,
           update: updateDynamicElement,
-          batch: deps.length > 1,
+          batch: true,
           memo: { ...scope, ...argvalues }
         }) )
       }
@@ -866,8 +876,8 @@ export default class Component<MT extends Metavars> extends Events {
         input[ key ] = self.__evaluateFunction__( expr, [], scope )
         
         template.declaration?.syntax
-                  ? TRACKABLE_ATTRS[`${SYNCTAX_VAR_FLAG + key}`] = expr
-                  : TRACKABLE_ATTRS[ key ] = expr
+                      ? TRACKABLE_ATTRS[ SYNCTAX_VAR_FLAG + FUNCTION_ATTR_FLAG + key ] = expr
+                      : TRACKABLE_ATTRS[ FUNCTION_ATTR_FLAG + key ] = expr
       })
       
       attrs.expressions && Object
@@ -899,7 +909,7 @@ export default class Component<MT extends Metavars> extends Events {
                 : true
 
         template.declaration?.syntax
-                  ? TRACKABLE_ATTRS[`${SYNCTAX_VAR_FLAG + key}`] = value
+                  ? TRACKABLE_ATTRS[ SYNCTAX_VAR_FLAG + key ] = value
                   : TRACKABLE_ATTRS[ key ] = value
       })
 
@@ -994,8 +1004,7 @@ export default class Component<MT extends Metavars> extends Events {
                       $this = $(this),
                       // Only allowed for child tags
                       { argv } = self.__getAttributes__( $this )
-                      console.log('then argv --', argv )
-
+                      
                       input[ tagname ].push( self.__meshwire__({ 
                         $node: $this,
                         meshPath: `${tagname}[${index}]`,
@@ -1014,8 +1023,7 @@ export default class Component<MT extends Metavars> extends Events {
                     $this = $node.children( tagname ).first(),
                     // Only allowed for child tags
                     { argv } = self.__getAttributes__( $this )
-                    console.log('then argv --', argv )
-
+                    
                     input[ tagname ] = self.__meshwire__({
                       $node: $this,
                       meshPath: tagname,
@@ -1079,10 +1087,17 @@ export default class Component<MT extends Metavars> extends Events {
         TRACKABLE_ATTRS && Object
         .entries( TRACKABLE_ATTRS )
         .forEach( ([ key, value ]) => {
-          let isSyntax = false
-          if( new RegExp(`^${SYNCTAX_VAR_FLAG}`).test( key ) ){
+          let 
+          isSyntax = false,
+          isFunction = false
+
+          if( key.startsWith( SYNCTAX_VAR_FLAG ) ){
             isSyntax = true
-            key = key.replace( SYNCTAX_VAR_FLAG, '' )
+            key = key.replace( SYNCTAX_VAR_FLAG, '')
+          }
+          if( key.startsWith( FUNCTION_ATTR_FLAG ) ){
+            isFunction = true
+            key = key.replace( FUNCTION_ATTR_FLAG, '')
           }
 
           if( SPREAD_VAR_PATTERN.test( key ) ){
@@ -1115,9 +1130,11 @@ export default class Component<MT extends Metavars> extends Events {
           }
           else {
             const evalue = ( memo: VariableSet ) => {
-              component?.subInput({
-                [key]: value ? self.__evaluate__( value as string, memo ) : true
-              })
+              const _value = isFunction
+                            ? self.__evaluateFunction__( value, [], memo )
+                            : value ? self.__evaluate__( value as string, memo ) : true
+
+              component?.subInput({ [key]: _value })
             }
             
             if( self.__isReactive__( value as string, scope ) ){
@@ -1308,7 +1325,7 @@ export default class Component<MT extends Metavars> extends Events {
                * Schedule only what changed to be
                * updated.
                */
-              !isEqual( spreads[ _key ], memo[ _key ].value ) 
+              ;(!memo[ _key ] || !isEqual( spreads[ _key ], memo[ _key ].value ))
               && toUpdateDeps.push( _key )
             }
             
@@ -2102,19 +2119,19 @@ export default class Component<MT extends Metavars> extends Events {
       if( key == ':dtag' ) return
 
       if( key.startsWith(':')
-          || key.startsWith('fn:')
-          || key.startsWith('on-')
+          || key.startsWith( FUNCTION_ATTR_FLAG )
+          || key.startsWith( EVENT_LISTENER_FLAG )
           || SPREAD_VAR_PATTERN.test( key )
           || ARGUMENT_VAR_PATTERN.test( key ) ){
         if( ARGUMENT_VAR_PATTERN.test( key ) ){
           const [ _, vars ] = key.match( ARGUMENT_VAR_PATTERN ) || []
           argv = vars.split(',')
         }
-        else if( key.startsWith('on-') )
-          events[ key.replace(/^on-/, '') ] = value
+        else if( key.startsWith( EVENT_LISTENER_FLAG ) )
+          events[ key.replace( EVENT_LISTENER_FLAG, '') ] = value
 
-        else if( key.startsWith('fn:') )
-          attrs.functions[ key.replace(/^fn:/, '') ] = value
+        else if( key.startsWith( FUNCTION_ATTR_FLAG ) )
+          attrs.functions[ key.replace( FUNCTION_ATTR_FLAG, '') ] = value
         
         else {
           if( key.startsWith(':') )
@@ -2127,8 +2144,6 @@ export default class Component<MT extends Metavars> extends Events {
       else attrs.literals[ key ] = value
     })
 
-    console.log( attrs )
-    
     return { argv, events, attrs }
   }
   private __withPath__<T>( path: string, fn: () => T ): T {
