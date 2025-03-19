@@ -1,6 +1,6 @@
 {
   "name": "@fabrice8/lips",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Fast, lightweight and better declarative UI Framework",
   "main": "./dist/lips.min.js",
   "files": [
