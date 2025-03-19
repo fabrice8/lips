@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../components/caption.ts"],
+  "sourcesContent": [
+    "export const _static = {\n  content: 'Nexted counter component'\n}\n\nexport default `<p>\n  <small style=\"color:gray\" text=this.static.content>...</small>\n</p>`"
+  ],
+  "mappings": "kEAAO,IAAM,EAAU,CACrB,QAAS,0BACX,EAEe;AAAA;",
+  "debugId": "A731240048596EFB64756e2164756e21",
+  "names": []
+}

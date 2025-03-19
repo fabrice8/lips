@@ -1,0 +1,10 @@
+{
+  "name": "demo",
+  "version": "0.0.1",
+  "description": "",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "bun compile --watch",
+    "compile": "bun build --entrypoints ./client/* ./components/* --entry-naming [name].[ext] --minify --root . --outdir ./build --target browser --format esm --sourcemap=external"
+  }
+}

@@ -1,0 +1,7 @@
+node_modules
+docs
+test
+src
+yarn-error.log
+tsconfig.json
+mediafile.*

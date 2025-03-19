@@ -1,0 +1,10 @@
+{
+  "version": 3,
+  "sources": ["../components/footer.ts"],
+  "sourcesContent": [
+    "export const _static = {\n  content: 'Nexted counter component'\n}\n\nexport default `<p>\n  <small style=\"color:gray\" text=static.content>...</small>\n</p>`"
+  ],
+  "mappings": "kEAAO,IAAM,EAAU,CACrB,QAAS,0BACX,EAEe;AAAA;",
+  "debugId": "F6C58959E139BAAD64756e2164756e21",
+  "names": []
+}

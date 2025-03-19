@@ -1,0 +1,46 @@
+{
+  "name": "lips",
+  "version": "0.0.1",
+  "description": "Fast, lightweight and better declarative UI Framework",
+  "main": "./dist/index.js",
+  "files": [
+    "dist/",
+    "*.d.ts",
+    "dist/types/**/*"
+  ],
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "author": "Fabrice K.E.M",
+  "private": false,
+  "scripts": {
+    "dev": "bun compile --watch",
+    "compile": "bun build --entrypoints ./test/* ./src/lips.ts --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external",
+    "build:declaration": "tsc --project tsconfig.types.json",
+    "prepack": "bun compile && bun run build:declaration",
+    "test": "Echo 'Error: No test specified' && exit 1"
+  },
+  "dependencies": {
+    "cash-dom": "^8.1.5",
+    "stylis": "^4.3.4"
+  },
+  "devDependencies": {
+    "@types/stylis": "^4.2.7",
+    "tsc": "^2.0.4",
+    "typescript": "^5.7.3"
+  },
+  "directories": {
+    "dist": "dist/",
+    "docs": "docs/",
+    "test": "test/"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/fabrice8/lips"
+  },
+  "keywords": []
+}
