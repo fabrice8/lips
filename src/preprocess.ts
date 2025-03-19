@@ -122,8 +122,14 @@ function processAttribute( attr: string ): string {
 
   // Handle boolean attributes (no equal sign)
   if( equalPos === -1 ){
-    // Spread operator or Mesh arguments
-    if( attr.startsWith('[') || attr.startsWith('...') ) 
+    /**
+     * Ignore parsing the following special attributes
+     * for they're handled in runtime.
+     * 
+     * - Spread operators
+     * - Mesh arguments
+     */
+    if( attr.startsWith('...') || attr.startsWith('[') ) 
       return attr
     
     /**
@@ -140,8 +146,14 @@ function processAttribute( attr: string ): string {
   if( name.startsWith('@') && !META_ATTRIBUTES.includes( name ) ) 
     return `:${name.slice(1)}=${value}`
   
-  // Handle event handlers specially
-  if( name.startsWith('on-') ) return attr
+  /**
+   * Ignore parsing the following special attributes
+   * for they're handled in runtime.
+   * 
+   * - Method functions
+   * - Event handlers
+   */
+  if( name.startsWith('fn:') || name.startsWith('on-') ) return attr
   
   // Check for quoted values
   if( ( value.startsWith('"') && value.endsWith('"') ) 
@@ -194,6 +206,7 @@ export function preprocessor( str: string ): string {
                 .replace(/<if\(\s*(.*?)\s*\)>/g, '<if @by="$1">')
                 .replace(/<else-if\(\s*(.*?)\s*\)>/g, '<else-if @by="$1">')
                 .replace(/<switch\(\s*(.*?)\s*\)>/g, '<switch @by="$1">')
+                .replace(/<async await\(\s*(.*?)\s*\)>/g, '<async fn:await="$1">')
                 .replace(/<log\(\s*(.*?)\s*\)>/g, '<log @args="$1">')
                 .replace(/\[(.*?)\]/g, match => match.replace(/\s+/g, '') )
 

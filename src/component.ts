@@ -102,11 +102,14 @@ export default class Component<MT extends Metavars> extends Events {
     this.__path__ = `${this.prepath}/${this.__name__}`
     this.__template__ = preprocessor( template )
 
+    console.log( this.__template__ )
+
     this.declaration = declaration || { name }
 
     this.input = input || {}
     this.static = _static || {}
     this.context = {}
+    
     /**
      * Detect all state mutations, including deep mutations
      */
@@ -194,6 +197,12 @@ export default class Component<MT extends Metavars> extends Events {
       if( !isDiff( this.context as Record<string, any>, ctx ) ) return
 
       setContext( ctx )
+      /**
+       * IMPORTANT: Make `ctx` data available for the
+       * onContext lifecycle event before component get
+       * rendered of update.
+       */
+      this.context = ctx
       
       /**
        * Triggered anytime component context changed
@@ -207,8 +216,13 @@ export default class Component<MT extends Metavars> extends Events {
       const
       input = getInput(),
       state = getState(),
-      context = getContext()
-
+      /**
+       * `this.context` is initialized empty so it's
+       * important to set it before component render 
+       * or update.
+       */
+      context = this.context = getContext()
+      
       /**
        * Initial render - parse template and establish 
        * dependencies
@@ -266,9 +280,7 @@ export default class Component<MT extends Metavars> extends Events {
           context: deepClone( context )
         }
 
-        // this.state = state
         this.input = input
-        this.context = context
       }
 
       this.benchmark.log()
@@ -848,6 +860,16 @@ export default class Component<MT extends Metavars> extends Events {
         input[ key ] = value
       })
       
+      attrs.functions && Object
+      .entries( attrs.functions )
+      .forEach( ([ key, expr ]) => {
+        input[ key ] = self.__evaluateFunction__( expr, [], scope )
+        
+        template.declaration?.syntax
+                  ? TRACKABLE_ATTRS[`${SYNCTAX_VAR_FLAG + key}`] = expr
+                  : TRACKABLE_ATTRS[ key ] = expr
+      })
+      
       attrs.expressions && Object
       .entries( attrs.expressions )
       .forEach( ([ key, value ]) => {
@@ -967,9 +989,15 @@ export default class Component<MT extends Metavars> extends Events {
                   const $children = $node.children( tagname )
                   if( many ){
                     input[ tagname ] = []
-                    $children.each(function( index ){ 
+                    $children.each(function( index ){
+                      const 
+                      $this = $(this),
+                      // Only allowed for child tags
+                      { argv } = self.__getAttributes__( $this )
+                      console.log('then argv --', argv )
+
                       input[ tagname ].push( self.__meshwire__({ 
-                        $node: $(this),
+                        $node: $this,
                         meshPath: `${tagname}[${index}]`,
                         fragmentPath: componentPath,
                         fragmentBoundaries: boundaries,
@@ -981,9 +1009,15 @@ export default class Component<MT extends Metavars> extends Events {
                       }, TRACKABLE_ATTRS ) )
                     })
                   }
-                  else if( $node.children( tagname ).first().length )
+                  else if( $node.children( tagname ).first().length ){
+                    const
+                    $this = $node.children( tagname ).first(),
+                    // Only allowed for child tags
+                    { argv } = self.__getAttributes__( $this )
+                    console.log('then argv --', argv )
+
                     input[ tagname ] = self.__meshwire__({
-                      $node: $node.children( tagname ).first(),
+                      $node: $this,
                       meshPath: tagname,
                       fragmentPath: componentPath,
                       fragmentBoundaries: boundaries,
@@ -993,6 +1027,7 @@ export default class Component<MT extends Metavars> extends Events {
                       useAttributes: true,
                       declaration: template.declaration
                     }, TRACKABLE_ATTRS )
+                  }
                 } break
               }
             } )
@@ -2054,6 +2089,7 @@ export default class Component<MT extends Metavars> extends Events {
     events: Record<string, any> = {},
     attrs: SyntaxAttributes = {
       literals: {},
+      functions: {},
       expressions: {}
     }
 
@@ -2066,16 +2102,19 @@ export default class Component<MT extends Metavars> extends Events {
       if( key == ':dtag' ) return
 
       if( key.startsWith(':')
-          || /^on-/.test( key )
+          || key.startsWith('fn:')
+          || key.startsWith('on-')
           || SPREAD_VAR_PATTERN.test( key )
           || ARGUMENT_VAR_PATTERN.test( key ) ){
-        
         if( ARGUMENT_VAR_PATTERN.test( key ) ){
           const [ _, vars ] = key.match( ARGUMENT_VAR_PATTERN ) || []
           argv = vars.split(',')
         }
-        else if( /^on-/.test( key ) )
+        else if( key.startsWith('on-') )
           events[ key.replace(/^on-/, '') ] = value
+
+        else if( key.startsWith('fn:') )
+          attrs.functions[ key.replace(/^fn:/, '') ] = value
         
         else {
           if( key.startsWith(':') )
@@ -2087,6 +2126,8 @@ export default class Component<MT extends Metavars> extends Events {
       // Literal value attribute
       else attrs.literals[ key ] = value
     })
+
+    console.log( attrs )
     
     return { argv, events, attrs }
   }
@@ -2109,36 +2150,81 @@ export default class Component<MT extends Metavars> extends Events {
     return path.startsWith( parentPath )
   }
 
-  private __evaluate__( script: string, scope?: VariableSet ){
+  private __evaluate__( expr: string, scope?: VariableSet ){
     try {
-      script = script.trim()
-      
+      expr = expr.trim()
+      /**
+       * Only use none-proxy state for eval
+       * to avoid state mutation expression
+       * during template rendering.
+       */
+      const _state = this.state.toJSON()
+
       if( scope ){
         const _scope: Record<string, any> = {}
         for( const key in scope )
           _scope[ key ] = scope[ key ].value
 
         const
-        expression = `with( scope ){ return ${script}; }`,
-        fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', expression ),
-        /**
-         * Only use none-proxy state for eval
-         * to avoid state mutation expression
-         * during template rendering.
-         */
-        state = this.state.toJSON()
-
-        return fn( this, this.input, state, this.static, this.context, _scope || {} )
+        expression = `with( scope ){ return ${expr}; }`,
+        fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', expression )
+       
+        return fn( this, this.input, _state, this.static, this.context, _scope || {} )
       }
       else {
         const 
-        expression = `return ${script}`,
+        expression = `return ${expr}`,
         fn = new Function('self', 'input', 'state', 'static', 'context', expression )
 
-        return fn( this, this.input, this.state, this.static, this.context )
+        return fn( this, this.input, _state, this.static, this.context )
       }
     }
-    catch( error ){ return script }
+    catch( error ){ return expr }
+  }
+  private __evaluateFunction__( expr: string, params: any[], scope?: VariableSet ){
+    /**
+     * Execute function expression directly attach 
+     * as attribute.
+     * 
+     * Eg. 
+     *  `attr="() => console.log('Hello world')"`
+     *  `attr="e => self.onChange(e)"`
+     */
+    if( /(\s*\w+|\s*\([^)]*\)|\s*)\s*=>\s*(\s*\{[^}]*\}|\s*[^\n;"]+)/g.test( expr ) )
+      return this.__evaluate__( expr, scope )()
+
+    /**
+     * Execute reference handler function
+     * 
+     * Eg. 
+     *  `attr="handleInputValue"`
+     *  `attr="handleClick, this.input.count++"`
+     * 
+     * Note: `handleInputValue` and `handleClick` handlers
+     *       must be defined as `handler` at the component
+     *       level before any assignment or the execution
+     *       will throw error.
+     */
+    else {
+      let [ fn, ...args ] = expr.split(/\s*,\s*/)
+      
+      /**
+       * Evaluate whether `fn` is a function name
+       * of an expression resulting in a function 
+       * name.
+       */
+      fn = this.__evaluate__( fn, scope )
+      if( typeof this[ fn ] !== 'function' )
+        throw new Error(`Undefined <${fn}> handler method`)
+
+      const _fn = this[ fn ].bind(this)
+      let _args = args.map( each => (this.__evaluate__( each, scope )) )
+
+      if( params.length )
+        _args = [ ..._args, ...params ]
+
+      return _fn( ..._args )
+    }
   }
   private __interpolate__( str: string, scope?: VariableSet ){
     return str.replace( /{\s*([^{}]+)\s*}/g, ( _, expr ) => this.__evaluate__( expr, scope ) )
@@ -2151,11 +2237,9 @@ export default class Component<MT extends Metavars> extends Events {
      * Eg. 
      *  `on-click="() => console.log('Hello world')"`
      *  `on-change="e => self.onChange(e)"`
-     */
-    if( /(\s*\w+|\s*\([^)]*\)|\s*)\s*=>\s*(\s*\{[^}]*\}|\s*[^\n;"]+)/g.test( instruction ) )
-      element.on( _event, this.__evaluate__( instruction, scope ) )
-
-    /**
+     * 
+     * Or
+     * 
      * Execute reference handler function
      * 
      * Eg. 
@@ -2166,28 +2250,7 @@ export default class Component<MT extends Metavars> extends Events {
      *       must be defined as `handler` at the component
      *       level before any assignment.
      */
-    else {
-      let [ fn, ...args ] = instruction.split(/\s*,\s*/)
-      
-      /**
-       * Evaluate whether `fn` is a function name
-       * of an expression resulting in a function 
-       * name.
-       */
-      fn = this.__evaluate__( fn, scope )
-      if( typeof this[ fn ] !== 'function' ) return
-        // throw new Error(`Undefined <${fn}> ${_event} event method`)
-
-      element.on( _event, ( ...params: any[] ) => {
-        const _fn = this[ fn ].bind(this)
-        let _args = args.map( each => (this.__evaluate__( each, scope )) )
-
-        if( params.length )
-          _args = [ ..._args, ...params ]
-
-        _fn( ..._args )
-      })
-    }
+    element.on( _event, ( ...params: any[] ) => this.__evaluateFunction__( instruction, params, scope ) )
 
     this.VER.push({ element, _event })
     
