@@ -230,18 +230,20 @@ function DemoAsyncAwait(){
   type Static = {
 
   }
+  
   const
   template = `
     <async await( getUser, static.name )>
-      <preload>Preloading...</preload>
+      <loading>Loading...</loading>
       <then [response]>
         <ul>
-          <li @text=response.name></li>
+          <log('async response --', response )/>
+          <li>{response.name}</li>
           <li @text=response.email></li>
         </ul>
       </then>
-      <catch [error]><span @text=error></span></catch>
-      <finally><span @text=error></span></finally>
+      <catch [error]><span>{error}</span></catch>
+      <finally><span>Completed</span></finally>
     </async>
   `,
   _static = {

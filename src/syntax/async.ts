@@ -1,72 +1,17 @@
-// function execAsync( $node: Cash ){
-//   const attr = $node.attr('await') as string
-//   if( !attr )
-//     throw new Error('Undefined async <await> attribute')
-
-//   const
-//   $preload = $node.find('preload').clone(),
-//   $resolve = $node.find('resolve').clone(),
-//   $catch = $node.find('catch').clone()
-//   let $fragment = $()
-
-//   // Initially append preload content
-//   const preloadContent = $preload.contents()
-//   if( preloadContent.length )
-//     $fragment = $fragment.add( self.render( preloadContent, scope ) )
-    
-//   const
-//   [ fn, ...args ] = attr.trim().split(/\s*,\s*/),
-//   _await = (self[ fn ] || self.__evaluate__( fn, scope )).bind(self) as any
-  
-//   if( typeof _await !== 'function' )
-//     throw new Error(`Undefined <${fn}> handler method`)
-
-//   const _args = args.map( each => (self.__evaluate__( each, scope )) )
-
-//   _await( ..._args )
-//   .then( ( response: any ) => {
-//     const 
-//     resolveContent = $resolve?.contents(),
-//     responseScope: VariableScope = {
-//       ...scope,
-//       response: { value: response, type: 'arg' }
-//     }
-    
-//     resolveContent.length
-//     && $fragment.replaceWith( self.render( resolveContent, responseScope ) )
-//   })
-//   .catch( ( error: unknown ) => {
-//     const 
-//     catchContent = $catch?.contents(),
-//     errorScope: VariableScope = {
-//       ...scope,
-//       error: { value: error, type: 'arg' }
-//     }
-
-//     catchContent.length
-//     && $fragment.replaceWith( self.render( catchContent, errorScope ) )
-//   })
-  
-//   /**
-//    * BENCHMARK: Tracking total elements rendered
-//    */
-//   self.benchmark.inc('elementCount')
-
-//   return $fragment
-// }
-
-import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate } from '..'
+import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate, VariableSet } from '..'
 
 export interface Input {
   await: Promise<any>
   then: MeshTemplate
   catch?: MeshTemplate
   finally?: MeshTemplate
+  loading?: MeshTemplate
   renderer: MeshRenderer
 }
 export interface State {
   renderer: MeshRenderer | null
-  argvalues: any
+  finally: MeshRenderer | null
+  props: VariableSet
 }
 
 export const declaration: Declaration = {
@@ -75,12 +20,14 @@ export const declaration: Declaration = {
   tags: {
     'then': { type: 'child' },
     'catch': { type: 'child', optional: true },
-    'finally': { type: 'child', optional: true }
+    'finally': { type: 'child', optional: true },
+    'loading': { type: 'child', optional: true }
   }
 }
 export const state: State = {
   renderer: null,
-  argvalues: null
+  finally: null,
+  props: {}
 }
 
 export const handler: Handler<Metavars<Input, State>> = {
@@ -91,33 +38,42 @@ export const handler: Handler<Metavars<Input, State>> = {
 
     if( !(this.input.await instanceof Promise) )
       throw new Error('Expected async <await> attribute value to be a function')
+    
+    // Show loading content
+    if( this.input.loading ){
+      this.state.renderer = this.input.loading.renderer
+      this.state.props = {}
+    }
 
     this.input.await
     .then( ( response: any ) => {
+      if( !this.input.then ) return
       this.state.renderer = this.input.then.renderer
 
       const [ rvar ] = this.input.then.renderer.argv
-      this.state.argvalues = {
-        [rvar]: { value: response, type: 'arg' }
+      this.state.props = {
+        [rvar]: { value: response, type: 'arg' } 
       }
     })
     .catch( ( error: unknown ) => {
       if( !this.input.catch ) return
-      
       this.state.renderer = this.input.catch.renderer
       
       const [ evar ] = this.input.then.renderer.argv
-      this.state.argvalues = {
+      this.state.props = { 
         [evar]: { value: error, type: 'arg' }
       }
-
-      console.log( this.state.argvalues )
     })
     .finally( () => {
       if( !this.input.finally ) return
-      this.state.renderer = this.input.finally.renderer
+      this.state.finally = this.input.finally.renderer
     })
   }
 }
 
-export default `<{state.renderer} ...state.argvalues/>`
+export default `
+  <{state.renderer} #=state.props/>
+
+  <!-- REVIEW: Opportunity to use finally -->
+  <if( state.finally )><{state.finally}/></if>
+`
