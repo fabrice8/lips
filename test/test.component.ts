@@ -106,6 +106,49 @@ function DemoState(){
   .appendTo('body')
 }
 
+function DemoContext(){
+  const 
+  config = {
+    context: {
+      online: true
+    },
+    debug: true
+  },
+  lips = new Lips( config )
+
+  type Context = {
+    online: boolean
+  }
+
+  const
+  handler: Handler<Metavars<{}, {}, {}, Context>> = {
+    onContext(){
+      console.log('on-context --', this.context )
+    },
+    handleChangeStatus(){
+      this.setContext('online', !this.context.online )
+    }
+  },
+  template = `
+    <main>
+      <log('log context --', context.online )/>
+      <p>I'm <span @text=(context.online ? 'Online' : 'Offline')/></p>
+      
+      <br>
+      <button on-click(handleChangeStatus)>Go {!context.online ? 'Online' : 'Offline'}</button>
+    </main>
+  `
+
+  lips
+  .render('DemoContext', { default: template, handler, context: ['online'] })
+  .appendTo('body')
+  
+  /**
+   * Set context from lips instance
+   */
+  setTimeout( () => lips.setContext('online', false ), 2000 )
+}
+
 function DemoLetConstVariable(){
   type State = {
     price: number
@@ -188,16 +231,19 @@ function DemoAsyncAwait(){
 
   }
   const
-  template = `<async await="getUser, static.name">
-    <preload>Preloading...</preload>
-    <resolve>
-      <ul>
-        <li @text=response.name></li>
-        <li @text=response.email></li>
-      </ul>
-    </resolve>
-    <catch><span @text=error></span></catch>
-  </async>`,
+  template = `
+    <async await( getUser, static.name )>
+      <preload>Preloading...</preload>
+      <then [response]>
+        <ul>
+          <li @text=response.name></li>
+          <li @text=response.email></li>
+        </ul>
+      </then>
+      <catch [error]><span @text=error></span></catch>
+      <finally><span @text=error></span></finally>
+    </async>
+  `,
   _static = {
     name: 'Peter Gibson'
   },
@@ -438,9 +484,10 @@ function DemoSyntaxInteract(){
 }
 
 // DemoState()
+// DemoContext()
 // DemoForloop()
 // DemoComponent()
-// DemoAsyncAwait()
+DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
@@ -648,11 +695,11 @@ function DemoManyComponent(){
       onInput(){ 
         this.state.count = Number( this.input.initial )
       
-        const end = setInterval( () => {
-          this.state.count++
-          this.emit('update', this.state.count )
-        }, 1 )
-        setTimeout( () => clearInterval( end ), 5000 )
+        // const end = setInterval( () => {
+        //   this.state.count++
+        //   this.emit('update', this.state.count )
+        // }, 1 )
+        // setTimeout( () => clearInterval( end ), 5000 )
       },
       handleClick( e: Event ){
         if( this.state.count >= this.static.limit )
@@ -711,6 +758,9 @@ function DemoManyComponent(){
     },
     onUpdateCount( value ){
       this.state.countUpdate = value
+    },
+    onContext(){
+      console.log('on-context --', this.context )
     }
   },
   template = `<main>
@@ -722,15 +772,15 @@ function DemoManyComponent(){
 
       <counter initial=1>Number</counter>
 
-      <log( context.online )></log>
-      <p>I'm <span @text="context.online ? 'Online' : 'Offline'"></span></p>
+      <log('online context --', context.online )/>
+      <p>I'm <span @text=(context.online ? 'Online' : 'Offline')/></p>
       
       <br><br>
       <button on-click(() => state.initial = 10)>Reinitialize ({state.countUpdate})</button>
       <button style="background: black;color: white"
               on-click(() => self.destroy())>Destroy</button>
 
-      <caption></caption>
+      <caption/>
     </section>
   </main>`
 
@@ -2455,7 +2505,7 @@ function ParticleSystemDemo() {
   lips.render('ParticleSystemDemo', demoApp).appendTo('body')
 }
 
-WaveGraphDemo()
+// WaveGraphDemo()
 // AnimationDemo()
 // ParticleSystemDemo()
 

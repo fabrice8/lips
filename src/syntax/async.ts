@@ -54,3 +54,70 @@
 
 //   return $fragment
 // }
+
+import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate } from '..'
+
+export interface Input {
+  await: Promise<any>
+  then: MeshTemplate
+  catch?: MeshTemplate
+  finally?: MeshTemplate
+  renderer: MeshRenderer
+}
+export interface State {
+  renderer: MeshRenderer | null
+  argvalues: any
+}
+
+export const declaration: Declaration = {
+  name: 'async',
+  syntax: true,
+  tags: {
+    'then': { type: 'child' },
+    'catch': { type: 'child', optional: true },
+    'finally': { type: 'child', optional: true }
+  }
+}
+export const state: State = {
+  renderer: null,
+  argvalues: null
+}
+
+export const handler: Handler<Metavars<Input, State>> = {
+  onInput(){
+    console.log('async await --', this.input )
+    if( !this.input.await )
+      throw new Error('Undefined async <await> attribute')
+
+    if( !(this.input.await instanceof Promise) )
+      throw new Error('Expected async <await> attribute value to be a function')
+
+    this.input.await
+    .then( ( response: any ) => {
+      this.state.renderer = this.input.then.renderer
+
+      const [ rvar ] = this.input.then.renderer.argv
+      this.state.argvalues = {
+        [rvar]: { value: response, type: 'arg' }
+      }
+    })
+    .catch( ( error: unknown ) => {
+      if( !this.input.catch ) return
+      
+      this.state.renderer = this.input.catch.renderer
+      
+      const [ evar ] = this.input.then.renderer.argv
+      this.state.argvalues = {
+        [evar]: { value: error, type: 'arg' }
+      }
+
+      console.log( this.state.argvalues )
+    })
+    .finally( () => {
+      if( !this.input.finally ) return
+      this.state.renderer = this.input.finally.renderer
+    })
+  }
+}
+
+export default `<{state.renderer} ...state.argvalues/>`

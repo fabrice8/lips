@@ -9,6 +9,7 @@ import { isDiff } from './utils'
 import * as If from './syntax/if'
 import * as For from './syntax/for'
 import * as pd from './syntax/pd'
+import * as Async from './syntax/async'
 import * as Switch from './syntax/switch'
 import * as Router from './syntax/router'
 
@@ -44,6 +45,7 @@ export default class Lips<Context = any> {
     this.register('if', If )
     this.register('pd', pd )
     this.register('for', For )
+    this.register('async', Async )
     this.register('switch', Switch )
     this.register('router', Router )
   }
