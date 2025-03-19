@@ -14,8 +14,8 @@ export const declaration: Declaration = {
   name: 'if',
   syntax: true,
   tags: {
-    'else-if': { type: 'nexted', many: true },
-    'else': { type: 'nexted' }
+    'else-if': { type: 'nexted', many: true, optional: true },
+    'else': { type: 'nexted', optional: true }
   }
 }
 export const state: State = {

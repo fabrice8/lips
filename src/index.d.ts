@@ -24,6 +24,7 @@ export type DeclarationTagType = 'nexted' | 'child'
 export type DeclarationTag = {
   type: DeclarationTagType
   many?: boolean
+  optional?: boolean
 }
 export type Declaration = {
   name: string
@@ -93,7 +94,8 @@ export type Macro = {
 }
 
 export type SyntaxAttributes = {
-  literals: Record<string, any>,
+  literals: Record<string, any>
+  functions: Record<string, any>
   expressions: Record<string, any>
 }
 export type VirtualEvent = {
