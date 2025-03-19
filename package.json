@@ -1,8 +1,8 @@
 {
-  "name": "lips",
+  "name": "@fabrice8/lips",
   "version": "0.0.1",
   "description": "Fast, lightweight and better declarative UI Framework",
-  "main": "./dist/index.js",
+  "main": "./dist/lips.min.js",
   "files": [
     "dist/",
     "*.d.ts",
@@ -19,7 +19,7 @@
   "scripts": {
     "dev": "bun compile --watch",
     "compile": "bun build --entrypoints ./test/* ./src/lips.ts --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external",
-    "build:declaration": "tsc --project tsconfig.types.json",
+    "build:declaration": "tsc --project tsconfig.types.json && cp ./src/index.d.ts ./dist/types/index.d.ts",
     "prepack": "bun compile && bun run build:declaration",
     "test": "Echo 'Error: No test specified' && exit 1"
   },
