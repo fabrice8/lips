@@ -409,8 +409,8 @@ function isPrimitiveMap( map: Map<any, any> ): boolean {
 }
 
 export function deepClone( obj: any, seen = new WeakMap() ){
-  // Handle primitives and functions
-  if( obj === null || typeof obj !== 'object' ) return obj
+  // Handle primitives, promises and functions
+  if( obj === null || typeof obj !== 'object' || obj instanceof Promise ) return obj
 
   // Handle circular references
   if( seen.has( obj ) ) return seen.get( obj )
