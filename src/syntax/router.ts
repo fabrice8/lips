@@ -98,12 +98,10 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
                                         : cpathname ? cpathname + window.location.search : this.static.routes[0].path
     }
   },
-  onMount(){
+  onAttach(){
     if( this.input.global ){
       window.navigate = this.navigate.bind(this)
-      // window.refresh = () => {
-        
-      // }
+      // window.refresh = () => {}
     
       window.addEventListener('popstate', e => e.state && this.navigate( e.state.path, true ) )
     }
@@ -145,7 +143,7 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
       this.static.currentRoute = null
       this.state.params = {}
       this.state.query = {}
-
+      
       this.emit('not-found', path )
       return
     }
@@ -168,6 +166,8 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
     this.state.params = params
     this.state.query = query
     this.state.page = route.template
+
+    console.log( this.state.page.toJSON() )
   },
   match( path ){
     const params: any = {}

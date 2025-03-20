@@ -28,7 +28,7 @@ export const state: State = {
 
 export const handler: Handler<Metavars<Input, State>> = {
   onInput(){
-    console.log('async await --', this.input )
+    // console.log('async await --', this.input )
     if( !this.input.await )
       throw new Error('Undefined async <await> attribute')
 
