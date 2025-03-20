@@ -1,4 +1,4 @@
-import type { Handler, Metavars } from '../../../../src/lips'
+import type { Handler, Metavars } from '../../../dist/types'
 
 export type Input = {
   initial: number
@@ -36,12 +36,14 @@ export const stylesheet = `
   span { font: 14px arial; color: blue; }
 `
   
-export default `<div>
-  <span html=input.__slot__></span>: 
-  <span text="state.count"></span>
-  <br>
-  <button on-click="handleClick">
-    <span text="Count"></span>
-    (<span text=context.lang></span>)
-  </button>
-</div>`
+export default `
+  <div>
+    <{input.renderer}/>: 
+    <span @text=state.count></span>
+    <br>
+    <button on-click(handleClick)>
+      <span @text="Count"></span>
+      (<span @text=context.lang></span>)
+    </button>
+  </div>
+`

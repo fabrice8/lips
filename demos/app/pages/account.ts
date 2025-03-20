@@ -1,5 +1,7 @@
 export default `
-<section>
-  User Account ID: <span text=input.query.userid></span>
-</section>
+  <log( input.query )/>
+  
+  <section>
+    User Account ID: <span @text=input.query.userid></span>
+  </section>
 `

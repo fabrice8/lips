@@ -1,6 +1,6 @@
-import Lips from '../../../../dist/lips.min'
-import english from '../../../../src/languages/en.json'
-import french from '../../../../src/languages/fr.json'
+import Lips from '../../../dist/lips.min'
+import english from '../languages/en.json'
+import french from '../languages/fr.json'
 
 import registry from './registry'
 import * as App from './app'
@@ -36,6 +36,6 @@ setTimeout( () => {
   lips.setContext('online', false )
 }, 5000 )
 
-setTimeout( () => window.navigate('/account?userid=1234'), 2000 )
-// setTimeout( () => window.navigate('/about-us'), 4000 )
-// setTimeout( () => window.navigate('/product/00009?category=phone'), 6000 )
+setTimeout( () => window.navigate('/account?userid=1001'), 2000 )
+setTimeout( () => window.navigate('/account?userid=20'), 5000 )
+setTimeout( () => window.navigate('/product/00009?category=phone'), 8000 )

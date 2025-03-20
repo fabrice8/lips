@@ -1,25 +1,4 @@
-var j=Object.create;var{defineProperty:R,getPrototypeOf:k,getOwnPropertyNames:q}=Object;var v=Object.prototype.hasOwnProperty;var I=(e,l,i)=>{i=e!=null?j(k(e)):{};const n=l||!e||!e.__esModule?R(i,"default",{value:e,enumerable:!0}):i;for(let C of q(e))if(!v.call(n,C))R(n,C,{get:()=>e[C],enumerable:!0});return n};var J=(e)=>{return import.meta.require(e)};var y=(e,l)=>{for(var i in l)R(e,i,{get:l[i],enumerable:!0,configurable:!0,set:(n)=>l[i]=()=>n})};var H={};y(H,{state:()=>{{return D}},handler:()=>{{return F}},default:()=>{{return G}},context:()=>{{return E}},_static:()=>{{return B}}});var $={};y($,{default:()=>{{return w}}});var w=`
-<section>
-  Home
-  <footer></footer>
-</section>
-`;var b={};y(b,{default:()=>{{return x}}});var x=`
-<section>
-  User Account ID: <span text=input.query.userid></span>
-</section>
-`;var f={};y(f,{default:()=>{{return z}}});var z=`
-<section>
-  <p>Product ID: <span text=input.params.id></span></p>
-  <p>Product Category: <span text=input.query.category></span></p>
-</section>
-`;var B={routes:[{path:"/",template:$,default:!0},{path:"/account",template:b},{path:"/product/:id",template:f}]},D={initial:3},E=["online"],F={onRouteChange(...e){console.log("Route changed -- ",...e)},onPageNotFound(e){console.log(`<${e}> page not found`)}},G=`
-<main>
-  <router routes=static.routes
-          global
-          on-after="onRouteChange, 'after'"
-          on-before="onRouteChange, 'before'"
-          on-not-found="onPageNotFound"></router>
-
+var b=Object.defineProperty;var i=(e,t)=>{for(var f in t)b(e,f,{get:t[f],enumerable:!0,configurable:!0,set:($)=>t[f]=()=>$})};var z={};i(z,{state:()=>{{return v}},handler:()=>{{return x}},default:()=>{{return y}},context:()=>{{return w}},_static:()=>{{return u}}});var l={};i(l,{default:()=>{{return j}}});var j=`
   <section style="{ border: '2px solid gray', margin: '3rem', padding: '15px' }">
     <counter initial=state.initial
               on-update="value => console.log( value )">
@@ -39,9 +18,28 @@ var j=Object.create;var{defineProperty:R,getPrototypeOf:k,getOwnPropertyNames:q}
             on-click="() => self.destroy()">Destroy</button>
     <br>
     <profile></profile>
-    <footer></footer>
   </section>
+`;var n={};i(n,{default:()=>{{return k}}});var k=`
+  <log( input.query )/>
+  
+  <section>
+    User Account ID: <span @text=input.query.userid></span>
+  </section>
+`;var R={};i(R,{default:()=>{{return q}}});var q=`
+  <section>
+    <p>Product ID: <span @text=input.params.id></span></p>
+    <p>Product Category: <span @text=input.query.category></span></p>
+  </section>
+`;var u={routes:[{path:"/",template:l,default:!0},{path:"/account",template:n},{path:"/product/:id",template:R}]},v={initial:3},w=["online"],x={onRouteChange(...e){console.log("Route changed -- ",...e)},onPageNotFound(e){console.log(`<${e}> page not found`)}},y=`
+<main>
+  <router routes=static.routes
+          global
+          on-after(onRouteChange, 'after')
+          on-before(onRouteChange, 'before')
+          on-not-found(onPageNotFound)></router>
+  
+  <footer></footer>
 </main>
-`;export{D as state,F as handler,G as default,E as context,B as _static};
+`;export{v as state,x as handler,y as default,w as context,u as _static};
 
-//# debugId=264C54A22619E22F64756e2164756e21
+//# debugId=6129371CCE366E3B64756e2164756e21

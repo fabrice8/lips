@@ -1,5 +1,5 @@
 
-import type Lips from '../../../../dist/lips.min'
+import type Lips from '../../../dist/lips.min'
 
 import * as Counter from '../components/counter'
 import * as Profile from '../components/profile'

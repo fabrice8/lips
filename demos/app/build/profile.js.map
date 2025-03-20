@@ -2,9 +2,9 @@
   "version": 3,
   "sources": ["../components/profile.ts"],
   "sourcesContent": [
-    "\nexport const context = ['getUser']\n\nexport const stylesheet = `\n  * { font-family: helvetica }\n`\n\nexport default `\n<async await=\"context.getUser, 'Peter Giligous'\">\n  <preload>Preloading...</preload>\n  <resolve>\n    <div>\n      <ul style=\"{ border: '1px solid black', padding: '15px' }\">\n        <li text=response.name></li>\n        <li text=response.email></li>\n      </ul>\n\n      <counter initial=5 on-update=\"value => console.log('procount --', value )\">By</counter>\n    </div>\n  </resolve>\n  <catch><span text=error></span></catch>\n</async>\n`"
+    "\nexport const context = ['getUser']\n\nexport const stylesheet = `\n  * { font-family: helvetica }\n`\n\nexport default `\n  <async await( context.getUser, 'Peter Giligous' )>\n    <loading>Preloading...</loading>\n    <then [response]>\n      <div>\n        <ul style=\"{ border: '1px solid black', padding: '15px' }\">\n          <li @text=response.name></li>\n          <li @text=response.email></li>\n        </ul>\n\n        <counter initial=5 on-update(value => console.log('procount --', value ))>By</counter>\n      </div>\n    </then>\n    <catch [error]><span @text=error></span></catch>\n  </async>\n`"
   ],
   "mappings": "8FACO,IAAM,EAAU,CAAC,SAAS,EAEpB,EAAa;AAAA;AAAA,EAIX;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA;",
-  "debugId": "AF260DEA6AFD6FE464756e2164756e21",
+  "debugId": "9EC54473E9C6156164756e2164756e21",
   "names": []
 }
