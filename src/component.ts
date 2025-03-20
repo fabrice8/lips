@@ -642,18 +642,18 @@ export default class Component<MT extends Metavars> extends Events {
        */
       self.benchmark.inc('elementCount')
     }
-    function execEmptyFragment( $node: Cash ): Cash {
-      const
-      elementPath = generatePath('element'),
-      $contents = $node.contents()
-      let $fragment = $()
+    // function execEmptyFragment( $node: Cash ): Cash {
+    //   const
+    //   elementPath = generatePath('element'),
+    //   $contents = $node.contents()
+    //   let $fragment = $()
 
-      // Process contents recursively if they exist
-      if( $contents.length )
-        $fragment = $fragment.add( self.__withPath__( elementPath, () => self.render( elementPath, $contents, scope, dependencies, xmlns ).$log ) )
+    //   // Process contents recursively if they exist
+    //   if( $contents.length )
+    //     $fragment = $fragment.add( self.__withPath__( elementPath, () => self.render( elementPath, $contents, scope, dependencies, xmlns ).$log ) )
 
-      return $fragment
-    }
+    //   return $fragment
+    // }
     function execDynamicElement( $node: Cash, dtag: string, renderer: MeshRenderer | null ): Cash {
       const
       { attrs } = self.__getAttributes__( $node ),
@@ -1692,8 +1692,8 @@ export default class Component<MT extends Metavars> extends Events {
       else if( $node.is('const') ) return execConst( $node )
 
       // Lips's empty fragment
-      else if( $node.is('lips') && $node.is('[fragment]') ) 
-        return execEmptyFragment( $node )
+      // else if( $node.is('lips') && $node.is('[fragment]') ) 
+      //   return execEmptyFragment( $node )
 
       /**
        * Lips's dynamic tags like:
