@@ -1,4 +1,4 @@
-var b=Object.defineProperty;var i=(e,t)=>{for(var f in t)b(e,f,{get:t[f],enumerable:!0,configurable:!0,set:($)=>t[f]=()=>$})};var z={};i(z,{state:()=>{{return v}},handler:()=>{{return x}},default:()=>{{return y}},context:()=>{{return w}},_static:()=>{{return u}}});var l={};i(l,{default:()=>{{return j}}});var j=`
+var l=Object.defineProperty;var t=(e,i)=>{for(var n in i)l(e,n,{get:i[n],enumerable:!0,configurable:!0,set:(k)=>i[n]=()=>k})};var y={};t(y,{state:()=>{{return q}},handler:()=>{{return w}},default:()=>{{return x}},context:()=>{{return v}},_static:()=>{{return m}}});var o={};t(o,{default:()=>{{return G}}});var G=`
   <section style="{ border: '2px solid gray', margin: '3rem', padding: '15px' }">
     <counter initial=state.initial
               on-update="value => console.log( value )">
@@ -19,18 +19,19 @@ var b=Object.defineProperty;var i=(e,t)=>{for(var f in t)b(e,f,{get:t[f],enumera
     <br>
     <profile></profile>
   </section>
-`;var n={};i(n,{default:()=>{{return k}}});var k=`
-  <log( input.query )/>
-  
+`;var b={};t(b,{default:()=>{{return R}}});var R=`
   <section>
     User Account ID: <span @text=input.query.userid></span>
   </section>
-`;var R={};i(R,{default:()=>{{return q}}});var q=`
+`;var f={};t(f,{default:()=>{{return j}},context:()=>{{return $}}});var $=["navigate"],j=`
   <section>
     <p>Product ID: <span @text=input.params.id></span></p>
     <p>Product Category: <span @text=input.query.category></span></p>
+
+    <br>
+    <button on-click(() => context.navigate('/') )>Go home</button>
   </section>
-`;var u={routes:[{path:"/",template:l,default:!0},{path:"/account",template:n},{path:"/product/:id",template:R}]},v={initial:3},w=["online"],x={onRouteChange(...e){console.log("Route changed -- ",...e)},onPageNotFound(e){console.log(`<${e}> page not found`)}},y=`
+`;var m={routes:[{path:"/",template:o,default:!0},{path:"/account",template:b},{path:"/product/:id",template:f}]},q={initial:3},v=["online"],w={onRouteChange(...e){console.log("Route changed -- ",...e)},onPageNotFound(e){console.log(`<${e}> page not found`)}},x=`
 <main>
   <router routes=static.routes
           global
@@ -40,6 +41,6 @@ var b=Object.defineProperty;var i=(e,t)=>{for(var f in t)b(e,f,{get:t[f],enumera
   
   <footer></footer>
 </main>
-`;export{v as state,x as handler,y as default,w as context,u as _static};
+`;export{q as state,w as handler,x as default,v as context,m as _static};
 
-//# debugId=6129371CCE366E3B64756e2164756e21
+//# debugId=B513D80DCDAD80BD64756e2164756e21

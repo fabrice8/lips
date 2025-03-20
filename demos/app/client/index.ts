@@ -38,4 +38,4 @@ setTimeout( () => {
 
 setTimeout( () => window.navigate('/account?userid=1001'), 2000 )
 setTimeout( () => window.navigate('/account?userid=20'), 5000 )
-setTimeout( () => window.navigate('/product/00009?category=phone'), 8000 )
+setTimeout( () => lips.getContext().navigate('/product/00009?category=phone'), 8000 )

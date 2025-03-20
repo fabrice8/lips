@@ -26,6 +26,9 @@ type Static = {
   currentPath: string | null
   currentRoute: Route | null
 }
+type Context = {
+  navigate: ( path: string, back?: boolean ) => void
+}
 
 export const state: State = {
   page: null,
@@ -39,6 +42,7 @@ export const _static: Static = {
   currentPath: null,
   currentRoute: null
 }
+export const context = ['navigate']
 
 function parseQuery( str: string ){
   const
@@ -59,7 +63,7 @@ declare global {
   }
 }
 
-export const handler: Handler<Metavars<Input<any>, any, Static>> = {
+export const handler: Handler<Metavars<Input<any>, State, Static, Context>> = {
   onInput(){
     if( !this.input.routes )
       return
@@ -99,13 +103,20 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
     }
   },
   onAttach(){
+    /**
+     * Global navigation control
+     */
     if( this.input.global ){
       window.navigate = this.navigate.bind(this)
       // window.refresh = () => {}
     
       window.addEventListener('popstate', e => e.state && this.navigate( e.state.path, true ) )
     }
-
+    
+    /**
+     * Define contextual navigation call method
+     */
+    this.setContext('navigate', this.navigate.bind(this) )
     /**
      * Auto-navigate to specified default path
      */
@@ -166,8 +177,6 @@ export const handler: Handler<Metavars<Input<any>, any, Static>> = {
     this.state.params = params
     this.state.query = query
     this.state.page = route.template
-
-    console.log( this.state.page.toJSON() )
   },
   match( path ){
     const params: any = {}

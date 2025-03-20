@@ -863,8 +863,6 @@ export default class Component<MT extends Metavars> extends Events {
       template,
       name
 
-      console.log('dynamic --', dynamic )
-
       // Dynamic component template
       if( dynamic?.template ){
         template = dynamic.template
