@@ -144,11 +144,14 @@ function processAttribute( attr: string ): string {
     return `:${attr}="${!attr.startsWith('!')}"`
   }
   
-  const name = attr.substring( 0, equalPos ).trim()
-  let value = attr.substring( equalPos + 1 ).trim()
+  let 
+  name = attr.substring( 0, equalPos ).trim(),
+  value = attr.substring( equalPos + 1 ).trim()
   
-  if( name.startsWith('@') && !META_ATTRIBUTES.includes( name ) ) 
-    return `:${name.slice(1)}=${value}`
+  if( name.startsWith('@') ){
+    name = !META_ATTRIBUTES.includes( name ) ? name.slice(1) : name 
+    return `:${name}=${value}`
+  }
   
   /**
    * Ignore parsing the following special attributes
