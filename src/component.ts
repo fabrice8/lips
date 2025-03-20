@@ -105,7 +105,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.__name__ = name
     this.__path__ = `${this.prepath}/${this.__name__}`
     this.__template__ = preprocessor( template )
-
+    
     this.declaration = declaration || { name }
 
     this.input = input || {}
@@ -798,17 +798,29 @@ export default class Component<MT extends Metavars> extends Events {
            * Re-evaluate dynamic tag expression before 
            * re-rendering the element
            */
-          const newRenderer = self.__evaluate__( dtag, memo )
+          const result = self.__evaluate__( dtag, memo )
 
           let $newContent
-          if( isMesh( newRenderer ) ){
+          /**
+           * Render dynamic template only when first 
+           * time renderer is `null` and the element's
+           * dynamic update provide a component `template`
+           * instead of a mesh `renderer`.
+           */
+          if( isTemplate( result ) )
+            $newContent = execComponent( $node, { template: result } )
+          
+          /**
+           * The mesh renderer changed
+           */
+          else if( isMesh( result ) ){
             // Update the mesh argvalues with new values
             argvalues = '#' in argvalues
                                 ? { ...memo, ...argvalues['#'].value }
                                 : { ...memo, ...argvalues }
                                 
-            activeRenderer = newRenderer
-            $newContent = newRenderer ? newRenderer.mesh( argvalues ) : null
+            activeRenderer = result
+            $newContent = activeRenderer ? activeRenderer.mesh( argvalues ) : null
           }
 
           // Check if boundaries are in DOM
@@ -850,6 +862,8 @@ export default class Component<MT extends Metavars> extends Events {
       let
       template,
       name
+
+      console.log('dynamic --', dynamic )
 
       // Dynamic component template
       if( dynamic?.template ){
@@ -2254,18 +2268,27 @@ export default class Component<MT extends Metavars> extends Events {
      *       will throw error.
      */
     else {
-      let [ fn, ...args ] = expr.split(/\s*,\s*/)
+      let 
+      [ fn, ...args ] = expr.split(/\s*,\s*/),
+      _fn
       
       /**
-       * Evaluate whether `fn` is a function name
-       * of an expression resulting in a function 
-       * name.
+       * Evaluate whether `fn` is a function itself or
+       * a name of an expression resulting in a function.
        */
       fn = this.__evaluate__( fn, scope )
-      if( typeof this[ fn ] !== 'function' )
-        throw new Error(`Undefined <${fn}> handler method`)
 
-      const _fn = this[ fn ].bind(this)
+      if( typeof fn === 'function' ) _fn = fn
+      else {
+        if( typeof this[ fn ] !== 'function' )
+          throw new Error(`Undefined <${fn}> handler method`)
+
+        _fn = this[ fn ].bind(this)
+      }
+      
+      if( typeof _fn !== 'function' )
+        throw new Error(`Expected <${fn}> to be a function or handler method`)
+
       let _args = args.map( each => (this.__evaluate__( each, scope )) )
 
       if( params.length )
@@ -2306,7 +2329,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.benchmark.inc('domUpdatesCount')
     this.benchmark.inc('domRemovalsCount')
   }
-  private  __detachEvent__( $element: Cash | Component<MT>, _event: string ){
+  private __detachEvent__( $element: Cash | Component<MT>, _event: string ){
     $element.off( _event )
     // Track DOM operation
     this.benchmark.inc('domOperations')
