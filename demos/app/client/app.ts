@@ -1,4 +1,3 @@
-
 import * as Home from '../pages/home'
 import * as Account from '../pages/account'
 import * as Product from '../pages/product'
@@ -25,13 +24,13 @@ export const handler = {
 }
 
 export default `
-<main>
-  <router routes=static.routes
-          global
-          on-after(onRouteChange, 'after')
-          on-before(onRouteChange, 'before')
-          on-not-found(onPageNotFound)></router>
-  
-  <footer></footer>
-</main>
+  <main>
+    <router routes=static.routes
+            global
+            on-after(onRouteChange, 'after')
+            on-before(onRouteChange, 'before')
+            on-not-found(onPageNotFound)></router>
+    
+    <footer></footer>
+  </main>
 `
