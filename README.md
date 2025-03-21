@@ -29,6 +29,7 @@ Lips is a modern, runtime-based UI framework that brings fine-grained reactivity
   <script>
     const lips = new Lips();
     
+    // <counter/> component
     const counter = {
       state: { count: 0 },
       handler: {
@@ -53,13 +54,13 @@ Lips is a modern, runtime-based UI framework that brings fine-grained reactivity
 ### Via NPM
 
 ```bash
-npm install @fabrice8/lips
+npm install @lipsjs/lips
 ```
 
 ### Via CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@fabrice8/lips/dist/lips.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips/dist/lips.min.js"></script>
 ```
 
 ## 📖 Documentation
@@ -131,6 +132,8 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [Bun](https://bun.sh) for the fast JavaScript runtime and bundler
 - [Cash-DOM](https://github.com/fabiospampinato/cash) for the lightweight jQuery alternative
 - [Stylis](https://github.com/thysultan/stylis) for the CSS preprocessor
+- [MarkoJS](https://github.com/marko-js/marko) for their inspiring syntax declaration struture.
+- [SolidJS](https://github.com/solidjs/solid) for the signal based reactivity concept.
 - All contributors who have helped make Lips better
 
 ---
