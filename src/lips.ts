@@ -4,17 +4,19 @@ import I18N from './i18n'
 import IUC from './iuc'
 import DWS from './dws'
 import Component from './component'
+import Stylesheet from './stylesheet'
 import { effect, signal } from './signal'
 import { isDiff } from './utils'
 import * as If from './syntax/if'
 import * as For from './syntax/for'
-// import * as pd from './syntax/pd'
 import * as Async from './syntax/async'
 import * as Switch from './syntax/switch'
 import * as Router from './syntax/router'
 
-export default class Lips<Context = any> {
-  private debug = false
+export default class Lips<Context extends Object = {}> {
+  public debug = false
+  public stylesheets: Stylesheet[] = []
+  private config?: LipsConfig<Context> = {}
   private store: Record<string, Template<any>> = {}
 
   private __root?: Component<any>
@@ -25,14 +27,16 @@ export default class Lips<Context = any> {
   private __setContext: ( ctx: Context ) => void
   private __getContext: () => Context
 
-  constructor( config?: LipsConfig ){
-    if( config?.debug ) 
-      this.debug = config.debug
+  constructor( config?: LipsConfig<Context> ){
+    this.config = config
+
+    if( this.config?.debug ) 
+      this.debug = this.config.debug
 
     this.watcher = new DWS
     this.IUC = new IUC
     
-    const [ getContext, setContext ] = signal<Context>( config?.context || {} )
+    const [ getContext, setContext ] = signal<Context>( config?.context || {} as Context )
 
     this.__setContext = setContext
     this.__getContext = getContext
@@ -138,6 +142,13 @@ export default class Lips<Context = any> {
     this.__root = this.render('__ROOT__', template )
     this.__root.appendTo( selector )
 
+    /**
+     * Inject root component stylesheets with 
+     * global meta style tags.
+     */
+    if( this.config?.stylesheets )
+      this.stylesheets = this.config.stylesheets.map( sheet => new Stylesheet('root', { sheet, meta: true }) )
+      
     return this.__root
   }
 
@@ -177,14 +188,14 @@ export default class Lips<Context = any> {
   getContext(){
     return this.__getContext()
   }
-  useContext<P extends Context>( fields: (keyof Context)[], fn: ( context: P ) => void ){
+  useContext<P extends Context>( fields: (keyof P)[], fn: ( context: P ) => void ){
     if( !fields.length ) return
 
     effect( () => {
-      const context = this.__getContext() as Context
+      const context = this.__getContext()
       if( !context ) return
 
-      const ctx = Object.fromEntries( fields.map( field => [ field, context[ field ] ]) ) as unknown as P
+      const ctx = Object.fromEntries( fields.map( field => [ field, context[ field as keyof Context ] ]) ) as unknown as P
       
       /**
        * Propagate context change effect to component 
@@ -200,5 +211,10 @@ export default class Lips<Context = any> {
   dispose(){
     this.watcher?.dispose()
     this.__root?.destroy()
+
+    /**
+     * Clear all global stylesheets if exists
+     */
+    this.stylesheets.forEach( stylesheet => stylesheet.clear() )
   }
 }

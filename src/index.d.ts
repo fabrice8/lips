@@ -77,9 +77,10 @@ export type ComponentOptions = {
   enableTemplateCache?: boolean
   enableSmartDiff?: boolean
 }
-export type LipsConfig = {
-  context?: any
+export type LipsConfig<Context extends Object> = {
   debug?: boolean
+  context?: Context
+  stylesheets?: string[]
 }
 export type StyleSettings = {
   sheet?: string
