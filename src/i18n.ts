@@ -1,4 +1,3 @@
-import $, { type Cash } from 'cash-dom'
 import type { LanguageDictionary } from '.'
 
 export default class I18N {
@@ -51,41 +50,10 @@ export default class I18N {
     return { text, lang }
   }
 
-  propagate( $node: Cash ){
-    const self = this
-    function apply( this: HTMLElement ){
-      const
-      $this = $(this),
-      _content = $this.html(),
-      _title = $this.attr('title'),
-      _placeholder = $this.attr('placeholder')
-
-      let _lang
-
-      if( !/<\//.test( _content ) && $this.text() ){
-        const { text, lang } = self.translate( $this.text() )
-
-        $this.text( text )
-        _lang = lang
-      }
-      if( _title ){
-        const { text, lang } = self.translate( _title )
-
-        $this.attr('title', text )
-        _lang = lang
-      }
-      if( _placeholder ){
-        const { text, lang } = self.translate( _placeholder )
-        
-        $this.attr('placeholder', text )
-        _lang = lang
-      }
-
-      _lang && $this.attr('lang', _lang )
-    }
-
-    $node.children().each( apply )
-
-    return $node
+  format( key: string, params: Record<string, any>, lang?: string ){
+    const { text } = this.translate( key, lang )
+      
+    // Replace parameters
+    return text.replace(/{(\w+)}/g, ( _, name ) => params[ name ] || '')
   }
 }
