@@ -47,7 +47,7 @@ export default class Component<MT extends Metavars> extends Events {
   private $?: Cash | null = null
 
   public input: MT['Input']
-  public state: MT['State'] & { 
+  public state: MT['State'] & {
     toJSON(): MT['State']
     reset(): void
   }
@@ -131,7 +131,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.benchmark.inc('componentCount')
     
     /**
-     * 
+     * Batch Dependencies Update handler
      */
     this.UQS = new UQS( this )
 
@@ -1852,6 +1852,11 @@ export default class Component<MT extends Metavars> extends Events {
       // Clear the reference
       this.$ = null
     }
+
+    // Trigger on-destroy lifecycle events
+    typeof this.onDestroy === 'function'
+    && this.onDestroy.bind(this)()
+    this.emit('component:destroy', this )
   }
   
   private __meshwire__( setup: MeshWireSetup, TRACKABLE_ATTRS: Record<string, string> ){

@@ -852,7 +852,7 @@ function DemoShoppingCart(){
           : item
       )
 
-      // console.log('inc --', itemId, this.state.items.toJSON() )
+      console.log('inc --', itemId, this.state.items.toJSON() )
     },
 
     onDecrementQuantity(itemId: number) {
@@ -1136,7 +1136,7 @@ function WaveGraphDemo() {
             || height === undefined
             || pointCount === undefined ) return
         
-        const points = []
+        const points: Array<{ x: number, y: number }> = []
         const step = width / (pointCount - 1)
         
         for (let i = 0; i < pointCount; i++) {
@@ -2090,7 +2090,7 @@ function ParticleSystemDemo() {
       // Cached particle points for polygon shapes to avoid recalculation
       getParticlePoints(particle) {
         // Large particles are stars or polygons
-        const points = [];
+        const points: string[] = [];
         const spikes = 5;
         const outerRadius = particle.size / 2;
         const innerRadius = particle.size / 4;
