@@ -1,0 +1,105 @@
+import type { Template, Handler, Metavars } from '../src'
+
+export type Input = {
+  person: string
+  default?: string
+}
+type State = {
+  time: string
+  speech: string
+  online: boolean
+}
+type Static = {
+  [index: string]: any
+}
+
+const state: State = {
+  time: 'morning',
+  speech: 'hi',
+  online: true
+}
+
+const input: Input = {
+  person: 'Bob',
+  default: 'Good evening'
+}
+
+const static: Static = {
+  verb: 'Say',
+  users: {
+    Europe: [
+      { name: 'Xavier des Rouseaux', location: 'Pincier, Toulouse' },
+      { name: 'Frank Peterson', location: 'Greenville, London' }
+    ],
+    Africa: [
+      { name: 'Ebu Sepegna', location: 'Keta, Volta' },
+      { name: 'Gadje Ama', location: 'Ougbo, Plateaux' },
+      { name: 'Albert Kefas', location: 'Gamba, Ndjamena' }
+    ]
+  }
+}
+
+const handler: Handler<Metavars<Input, State, Static>> = {
+  handleConnect( online: boolean, e: Event ){
+    console.log('Connected: ', online, e )
+
+    this.state.online = online
+    this.state.time = !online ? 'evening' : 'morning'
+    
+    // this.setState({ online, time: 'evening' })
+    // console.log('Updated to: ', this.state.online )
+  }
+}
+
+<div component="Greet" style="!state.online && 'color: red'">
+  <span @text=input.person>me</span>:
+  (<span @text="state.online ? 'Online' : 'Offline'"></span>)
+  <span @text=static.verb>...</span>
+
+  <div>
+    <for [x] from="0" to="2">
+      <if( state.time == 'morning' )>
+        <switch( state.speech )>
+          <case is="hi">
+            <span on-click(handleConnect, !state.online)>Hi - </span>
+            <span @text=x></span>
+          </case>
+          <case is="hello">
+            <span>Hello - </span>
+            <span>{x}</span>
+          </case>
+          <case is="bonjour">
+            <span>Bonjour - </span>
+            <span>{x}</span>
+          </case>
+          <default>Salut</default>
+        </switch>
+        <div>Static content</div>
+      </if>
+      <else-if( state.time == 'afternoon' )>
+        <span on-click(handleConnect, !state.online)>Good afternoon - </span>
+        <span>{x}</span>
+      </else-if>
+      <else>
+        <span @text=input.default on-click(handleConnect, !state.online)></span>
+        <span @html="<b>Everyone</b>"></span>
+      </else>
+    </for>
+  </div>
+
+  <ul>
+    <for [continent, users] in=static.users>
+      <li key=continent>
+        <span @text=continent>Frederic Dupont</span>:
+        <ul>
+          <for [user, userid] in=users>
+            <li key=userid>
+              <span @text=user.name>Frederic Dupont</span> - 
+              <span @text=user.location>Nice, Belogre</span>
+            </li>
+          </for>
+        </ul>
+      </li>
+    </for>
+  </ul>
+</div>
