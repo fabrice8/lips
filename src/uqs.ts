@@ -26,7 +26,7 @@ export default class UpdateQueue<MT extends Metavars > {
    */
   queue( entry: FGUDBatchEntry ){
     this.pending.add( entry )
-    this.component.benchmark.inc('dependencyUpdateCount')
+    this.component.metrics.inc('dependencyUpdateCount')
     
     // Schedule processing if not already pending
     if( !this.isPending ){
@@ -58,7 +58,7 @@ export default class UpdateQueue<MT extends Metavars > {
     // Clear the queue
     this.pending.clear()
     // Track batch stats
-    this.component.benchmark.trackBatch( entriesToProcess.length )
+    this.component.metrics.trackBatch( entriesToProcess.length )
     
     // Apply all updates
     this.applyUpdates( entriesToProcess )

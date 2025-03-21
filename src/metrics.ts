@@ -1,6 +1,6 @@
 import { deepClone } from './utils'
 
-export interface BenchmarkMetrics {
+export interface MetricStats {
   // Rendering metrics
   renderCount: number
   elementCount: number
@@ -37,9 +37,9 @@ export interface BenchmarkMetrics {
   errorCount: number
 }
 
-export default class Benchmark {
+export default class Metrics {
   private debug: boolean
-  private initialStats: BenchmarkMetrics = {
+  private initialStats: MetricStats = {
     // Rendering metrics
     renderCount: 0,
     elementCount: 0,
@@ -76,7 +76,7 @@ export default class Benchmark {
     errorCount: 0
   }
   
-  public stats: BenchmarkMetrics = this.reset()
+  public stats: MetricStats = this.reset()
 
   private renderStartTime: number = 0
   private renderTimes: number[] = []
@@ -137,25 +137,25 @@ export default class Benchmark {
     this.measurementCount++
   }
   
-  inc( metric: keyof BenchmarkMetrics ){
+  inc( metric: keyof MetricStats ){
     if( !this.debug ) return
 
     if( typeof this.stats[ metric ] === 'number' )
       this.stats[ metric ]++
   }
-  dec( metric: keyof BenchmarkMetrics ){
+  dec( metric: keyof MetricStats ){
     if( !this.debug ) return
 
     if( typeof this.stats[ metric ] === 'number' && this.stats[ metric ] > 0 )
       this.stats[ metric ]--
   }
-  record( metric: keyof BenchmarkMetrics, value: number ){
+  record( metric: keyof MetricStats, value: number ){
     if( !this.debug ) return
 
     if( typeof this.stats[ metric ] !== 'undefined' )
       this.stats[ metric ] = value
   }
-  add( metric: keyof BenchmarkMetrics, value: number ){
+  add( metric: keyof MetricStats, value: number ){
     if( !this.debug ) return
 
     if( typeof this.stats[ metric ] === 'number' )
@@ -253,7 +253,7 @@ export default class Benchmark {
     this.loggingInterval = interval
   }
   // Get a snapshot of current metrics
-  getSnapshot(): BenchmarkMetrics {
+  getSnapshot(): MetricStats {
     return deepClone( this.stats )
   }
   

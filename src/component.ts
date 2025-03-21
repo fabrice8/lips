@@ -25,8 +25,8 @@ import type {
 
 import UQS from './uqs'
 import Events from './events'
+import Metrics from './metrics'
 import $, { Cash } from 'cash-dom'
-import Benchmark from './benchmark'
 import Stylesheet from './stylesheet'
 import { preprocessor } from './preprocess'
 import { batch, effect, EffectControl, signal } from './signal'
@@ -58,7 +58,6 @@ export default class Component<MT extends Metavars> extends Events {
   public __path__: string
   private __template__: string
   private __previous: InteractiveMetavars<MT>
-  private __stylesheet?: Stylesheet
   private __macros: Map<string, Macro> = new Map() // Cached macros templates
   private __renderCache: Map<string, RenderedNode> = new Map()
 
@@ -83,7 +82,8 @@ export default class Component<MT extends Metavars> extends Events {
   private ICE: EffectControl
 
   public lips: Lips
-  public benchmark: Benchmark
+  public metrics: Metrics
+  public stylesheet?: Stylesheet
 
   private __path = ''
   private __pathCounter = 0
@@ -99,7 +99,7 @@ export default class Component<MT extends Metavars> extends Events {
     super()
     this.lips = options.lips
     
-    if( options?.debug ) this.debug = options.debug
+    if( options?.debug ) this.debug = options.debug || this.lips.debug
     if( options?.prepath ) this.prepath = options.prepath
 
     this.__name__ = name
@@ -126,9 +126,9 @@ export default class Component<MT extends Metavars> extends Events {
      * performance.
      * 
      */
-    this.benchmark = new Benchmark( this.debug )
+    this.metrics = new Metrics( this.debug )
     // Track component creation
-    this.benchmark.inc('componentCount')
+    this.metrics.inc('componentCount')
     
     /**
      * Batch Dependencies Update handler
@@ -230,8 +230,8 @@ export default class Component<MT extends Metavars> extends Events {
        * dependencies
        */
       if( !this.isRendered ){
-        // Reset benchmark before render
-        this.benchmark.reset()
+        // Reset metrics before render
+        this.metrics.reset()
         
         const { $log } = this.render( '', undefined, undefined, this.FGUD )
         this.$ = $log
@@ -285,7 +285,7 @@ export default class Component<MT extends Metavars> extends Events {
         this.input = input
       }
 
-      this.benchmark.log()
+      this.metrics.log()
 
       /**
        * Triggered anytime component gets rendered
@@ -374,7 +374,7 @@ export default class Component<MT extends Metavars> extends Events {
       meta: this.__name__ === '__ROOT__'
     }
 
-    this.__stylesheet = new Stylesheet( this.__name__, cssOptions )
+    this.stylesheet = new Stylesheet( this.__name__, cssOptions )
   }
 
   get node(){
@@ -382,9 +382,6 @@ export default class Component<MT extends Metavars> extends Events {
       throw new Error('node() is expected to be call after component get rendered')
 
     return this.$
-  }
-  find( selector: string ){
-    return this.$?.find( selector )
   }
   
   render( inpath: string, $nodes?: Cash, scope: VariableSet = {}, sharedDeps?: FGUDependencies, xmlns?: boolean ): RenderedNode {
@@ -397,8 +394,8 @@ export default class Component<MT extends Metavars> extends Events {
       return { $log: $nodes, dependencies }
     }
 
-    // Start benchmark measuring
-    this.benchmark.startRender()
+    // Start metrics measuring
+    this.metrics.startRender()
 
     const self = this
     
@@ -585,9 +582,9 @@ export default class Component<MT extends Metavars> extends Events {
       })
       
       /**
-       * BENCHMARK: Tracking total elements rendered
+       * METRICS: Tracking total elements rendered
        */
-      self.benchmark.inc('elementCount')
+      self.metrics.inc('elementCount')
     }
     function execConst( $node: Cash ){
       const
@@ -638,9 +635,9 @@ export default class Component<MT extends Metavars> extends Events {
       } )
       
       /**
-       * BENCHMARK: Tracking total elements rendered
+       * METRICS: Tracking total elements rendered
        */
-      self.benchmark.inc('elementCount')
+      self.metrics.inc('elementCount')
     }
     // function execEmptyFragment( $node: Cash ): Cash {
     //   const
@@ -1196,7 +1193,7 @@ export default class Component<MT extends Metavars> extends Events {
       }
 
       // Track component creation
-      self.benchmark.inc('componentCount')
+      self.metrics.inc('componentCount')
 
       return $fragment
     }
@@ -1414,9 +1411,9 @@ export default class Component<MT extends Metavars> extends Events {
       $fragment = $fragment.add( boundaries.end )
 
       /**
-       * BENCHMARK: Tracking total elements rendered
+       * METRICS: Tracking total elements rendered
        */
-      self.benchmark.inc('elementCount')
+      self.metrics.inc('elementCount')
       
       return $fragment
     }
@@ -1642,8 +1639,8 @@ export default class Component<MT extends Metavars> extends Events {
       })
 
       // Track DOM insertion
-      self.benchmark.inc('elementCount')
-      self.benchmark.inc('domInsertsCount')
+      self.metrics.inc('elementCount')
+      self.metrics.inc('domInsertsCount')
 
       return $fragment
     }
@@ -1674,8 +1671,8 @@ export default class Component<MT extends Metavars> extends Events {
       }
 
       // Track DOM insertion
-      self.benchmark.inc('elementCount')
-      self.benchmark.inc('domInsertsCount')
+      self.metrics.inc('elementCount')
+      self.metrics.inc('domInsertsCount')
 
       return $fragment
     }
@@ -1759,20 +1756,20 @@ export default class Component<MT extends Metavars> extends Events {
       })
 
       /**
-       * BENCHMARK: Tracking total occurence of recursive rendering
+       * METRICS: Tracking total occurence of recursive rendering
        */
-      self.benchmark.inc('renderCount')
+      self.metrics.inc('renderCount')
     }
     catch( error ){
       console.error('Rendering Failed --', error ) 
-      self.benchmark.trackError( error as Error )
+      self.metrics.trackError( error as Error )
     }
     finally {
       this.__renderDepth--
       
-      // End benchmark measuring
-      this.benchmark.endRender()
-      this.benchmark.trackMemory()
+      // End metrics measuring
+      this.metrics.endRender()
+      this.metrics.trackMemory()
       
       // Clear path when main render completes
       if( this.__renderDepth === 0 ){
@@ -1794,9 +1791,13 @@ export default class Component<MT extends Metavars> extends Events {
      */
     this.ICE.dispose()
     /**
-     * Clean up benchmark resources
+     * Clean up stylesheets
      */
-    this.benchmark.dispose()
+    this.stylesheet?.clear()
+    /**
+     * Clean up metrics resources
+     */
+    this.metrics.dispose()
     /**
      * Unregister this component from IUC
      */
@@ -1831,7 +1832,6 @@ export default class Component<MT extends Metavars> extends Events {
     this.FGUD?.clear()
     this.state.reset()
     this.__macros.clear()
-    this.__stylesheet?.clear()
 
     // @ts-ignore
     this.__previous = null
@@ -1909,7 +1909,7 @@ export default class Component<MT extends Metavars> extends Events {
         } )
       } )
       
-      self.benchmark.inc('partialCount')
+      self.metrics.inc('partialCount')
 
       /**
        * Create a dedicated boundaries for each iteration item
@@ -1930,7 +1930,7 @@ export default class Component<MT extends Metavars> extends Events {
     },
     partialUpdate = ( deps: string[], argvalues: VariableSet, index?: number ) => {
       // Start measuring
-      self.benchmark.startRender()
+      self.metrics.startRender()
       
       // Execute partial mesh update
       deps.forEach( ( dep ) => {
@@ -1973,7 +1973,7 @@ export default class Component<MT extends Metavars> extends Events {
             }
           }
 
-          self.benchmark.inc('dependencyUpdateCount')
+          self.metrics.inc('dependencyUpdateCount')
         } )
 
         /**
@@ -1987,9 +1987,9 @@ export default class Component<MT extends Metavars> extends Events {
         ITERATOR_REGISTRY[ index ].argvalues = argvalues
 
       // Track update
-      self.benchmark.inc('partialUpdateCount')
+      self.metrics.inc('partialUpdateCount')
       // Finish measuring
-      self.benchmark.endRender()
+      self.metrics.endRender()
     },
     partialRemove = ( index: number ) => {
       if( !ITERATOR_REGISTRY[ index ] ) return
@@ -2142,8 +2142,8 @@ export default class Component<MT extends Metavars> extends Events {
   }
   private __getBoundaries__( path: string ): FragmentBoundaries {
     // Track DOM operations for boundary creation
-    this.benchmark.inc('domOperations')
-    this.benchmark.inc('domInsertsCount')
+    this.metrics.inc('domOperations')
+    this.metrics.inc('domInsertsCount')
 
     return {
       start: document.createComment(`s:${this.prepath}.${path}`),
@@ -2329,14 +2329,14 @@ export default class Component<MT extends Metavars> extends Events {
     this.VER.push({ element, _event })
     
     // Track DOM operation
-    this.benchmark.inc('domUpdatesCount')
-    this.benchmark.inc('domRemovalsCount')
+    this.metrics.inc('domUpdatesCount')
+    this.metrics.inc('domRemovalsCount')
   }
   private __detachEvent__( $element: Cash | Component<MT>, _event: string ){
     $element.off( _event )
     // Track DOM operation
-    this.benchmark.inc('domOperations')
-    this.benchmark.inc('domRemovalsCount')
+    this.metrics.inc('domOperations')
+    this.metrics.inc('domRemovalsCount')
   }
 
   private __extractTextDeps__( expr: string, scope?: VariableSet ): string[] {
@@ -2416,7 +2416,7 @@ export default class Component<MT extends Metavars> extends Events {
     dependencies.get( dep )?.set( record.path, record )
 
     // Track dependency
-    this.benchmark.inc('dependencyTrackCount')
+    this.metrics.inc('dependencyTrackCount')
   }
 
   private __valueDep__( obj: any, path: string[] ): any {
@@ -2440,9 +2440,9 @@ export default class Component<MT extends Metavars> extends Events {
     if( !this.FGUD?.size ) return
     
     // Track update
-    this.benchmark.inc('componentUpdateCount')
+    this.metrics.inc('componentUpdateCount')
     // Start measuring
-    this.benchmark.startRender()
+    this.metrics.startRender()
     
     this.FGUD.forEach( ( dependents, dep ) => {
       const [ dep_scope, ...parts ] = dep.split('.')
@@ -2494,7 +2494,7 @@ export default class Component<MT extends Metavars> extends Events {
             }
           }
 
-          this.benchmark.inc('dependencyUpdateCount')
+          this.metrics.inc('dependencyUpdateCount')
         }
         catch( error ){
           console.error('failed to update dependency nodes --', error )
@@ -2509,15 +2509,15 @@ export default class Component<MT extends Metavars> extends Events {
     })
 
     // Finish measuring
-    this.benchmark.endRender()
+    this.metrics.endRender()
   }
   private __updateVarDepNodes__( dep: string, varPath: string, newScope: VariableSet ){
     if( !this.FGUD?.size ) return
 
     // Track update
-    this.benchmark.inc('partialUpdateCount')
+    this.metrics.inc('partialUpdateCount')
     // Start measuring
-    this.benchmark.startRender()
+    this.metrics.startRender()
     
     const dependents = this.FGUD.get( dep )
     dependents?.forEach( ( dependent, path ) => {
@@ -2534,7 +2534,7 @@ export default class Component<MT extends Metavars> extends Events {
     } )
 
     // Finish measuring
-    this.benchmark.endRender()
+    this.metrics.endRender()
   }
   
   appendTo( arg: Cash | string ){
@@ -2542,7 +2542,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.$?.length && $to.append( this.$ )
 
     // Track DOM operation
-    this.benchmark.inc('domOperations')
+    this.metrics.inc('domOperations')
 
     return this
   }
@@ -2551,7 +2551,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.$?.length && $to.prepend( this.$ )
     
     // Track DOM operation
-    this.benchmark.inc('domOperations')
+    this.metrics.inc('domOperations')
 
     return this
   }
@@ -2560,7 +2560,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.$?.length && $with.replaceWith( this.$ )
     
     // Track DOM operation
-    this.benchmark.inc('domOperations')
+    this.metrics.inc('domOperations')
 
     return this
   }
