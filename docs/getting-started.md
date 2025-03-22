@@ -14,7 +14,7 @@ Getting started with Lips is as simple as including the script in your HTML file
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Lips App</title>
-  <script src="https://cdn.jsdelivr.net/npm/lips/dist/lips.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips"></script>
 </head>
 <body>
   <div id="app"></div>
@@ -50,7 +50,7 @@ Let's create a simple counter component to get a feel for how Lips works:
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lips Counter Example</title>
-  <script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips/dist/lips.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips"></script>
 </head>
 <body>
   <div id="app"></div>
@@ -148,7 +148,7 @@ Example `app.js`:
 
 ```javascript
 // Import Lips
-import Lips from 'lips';
+import Lips from '@lipsjs/lips';
 
 // Import components
 import Header from './components/Header.js';

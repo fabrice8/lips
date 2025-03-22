@@ -21,7 +21,7 @@ Lips is a modern, runtime-based UI framework that brings fine-grained reactivity
 <html>
 <head>
   <title>My Lips App</title>
-  <script src="https://cdn.jsdelivr.net/npm/@fabrice8/lips/dist/lips.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips"></script>
 </head>
 <body>
   <div id="app"></div>
@@ -60,7 +60,7 @@ npm install @lipsjs/lips
 ### Via CDN
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips/dist/lips.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips"></script>
 ```
 
 ## 📖 Documentation

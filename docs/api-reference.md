@@ -296,7 +296,7 @@ interface UserStatic {
 }
 
 // Import Metavars type from Lips
-import { Metavars } from 'lips';
+import { Metavars } from '@lipsjs/lips';
 
 // Create a typed component
 type UserComponent = Metavars<UserInput, UserState, UserStatic, UserContext>;
