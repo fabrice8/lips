@@ -141,7 +141,7 @@ Macros are used like custom elements:
 ```html
 <person-info
     name="John Doe" 
-    age={42}
+    age=42
     bio="Software developer"
     address="123 Main St"/>
 ```
@@ -366,33 +366,5 @@ const app = lips.render('App', appComponent);
 ```
 
 When debug mode is enabled, components will log detailed performance metrics during significant operations.
-
-#### Performance API Integration
-
-Lips integrates with the browser's Performance API for more detailed measurements:
-
-```javascript
-const component = {
-  handler: {
-    onMount() {
-      // Mark the start of a critical operation
-      performance.mark('operation-start');
-      
-      // Perform operation
-      this.processBigData();
-      
-      // Mark the end
-      performance.mark('operation-end');
-      
-      // Measure and log
-      performance.measure('operation', 'operation-start', 'operation-end');
-      console.log(performance.getEntriesByName('operation')[0].duration);
-      
-      // Clear marks
-      performance.clearMarks();
-    }
-  }
-};
-```
 
 These advanced features make Lips not just powerful and flexible, but also highly performant for complex applications. The combination of fine-grained reactivity, efficient batching, and built-in performance tools helps you build fast, responsive UIs without sacrificing developer experience.

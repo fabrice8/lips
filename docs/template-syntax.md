@@ -29,16 +29,16 @@ Lips provides several ways to bind dynamic values to element attributes:
 
 ```html
 <!-- Standard attribute binding -->
-<input placeholder=state.placeholderText">
+<input placeholder=state.placeholderText>
 
 <!-- Boolean attributes -->
 <button disabled=!state.isValid>Submit</button>
 
+<!-- Operation binding -->
+<input min=(state.quantity + 2)></div>
+
 <!-- Class binding -->
 <div class="card {state.isActive ? 'active' : ''}"></div>
-
-<!-- Style binding (object format) -->
-<div style="{{ color: state.textColor, fontSize: state.fontSize + 'px' }}"></div>
 
 <!-- Style binding (string format) -->
 <div style="color: {state.textColor}; font-size: {state.fontSize}px"></div>
@@ -58,8 +58,9 @@ Lips includes special directives for common DOM operations:
 <!-- Text content injection (escaped) -->
 <div @text=state.plainContent></div>
 
-<!-- Function attributes (methods passed as values) -->
-<custom-component fn:formatter=formatDate />
+<!-- Text content injection (escaped) -->
+<div @format="item_count, state.items.length"></div>
+
 ```
 
 ### Conditional Rendering
@@ -127,10 +128,10 @@ The `switch` component provides an alternative to multiple `if`/`else-if` chains
 
 <!-- Multiple values per case -->
 <switch(state.status)>
-  <case is=['loading', 'processing']>
+  <case is=['loading','processing']>
     <loading-spinner/>
   </case>
-  <case is=['error', 'failed']>
+  <case is=['error','failed']>
     <error-message/>
   </case>
   <default>
@@ -230,11 +231,9 @@ Lips allows you to declare scoped variables within templates:
 <p>Tax: ${state.price * TAX_RATE}</p>
 
 <!-- Multiple variables -->
-<let 
-  subtotal={state.price * state.quantity}
-  tax={subtotal * 0.07}
-  total={subtotal + tax}
-/>
+<let subtotal=(state.price * state.quantity)
+      tax=(subtotal * 0.07)
+      total=(subtotal + tax)/>
 
 <p>Subtotal: ${subtotal}</p>
 <p>Tax: ${tax}</p>

@@ -181,7 +181,7 @@ export function createLipsStressTest(targetElement: string = 'body') {
             id="update-frequency" 
             min="1" 
             max="100" 
-            value="{state.updateFrequency}" 
+            value=state.updateFrequency 
             on-input(setUpdateFrequency)
           />
           <span>{state.updateFrequency}ms</span>
@@ -638,7 +638,7 @@ export function runDOMStressTest(targetElement: string = 'body') {
       // Generate nodes
       const startTime = performance.now();
       
-      const nodes = [];
+      const nodes: Array<{ id: number, value: string}> = [];
       for (let i = 0; i < count; i++) {
         nodes.push({
           id: i,

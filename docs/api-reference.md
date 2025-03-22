@@ -327,7 +327,7 @@ export default `
   <div class="user-profile">
     <h2>{state.name}</h2>
     <p>{state.email}</p>
-    <span class={state.isActive ? 'active' : 'inactive'}>
+    <span class="{state.isActive ? 'active' : 'inactive'}">
       {state.isActive ? 'Active' : 'Inactive'}
     </span>
     

@@ -1627,7 +1627,7 @@ export default `
       <thead>
         <tr>
           <for [column] in=input.columns>
-            <th class={state.sortField === column.field ? 'sorted' : ''}
+            <th class="{state.sortField === column.field && 'sorted'}"
                 on-click(() => self.sort(column.field))>
               {column.label}
               <if(state.sortField === column.field)>
@@ -1682,7 +1682,7 @@ export default `
         <div class="page-controls">
           <button class="page-button prev"
                   on-click=prevPage
-                  disabled={state.currentPage === 1}>
+                  disabled=(state.currentPage === 1)>
             Previous
           </button>
           
@@ -1695,7 +1695,7 @@ export default `
           
           <button class="page-button next" 
                   on-click=nextPage
-                  disabled={state.currentPage === self.getTotalPages()}>
+                  disabled=(state.currentPage === self.getTotalPages())>
             Next
           </button>
         </div>

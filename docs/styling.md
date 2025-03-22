@@ -102,11 +102,7 @@ Lips makes it easy to apply dynamic styles based on component state:
 </div>
 
 <!-- Style object binding -->
-<div style="{ 
-  color: state.textColor, 
-  backgroundColor: state.bgColor,
-  fontSize: state.fontSize + 'px'
-}">
+<div style="color: {state.textColor}; backgroundColor: {state.bgColor}; fontSize: {state.fontSize}px">
   Styled Text
 </div>
 

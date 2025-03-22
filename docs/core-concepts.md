@@ -157,7 +157,7 @@ Lips provides an intuitive and expressive template syntax that feels familiar to
 <div class="card {state.isActive ? 'active' : ''}"></div>
 
 <!-- Style binding -->
-<div style="{{ color: state.textColor, fontSize: state.fontSize + 'px' }}"></div>
+<div style="color: {state.textColor}; fontSize: {state.fontSize}px"></div>
 
 <!-- Object spread for multiple attributes -->
 <div ...state.attributes></div>
