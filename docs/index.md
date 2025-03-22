@@ -2,39 +2,39 @@
 
 ## Table of Contents
 
-1. **Introduction**
-   - What is Lips?
-   - Key Features
-   - Comparison with Other Frameworks
-   - Browser Compatibility
+1. [**Introduction**](#introduction)
+   - [What is Lips?](#what-is-lips)
+   - [Key Features](#key-features)
+   - [Comparison with Other Frameworks](#comparison-with-other-frameworks)
+   - [Browser Compatibility](#browser-compatibility)
 
-2. **Getting Started**
-   - Installation
-   - Quick Start Example
-   - Project Structure
+2. [**Getting Started**](./getting-started.md)
+   - [Installation](./getting-started.md#intallation)
+   - [Quick Start Example](./getting-started.md#quick-start-example)
+   - [Project Structure](./getting-started.md#project-structure)
 
-3. **Core Concepts**
-   - Component Architecture
-   - Reactive State Management
-   - Template Syntax
-   - Lifecycle Methods
-   - Event Handling
+3. [**Core Concepts**](./core-concepts.md)
+   - [Component Architecture](./core-concepts.md#component-architecture)
+   - [Reactive State Management](./core-concepts.md#reactive-state-management)
+   - [Template Syntax](./core-concepts.md#template-syntax)
+   - [Lifecycle Methods](./core-concepts.md#lifecycle-methods)
+   - [Event Handling](./core-concepts.md#event-handling)
 
-4. **Component API**
-   - Creating Components
-   - Component Properties (input, state, static, context)
-   - Component Methods
-   - Component Lifecycle
+4. [**Component API**](./component-api.md)
+   - [Creating Components](./component-api.md#creating-components)
+   - [Component Properties (input, state, static, context)](./component-api.md#component-properties)
+   - [Component Methods](./component-api.md#component-methods)
+   - [Component Lifecycle](./component-api.md#component-lifecycle)
 
-5. **Template Syntax**
-   - Text Interpolation
-   - Attributes Binding
-   - Conditional Rendering
-   - List Rendering
-   - Event Binding
-   - Component Composition
+5. [**Template Syntax**](./template-syntax.md)
+   - [Text Interpolation](./template-syntax.md#text-interpolation)
+   - [Attributes Binding](./template-syntax.md#attributes-binding)
+   - [Conditional Rendering](./template-syntax.md#conditional-rendering)
+   - [List Rendering](./template-syntax.md#list-rendering)
+   - [Event Binding](./template-syntax.md#event-binding)
+   - [Component Composition](./template-syntax.md#component-composition)
 
-6. **Built-in Components**
+6. [**Built-in Components**](./built-in-components.md)
    - `<if>`, `<else-if>`, `<else>`
    - `<for>`
    - `<switch>`, `<case>`
@@ -42,37 +42,37 @@
    - `<router>`
    - `<let>` and `<const>`
 
-7. **Advanced Features**
-   - Context API
-   - Macros
-   - Reactive Updates
-   - Performance Optimization
-   - Fine-Grained Updates
-   - Benchmarking
+7. [**Advanced Features**](./advanced-features.md)
+   - [Context API](./advanced-features.md#contex-api)
+   - [Macros](./advanced-features.md#macros)
+   - [Reactive Updates](./advanced-features.md#reactive-update)
+   - [Performance Optimization](./advanced-features.md#performance-optimization)
+   - [Fine-Grained Updates](./advanced-features.md#fine-grained-updates)
+   - [Metrics](./advanced-features.md#metrics)
 
-8. **Styling**
-   - Component Styling
-   - Stylesheet API
+8. [**Styling**](./styling.md)
+   - [Component Styling](./styling.md#component-styling)
+   - [Stylesheet API](./styling.md#stylesheet-api)
 
-9. **Internationalization (i18n)**
-   - Setting up Languages
-   - Translating Content
+9. [**Internationalization (i18n)**](./i18n.md)
+   - [Setting up Languages](./i18n.md#setting-up-languages)
+   - [Translating Content](./i18n.md#translation-content)
 
-10. **Best Practices**
-    - Component Design
-    - Performance Tips
-    - Error Handling
+10. [**Best Practices**](./best-practices.md)
+    - [Component Design](./best-practices.md#component-design)
+    - [Performance Tips](./best-practices.md#performance-tips)
+    - [Error Handling](./best-practices.md#error-handling)
 
-11. **Examples**
-    - Simple Components
-    - Complex Applications
-    - Animation Examples
-    - Practical Use Cases
+11. [**Examples**](./examples.md)
+    - [Simple Components](./examples.md#simple-components)
+    - [Complex Applications](./examples.md#complex-applications)
+    - [Animation Examples](./examples.md#animation-examples)
+    - [Practical Use Cases](./examples.md#practical-use-cases)
 
-12. **API Reference**
-    - Classes
-    - Interfaces
-    - Methods
+12. [**API Reference**](./api-reference.md)
+    - [Classes](./api-reference.md#classes)
+    - [Interfaces](./api-reference.md#interfaces)
+    - [Methods](./api-reference.md#methods)
 
 ## Introduction to Lips Framework
 
