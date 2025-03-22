@@ -130,6 +130,7 @@ export interface FGUDependency {
   haslet?: boolean
   batch?: boolean
   syntax?: boolean
+  translate?: boolean
   partial?: string[]
   memo: VariableSet
   update: ( memo: VariableSet, by?: string ) => FGUSync | void

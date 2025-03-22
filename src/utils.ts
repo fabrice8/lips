@@ -1,18 +1,12 @@
 import $ from 'cash-dom'
 
-// TypeScript type for TypedArrays
-type TypedArray =
-  | Int8Array
-  | Uint8Array
-  | Uint8ClampedArray
-  | Int16Array
-  | Uint16Array
-  | Int32Array
-  | Uint32Array
-  | Float32Array
-  | Float64Array
-  | BigInt64Array
-  | BigUint64Array
+export const ROOT_PATH = '#0'
+export const SYNCTAX_VAR_FLAG = 'syn:'
+export const FUNCTION_ATTR_FLAG = 'fn:'
+export const EVENT_LISTENER_FLAG = 'on-'
+export const SPREAD_VAR_PATTERN = /^\.\.\./
+export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
+export const META_ATTRIBUTES = ['@html', '@text']
 
 $.fn.extend({
   attrs: function(){
@@ -27,14 +21,6 @@ $.fn.extend({
     return obj
   }
 })
-
-export const ROOT_PATH = '#0'
-export const SYNCTAX_VAR_FLAG = 'syn:'
-export const FUNCTION_ATTR_FLAG = 'fn:'
-export const EVENT_LISTENER_FLAG = 'on-'
-export const SPREAD_VAR_PATTERN = /^\.\.\./
-export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
-export const META_ATTRIBUTES = ['@html', '@text']
 
 /**
  * Deep difference checker with support for Map, Set,
@@ -378,21 +364,11 @@ export function isEqual( a: any, b: any ): boolean {
   return true
 }
 
-// Helper type guard for primitive checks (from your isDiff implementation)
-function isPrimitive( value: any ): boolean {
-  return value === null || (typeof value !== 'object' && typeof value !== 'function')
-}
-
 /**
- * Helper function to check if Set contains only primitives
+ * Helper to check if Set contains only 
+ * primitives
  */
-function isPrimitiveValue( value: unknown ): value is string | number | boolean | symbol | null | undefined {
-  return value === null 
-          || ( typeof value !== 'object' && typeof value !== 'function' )
-}
-
-// Helper to check if Set contains only primitives
-function isPrimitiveSet( set: Set<any> ): boolean {
+export function isPrimitiveSet( set: Set<any> ): boolean {
   for( const item of set )
     if( typeof item === 'object' && item !== null ) 
       return false
@@ -400,8 +376,11 @@ function isPrimitiveSet( set: Set<any> ): boolean {
   return true
 }
 
-// Helper to check if Map contains only primitives for both keys and values
-function isPrimitiveMap( map: Map<any, any> ): boolean {
+/**
+ * Helper to check if Map contains only 
+ * primitives for both keys and values
+ */
+export function isPrimitiveMap( map: Map<any, any> ): boolean {
   for( const [key, value] of map )
     if( (typeof key === 'object' && key !== null) 
         || (typeof value === 'object' && value !== null) ) 
@@ -481,10 +460,6 @@ export function deepClone( obj: any, seen = new WeakMap() ){
  * @param toSet Object containing path-value pairs to set
  * @returns A new object with the assigned values
  */
-type DeepPartial<T> = {
-  [P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P]
-}
-
 export function deepAssign<T>( original: T, toSet: Record<string, any> ): T {
   if( !original || typeof original !== 'object' )
     throw new TypeError('Original argument must be an object')
@@ -542,29 +517,3 @@ export function deepAssign<T>( original: T, toSet: Record<string, any> ): T {
 
   return modified
 }
-
-// Example usage:
-/*
-const obj = {
-  user: {
-    profile: {
-      name: 'John',
-      settings: {
-        theme: 'dark'
-      }
-    },
-    posts: [
-      { id: 1, title: 'Post 1' }
-    ]
-  }
-}
-
-const updates = {
-  'user.profile.name': 'Jane',
-  'user.settings.notifications': true,
-  'user.posts[0].title': 'Updated Post',
-  'user.posts[1]': { id: 2, title: 'New Post' }
-}
-
-const result = deepAssign(obj, updates)
-*/

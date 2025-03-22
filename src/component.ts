@@ -1,7 +1,6 @@
 import type Lips from './lips'
 import type {
   Handler,
-  Template,
   Metavars,
   ComponentScope,
   ComponentOptions,
@@ -29,7 +28,7 @@ import Metrics from './metrics'
 import $, { Cash } from 'cash-dom'
 import Stylesheet from './stylesheet'
 import { preprocessor } from './preprocess'
-import { batch, effect, EffectControl, signal } from './signal'
+import { effect, EffectControl, signal } from './signal'
 import { 
   isDiff,
   isEqual,
@@ -59,6 +58,7 @@ export default class Component<MT extends Metavars> extends Events {
   private __template__: string
   private __previous: InteractiveMetavars<MT>
   private __macros: Map<string, Macro> = new Map() // Cached macros templates
+  private __translations: Map<string, RenderedNode> = new Map()
   private __renderCache: Map<string, RenderedNode> = new Map()
 
   // Initial FGU dependencies
@@ -105,6 +105,8 @@ export default class Component<MT extends Metavars> extends Events {
     this.__name__ = name
     this.__path__ = `${this.prepath}/${this.__name__}`
     this.__template__ = preprocessor( template )
+
+    console.log( this.__template__)
     
     this.declaration = declaration || { name }
 
@@ -1646,17 +1648,18 @@ export default class Component<MT extends Metavars> extends Events {
     }
     function execText( $node: Cash ): Cash {
       const
-      textPath = generatePath('element'),
       content = $node.text(),
+      textPath = generatePath('element'),
+      canTranslate = !$node.parent().is('[no-translate]'),
       // Initial rendering
-      $fragment = $(document.createTextNode( self.__interpolate__( content, scope ) ) )
+      $fragment = $(document.createTextNode( self.__interpolate__( content, canTranslate, scope ) ) )
 
       // Track for update rendering
       if( content && self.__isReactive__( content, scope ) ){
         const
         deps = self.__extractTextDeps__( content, scope ),
         updateTextContent = ( memo?: VariableSet ) => {
-          const text = self.__interpolate__( content, memo )
+          const text = self.__interpolate__( content, canTranslate, memo )
           if( !$fragment[0] ) return
           $fragment[0].textContent = text
         }
@@ -1666,6 +1669,8 @@ export default class Component<MT extends Metavars> extends Events {
           $fragment,
           update: updateTextContent,
           memo: scope,
+          // Set this node for translation or not
+          translate: canTranslate,
           batch: deps.length > 1
         }) )
       }
@@ -2218,31 +2223,38 @@ export default class Component<MT extends Metavars> extends Events {
   private __evaluate__( expr: string, scope?: VariableSet ){
     try {
       expr = expr.trim()
-      /**
-       * Only use none-proxy state for eval
-       * to avoid state mutation expression
-       * during template rendering.
-       */
-      const _state = this.state.toJSON()
+      const exec = ( each: string ) => {
+        /**
+         * Only use none-proxy state for eval
+         * to avoid state mutation expression
+         * during template rendering.
+         */
+        const _state = this.state.toJSON()
 
-      if( scope ){
-        const _scope: Record<string, any> = {}
-        for( const key in scope )
-          _scope[ key ] = scope[ key ].value
+        if( scope ){
+          const _scope: Record<string, any> = {}
+          for( const key in scope )
+            _scope[ key ] = scope[ key ].value
 
-        const
-        expression = `with( scope ){ return ${expr}; }`,
-        fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', expression )
-       
-        return fn( this, this.input, _state, this.static, this.context, _scope || {} )
+          const
+          expression = `with( scope ){ return ${each}; }`,
+          fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', expression )
+        
+          return fn( this, this.input, _state, this.static, this.context, _scope || {} )
+        }
+        else {
+          const 
+          expression = `return ${each}`,
+          fn = new Function('self', 'input', 'state', 'static', 'context', expression )
+
+          return fn( this, this.input, _state, this.static, this.context )
+        }
       }
-      else {
-        const 
-        expression = `return ${expr}`,
-        fn = new Function('self', 'input', 'state', 'static', 'context', expression )
 
-        return fn( this, this.input, _state, this.static, this.context )
-      }
+      if( /{\s*([^{}]+)\s*}/.test( expr ) )
+        return expr.replace( /{\s*([^{}]+)\s*}/g, ( _, expr ) => exec( expr ) )
+
+      return exec( expr )
     }
     catch( error ){ return expr }
   }
@@ -2300,7 +2312,7 @@ export default class Component<MT extends Metavars> extends Events {
       return _fn( ..._args )
     }
   }
-  private __interpolate__( str: string, scope?: VariableSet ){
+  private __interpolate__( str: string, translate: boolean, scope?: VariableSet ){
     return str.replace( /{\s*([^{}]+)\s*}/g, ( _, expr ) => this.__evaluate__( expr, scope ) )
   }
   private __attachEvent__( element: Cash | Component<MT>, _event: string, instruction: string, scope?: VariableSet ){
@@ -2403,6 +2415,22 @@ export default class Component<MT extends Metavars> extends Events {
     return false
   }
   private __trackDep__( dependencies: FGUDependencies, dep: string, record: FGUDependency ){
+    /**
+     * Designate dependencies that assign or 
+     * interpolate a `let` variable.
+     */
+    if( record.memo
+        && record.memo[ dep ]
+        && record.memo[ dep ].type === 'let' )
+      record.haslet = true
+
+    !dependencies.has( dep ) && dependencies.set( dep, new Map() )
+    dependencies.get( dep )?.set( record.path, record )
+
+    // Track dependency
+    this.metrics.inc('dependencyTrackCount')
+  }
+  private __trackTranslationDep__( dependencies: FGUDependencies, dep: string, record: FGUDependency ){
     /**
      * Designate dependencies that assign or 
      * interpolate a `let` variable.
@@ -2538,27 +2566,21 @@ export default class Component<MT extends Metavars> extends Events {
   }
   
   appendTo( arg: Cash | string ){
-    const $to = typeof arg == 'string' ? $(arg) : arg
-    this.$?.length && $to.append( this.$ )
-
+    (typeof arg == 'string' ? $(arg) : arg).append( this.node )
     // Track DOM operation
     this.metrics.inc('domOperations')
 
     return this
   }
   prependTo( arg: Cash | string ){
-    const $to = typeof arg == 'string' ? $(arg) : arg
-    this.$?.length && $to.prepend( this.$ )
-    
+    typeof arg == 'string' ? $(arg) : arg.prepend( this.node )
     // Track DOM operation
     this.metrics.inc('domOperations')
 
     return this
   }
   replaceWith( arg: Cash | string ){
-    const $with = typeof arg == 'string' ? $(arg) : arg
-    this.$?.length && $with.replaceWith( this.$ )
-    
+    (typeof arg == 'string' ? $(arg) : arg).replaceWith( this.node )
     // Track DOM operation
     this.metrics.inc('domOperations')
 

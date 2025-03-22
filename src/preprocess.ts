@@ -210,7 +210,12 @@ export function preprocessor( str: string ): string {
                 .replace(/[\r\n\t]/g, '')
                 // Apply Lips-specific transformations after marking expressions
                 .replace(/<([a-zA-Z0-9_-]+)([^>]*?)\s*\/>/g, '<$1$2></$1>')
-                .replace(/<\{([^}]+)\}\s*(.*?)\/>/g, '<lips dtag="$1" $2></lips>')
+                // .replace(/<\{([^}]+)\}\s*(.*?)\/>/g, '<lips dtag="$1" $2></lips>')
+                .replace(/<\{([^}]+)\}\s*(.*?)(\/)>/g, ( _, dtag, attrs ) => {
+                  return attrs.endsWith('<')
+                                ? `<lips dtag="${dtag}" ${attrs}/lips>` // Tag with content case
+                                : `<lips dtag="${dtag}" ${attrs}></lips>`; // Self-closing tag case
+                })
                 .replace(/(<>)([\s\S]*?)(<\/>)/g, '<lips fragment="true">$2</lips>')
                 .replace(/<if\(\s*(.*?)\s*\)>/g, '<if @by="$1">')
                 .replace(/<else-if\(\s*(.*?)\s*\)>/g, '<else-if @by="$1">')

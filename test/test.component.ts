@@ -20,7 +20,10 @@ function createEasyCount(){
       count: 0
     },
     handler: {
-      onInput(){ this.state.count = Number( this.input.initial ) },
+      onInput(){
+        if( this.input.initial !== undefined )
+          this.state.count = Number( this.input.initial )
+      },
       handleClick( e: Event ){
         if( this.state.count >= this.input.limit )
           return
@@ -31,7 +34,10 @@ function createEasyCount(){
     },
     default: `
       <div>
-        <span @text=state.count></span>
+        <if( input.renderer )>
+          <{input.renderer} count=state.count/>
+        </if>
+        <else><span @text=state.count></span></else>
         <br>
         <button on-click( handleClick )>Count</button>
       </div>
@@ -167,7 +173,7 @@ function DemoContext(){
   template = `
     <main>
       <log('log context --', context.online )/>
-      <p>I'm <span @text=(context.online ? 'Online' : 'Offline')/></p>
+      <p>I'm <span @text="{context.online ? 'Online' : 'Offline'}"/></p>
       
       <br>
       <button on-click(handleChangeStatus)>Go {!context.online ? 'Online' : 'Offline'}</button>
@@ -270,6 +276,12 @@ function DemoDynamicComponent(){
     <div>
       <p>Beat it</p>
       <{static.easycount} on-count-change( count => console.log('No.', count ) )/>
+
+      <br>
+      <p>Count it</p>
+      <{static.easycount} [count]>
+        <span>No.</span> {count}
+      </>
     </div>
   `
   
@@ -468,7 +480,7 @@ function DemoSyntaxInteract(){
     }
   },
   template = `
-    <div style="{ border: '1px solid '+(state.value.length > 5 ? 'red' : 'gray') }">
+    <div style="border: 1px solid {state.value.length > 5 ? 'red' : 'gray'}">
       <input value=state.value
               on-input(handleInput)/>
 
@@ -541,11 +553,11 @@ function DemoSyntaxInteract(){
 // DemoContext()
 // DemoForloop()
 // DemoComponent()
-// DemoDynamicComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
+// DemoDynamicComponent()
 
 /**
  * -------------------------------------------------------------------------
@@ -789,7 +801,7 @@ function DemoManyComponent(){
     }
   },
   template = `<main>
-    <section style="{ border: '2px solid gray', margin: '3rem', padding: '15px' }">
+    <section style="border: 2px solid gray; margin: 3rem; padding: 15px">
       <counter initial=state.initial
                 on-update="onUpdateCount">
         Count till 12
@@ -798,7 +810,7 @@ function DemoManyComponent(){
       <counter initial=1>Number</counter>
 
       <log('online context --', context.online )/>
-      <p>I'm <span @text=(context.online ? 'Online' : 'Offline')/></p>
+      <p>I'm <span @text="{context.online ? 'Online' : 'Offline'}"/></p>
       
       <br><br>
       <button on-click(() => state.initial = 10)>Reinitialize ({state.countUpdate})</button>
@@ -1041,7 +1053,7 @@ function DemoShoppingCart(){
 
 // DemoDeepNexted()
 // DemoSubcomponent()
-// DemoManyComponent()
+DemoManyComponent()
 // DemoShoppingCart()
 
 /**
@@ -1250,7 +1262,7 @@ function WaveGraphDemo() {
     
     // The component template with correct Lips syntax
     default: `
-      <div class="wave-graph-container" style="{ width: (input.width + 40 )+'px', 'background-color': input.backgroundColor}">
+      <div class="wave-graph-container" style="width: {input.width + 40}px; background-color: {input.backgroundColor}">
         <h2 class="wave-graph-title">{input.title}</h2>
         
         <svg class="wave-graph-svg" 
@@ -2231,7 +2243,7 @@ function ParticleSystemDemo() {
     
     // Optimize the template to reduce dynamic property evaluations
     default: `
-      <div class="particle-system-container" style="{ width: (Number(input.width) + 40)+'px', height: (Number(input.height) + 280)+'px' }">
+      <div class="particle-system-container" style="width: {Number(input.width) + 40}px; height: {Number(input.height) + 280}px">
         <h2 class="particle-system-title">{input.title}</h2>
         
         <svg class="particle-system-svg" 
