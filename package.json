@@ -1,6 +1,6 @@
 {
   "name": "@lipsjs/lips",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Fast, Lightweight Reactive UI Framework",
   "main": "./dist/lips.min.js",
   "files": [
@@ -10,8 +10,8 @@
   ],
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "import": "./dist/lips.min.js",
+      "require": "./dist/lips.min.js"
     }
   },
   "author": "Fabrice K.E.M",

@@ -67,7 +67,7 @@ npm install @lipsjs/lips
 
 For comprehensive documentation, examples, and API reference, visit:
 
-[Full Lips Documentation](https://github.com/fabrice8/lips/tree/main/docs/index.md)
+[Full Lips Documentation](https://github.com/fabrice8/lips/blob/master/docs/index.md)
 
 ## 🏗️ Building from Source
 
