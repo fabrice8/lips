@@ -1,11 +1,13 @@
 import $ from 'cash-dom'
 
 export const ROOT_PATH = '#0'
+export const I18N_ATTR_FLAG = 'i18n'
 export const SYNCTAX_VAR_FLAG = 'syn:'
 export const FUNCTION_ATTR_FLAG = 'fn:'
 export const EVENT_LISTENER_FLAG = 'on-'
 export const SPREAD_VAR_PATTERN = /^\.\.\./
 export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
+export const INTERPOLATE_PATTERN = /{\s*([^{}]+)\s*}/g
 export const META_ATTRIBUTES = ['@html', '@text']
 
 $.fn.extend({

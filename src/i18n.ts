@@ -4,13 +4,12 @@ export default class I18N {
   private default = window.navigator.language
   private LANGUAGE_DICTIONARIES: Record<string, LanguageDictionary> = {}
 
-  setLang( lang: string ): boolean {
-    if( this.default !== lang ){
-      this.default = lang
-      return true
-    }
-
-    return false
+  set lang( value: string ){
+    if( this.default === value ) return
+    this.default = value
+  }
+  get lang(){
+    return this.default
   }
 
   setDictionary( id: string, dico: LanguageDictionary ){
@@ -22,7 +21,7 @@ export default class I18N {
    */
   translate( text: string, lang?: string ){
     // No translation required
-    if( lang && this.default == lang )
+    if( lang && this.default === lang )
       return { text, lang: this.default }
 
     lang = lang || this.default
@@ -46,7 +45,7 @@ export default class I18N {
       else if( typeof this.LANGUAGE_DICTIONARIES[ id ][ text ] === 'string' )
         text = this.LANGUAGE_DICTIONARIES[ id ][ text ] as string
     }
-
+    
     return { text, lang }
   }
 

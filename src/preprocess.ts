@@ -1,5 +1,6 @@
 import { 
   META_ATTRIBUTES,
+  I18N_ATTR_FLAG,
   FUNCTION_ATTR_FLAG,
   EVENT_LISTENER_FLAG
 } from './utils'
@@ -133,7 +134,9 @@ function processAttribute( attr: string ): string {
      * - Spread operators
      * - Mesh arguments
      */
-    if( attr.startsWith('...') || attr.startsWith('[') ) 
+    if( attr === I18N_ATTR_FLAG
+        || attr.startsWith('...')
+        || attr.startsWith('[') ) 
       return attr
     
     /**

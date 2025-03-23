@@ -24,6 +24,10 @@ export interface MetricStats {
   domInsertsCount: number
   domUpdatesCount: number
   domRemovalsCount: number
+
+  // i18n tracking
+  i18nTrackCount: number
+  i18nUpdateCount: number
   
   // Dependency tracking
   dependencyTrackCount: number
@@ -63,6 +67,10 @@ export default class Metrics {
     domInsertsCount: 0,
     domUpdatesCount: 0,
     domRemovalsCount: 0,
+
+    // i18n tracking
+    i18nTrackCount: 0,
+    i18nUpdateCount: 0,
     
     // Dependency tracking
     dependencyTrackCount: 0,
@@ -195,6 +203,10 @@ export default class Metrics {
       'DOM Updates': this.stats.domUpdatesCount,
       'DOM Removals': this.stats.domRemovalsCount
     },
+    i18nMetrics = {
+      'i18n Tracked': this.stats.i18nTrackCount,
+      'i18n Updates': this.stats.i18nUpdateCount
+    },
     dependencyMetrics = {
       'Dependencies Tracked': this.stats.dependencyTrackCount,
       'Dependency Updates': this.stats.dependencyUpdateCount
@@ -210,6 +222,7 @@ export default class Metrics {
     console.table( componentMetrics )
     console.table( partialMetrics )
     console.table( domMetrics )
+    console.table( i18nMetrics )
     console.table( dependencyMetrics )
     console.table( batchMetrics )
     

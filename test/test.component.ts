@@ -1,8 +1,8 @@
 import type { Template, Handler, Metavars } from '../src'
 
 import Lips from '../src/lips'
-import english from '../../@modela/src/languages/en.json'
-import french from '../../@modela/src/languages/fr.json'
+import english from './languages/en.json'
+import french from './languages/fr.json'
 
 const lips = new Lips({ debug: true })
 
@@ -39,7 +39,7 @@ function createEasyCount(){
         </if>
         <else><span @text=state.count></span></else>
         <br>
-        <button on-click( handleClick )>Count</button>
+        <button i18n on-click( handleClick )>Count</button>
       </div>
     `
   }
@@ -753,12 +753,14 @@ function DemoManyComponent(){
       span { font: 14px arial; color: blue; }
     `,
     
-    default: `<div>
-      <{input.renderer}/>: 
-      <span @text=state.count></span>
-      <br>
-      <button on-click(handleClick)>Count</button>
-    </div>`
+    default: `
+      <div>
+        <{input.renderer}/>: 
+        <span @text=state.count></span>
+        <br>
+        <button i18n on-click(handleClick)>Count</button>
+      </div>
+    `
   }
 
   const 
@@ -800,26 +802,28 @@ function DemoManyComponent(){
       console.log('on-context --', this.context )
     }
   },
-  template = `<main>
-    <section style="border: 2px solid gray; margin: 3rem; padding: 15px">
-      <counter initial=state.initial
-                on-update="onUpdateCount">
-        Count till 12
-      </counter>
+  template = `
+    <main>
+      <section style="border: 2px solid gray; margin: 3rem; padding: 15px">
+        <counter initial=state.initial
+                  on-update="onUpdateCount">
+          Count till 12
+        </counter>
 
-      <counter initial=1>Number</counter>
+        <counter initial=1>Number</counter>
 
-      <log('online context --', context.online )/>
-      <p>I'm <span @text="{context.online ? 'Online' : 'Offline'}"/></p>
-      
-      <br><br>
-      <button on-click(() => state.initial = 10)>Reinitialize ({state.countUpdate})</button>
-      <button style="background: black;color: white"
-              on-click(() => self.destroy())>Destroy</button>
+        <log('online context --', context.online )/>
+        <p>I'm <span @text="{context.online ? 'Online' : 'Offline'}"/></p>
+        
+        <br><br>
+        <button on-click(() => state.initial = 10)>Reinitialize ({state.countUpdate})</button>
+        <button i18n style="background: black;color: white"
+                on-click(() => self.destroy())>Destroy</button>
 
-      <caption/>
-    </section>
-  </main>`
+        <caption/>
+      </section>
+    </main>
+  `
 
   lips
   .render('DemoManyComponent', { default: template, state, handler, context: ['online'] }, {} )
@@ -827,7 +831,7 @@ function DemoManyComponent(){
 
   // Change detault translation language
   setTimeout( () => {
-    // lips.language('fr-FR')
+    lips.language('fr-FR')
     lips.setContext('online', false )
   }, 5000 )
 }

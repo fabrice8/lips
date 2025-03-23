@@ -74,8 +74,6 @@ export type ComponentOptions = {
   lips: Lips
   debug?: boolean
   prepath?: string
-  enableTemplateCache?: boolean
-  enableSmartDiff?: boolean
 }
 export type LipsConfig<Context extends Object> = {
   debug?: boolean
@@ -123,6 +121,11 @@ export interface FGUSync {
   memo?: VariableSet
   cleanup?: () => void
 }
+export interface I18nDependency {
+  $fragment: Cash
+  memo: VariableSet
+  update: ( memo: VariableSet, by?: string ) => FGUSync | void
+}
 export interface FGUDependency {
   path: string
   $fragment: Cash | null
@@ -130,7 +133,6 @@ export interface FGUDependency {
   haslet?: boolean
   batch?: boolean
   syntax?: boolean
-  translate?: boolean
   partial?: string[]
   memo: VariableSet
   update: ( memo: VariableSet, by?: string ) => FGUSync | void

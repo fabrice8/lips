@@ -24,6 +24,8 @@ export default class Lips<Context extends Object = {}> {
   public watcher: DWS<any>
   public IUC: IUC
 
+  private __setLang: ( lang: string ) => void
+  private __getLang: () => string
   private __setContext: ( ctx: Context ) => void
   private __getContext: () => Context
 
@@ -36,10 +38,14 @@ export default class Lips<Context extends Object = {}> {
     this.watcher = new DWS
     this.IUC = new IUC
     
+    const [ getLang, setLang ] = signal<string>('')
     const [ getContext, setContext ] = signal<Context>( config?.context || {} as Context )
 
+    this.__setLang = setLang
+    this.__getLang = getLang
     this.__setContext = setContext
     this.__getContext = getContext
+
 
     /**
      * Register syntax components
@@ -153,11 +159,8 @@ export default class Lips<Context extends Object = {}> {
   }
 
   language( lang: string ){
-    this.i18n.setLang( lang )
-    /**
-     * Rerender root component when language changed
-     */
-    && this.__root?.rerender()
+    this.i18n.lang = lang
+    this.__setLang( lang )
   }
 
   setContext( arg: Context | string, value?: any ){
@@ -205,6 +208,20 @@ export default class Lips<Context extends Object = {}> {
       && typeof fn === 'function'
       && Object.keys( ctx ).length
       && fn( ctx )
+    })
+  }
+  useTranslator( support: string | string[], fn: ( lang: string ) => void ){
+    effect( () => {
+      const lang = this.__getLang()
+      if( !lang ) return
+      
+      /**
+       * Propagate language change effect to 
+       * component that support it.
+       */
+      ;(support === '*' || (Array.isArray( support ) && support.includes( lang )))
+      && typeof fn === 'function'
+      && fn( lang )
     })
   }
 

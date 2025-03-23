@@ -19,7 +19,8 @@ import type {
   VirtualEventsRegistry,
   MeshWireSetup,
   SyntaxAttributes,
-  DynamicTemplate
+  DynamicTemplate,
+  I18nDependency
 } from '.'
 
 import UQS from './uqs'
@@ -36,6 +37,8 @@ import {
   deepAssign,
   SPREAD_VAR_PATTERN,
   ARGUMENT_VAR_PATTERN,
+  INTERPOLATE_PATTERN,
+  I18N_ATTR_FLAG,
   SYNCTAX_VAR_FLAG,
   FUNCTION_ATTR_FLAG,
   EVENT_LISTENER_FLAG
@@ -55,10 +58,11 @@ export default class Component<MT extends Metavars> extends Events {
 
   public __name__: string
   public __path__: string
+  private __lang__: string
   private __template__: string
   private __previous: InteractiveMetavars<MT>
   private __macros: Map<string, Macro> = new Map() // Cached macros templates
-  private __translations: Map<string, RenderedNode> = new Map()
+  private __i18nDeps: Map<string, I18nDependency> = new Map()
   private __renderCache: Map<string, RenderedNode> = new Map()
 
   // Initial FGU dependencies
@@ -103,11 +107,10 @@ export default class Component<MT extends Metavars> extends Events {
     if( options?.prepath ) this.prepath = options.prepath
 
     this.__name__ = name
+    this.__lang__ = this.lips.i18n.lang
     this.__path__ = `${this.prepath}/${this.__name__}`
     this.__template__ = preprocessor( template )
 
-    console.log( this.__template__)
-    
     this.declaration = declaration || { name }
 
     this.input = input || {}
@@ -214,6 +217,23 @@ export default class Component<MT extends Metavars> extends Events {
       typeof this.onContext == 'function'
       && this.onContext.bind(this)()
       this.emit('component:context', this )
+    })
+
+    /**
+     * Subscribe to i18n changes
+     * 
+     * - `*` support all languages
+     * - [...] TODO: Explicitly defined list of supported languages
+     */
+    this.lips.useTranslator( '*', lang => {
+      /**
+       * Run translation update only when the 
+       * language truly changed
+       */
+      if( lang === this.__lang__ ) return
+
+      this.__updateI18nDepNodes__()
+      this.__lang__ = lang
     })
     
     this.ICE = effect( () => {
@@ -1454,7 +1474,39 @@ export default class Component<MT extends Metavars> extends Events {
        */
       attrs.literals && Object
       .entries( attrs.literals )
-      .forEach( ([ attr, value ]) => $fragment.attr( attr, value ) )
+      .forEach( ([ attr, value ]) => {
+        /**
+         * Translate standard visual attributes like:
+         * 
+         * - placeholder text
+         * - title
+         */
+        let canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
+        
+        $fragment.attr( attr, canTranslate ? self.lips.i18n.translate( value ).text : value )
+
+        const updateAttr = ( memo: VariableSet ) => {
+          // Check again
+          canTranslate = $fragment.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
+          $fragment.attr( attr, canTranslate ? self.lips.i18n.translate( value ).text : value )
+
+          // Reset track for i18n translation if needed
+          canTranslate && self.__trackTranslationDep__({
+            path: elementPath,
+            $fragment,
+            update: updateAttr,
+            memo
+          })
+        }
+        
+        // Track for i18n translation
+        canTranslate && self.__trackTranslationDep__({
+          path: elementPath,
+          $fragment,
+          update: updateAttr,
+          memo: scope
+        })
+      })
 
       const assignAttrs = ( list: SyntaxAttributes['expressions'], track: boolean = false ) => {
         list && Object
@@ -1484,16 +1536,21 @@ export default class Component<MT extends Metavars> extends Events {
 
             // Inject text into the element
             case '@text': {
+              let canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`)
+
               const updateText = ( memo: VariableSet ) => {
-                let text = self.__evaluate__( value as string, memo )
+                // Check again
+                canTranslate = $fragment.is(`[${I18N_ATTR_FLAG}]`)
 
-                // Apply translation
-                if( !$node.is('[no-translate]') ){
-                  const { text: _text } = self.lips.i18n.translate( text )
-                  text = _text
-                }
+                $fragment.text( self.__evaluate__( value as string, memo, canTranslate ) )
 
-                $fragment.text( text )
+                // Reset track for i18n translation if needed
+                canTranslate && self.__trackTranslationDep__({
+                  path: elementPath,
+                  $fragment,
+                  update: updateText,
+                  memo
+                })
               }
 
               updateText( scope )
@@ -1509,6 +1566,14 @@ export default class Component<MT extends Metavars> extends Events {
                   batch: true
                 }) )
               }
+
+              // Track for i18n translation
+              canTranslate && self.__trackTranslationDep__({
+                path: elementPath,
+                $fragment,
+                update: updateText,
+                memo: scope
+              })
             } break
 
             // Convert object style attribute to string
@@ -1547,9 +1612,20 @@ export default class Component<MT extends Metavars> extends Events {
 
             // Inject the evaluation result of any other attributes
             default: {
+              /**
+               * Translate standard visual attributes like:
+               * 
+               * - placeholder text
+               * - title
+               */
+              let canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
+
               const updateAttrs = ( memo: VariableSet ) => {
-                const res = value ?
-                            self.__evaluate__( value as string, memo )
+                // Check again
+                canTranslate = $fragment.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
+
+                const res = value
+                            ? self.__evaluate__( value as string, memo, canTranslate )
                             /**
                              * IMPORTANT: An attribute without a value is
                              * considered neutral but `true` of a value by
@@ -1568,9 +1644,20 @@ export default class Component<MT extends Metavars> extends Events {
                  * Very useful case where the attribute don't necessarily
                  * have values by default.
                  */
-                res === undefined || res === false
-                              ? $fragment.removeAttr( attr )
-                              : $fragment.attr( attr, res )
+                if( res === undefined || res === false )
+                  $fragment.removeAttr( attr )
+                
+                else {
+                  $fragment.attr( attr, res )
+
+                  // Reset track for i18n translation if needed
+                  canTranslate && self.__trackTranslationDep__({
+                    path: elementPath,
+                    $fragment,
+                    update: updateAttrs,
+                    memo
+                  })
+                }
               }
 
               updateAttrs( scope )
@@ -1586,6 +1673,14 @@ export default class Component<MT extends Metavars> extends Events {
                   batch: true
                 }) )
               }
+              
+              // Track for i18n translation
+              canTranslate && self.__trackTranslationDep__({
+                path: elementPath,
+                $fragment,
+                update: updateAttrs,
+                memo: scope
+              })
             }
           }
         })
@@ -1647,33 +1742,51 @@ export default class Component<MT extends Metavars> extends Events {
       return $fragment
     }
     function execText( $node: Cash ): Cash {
+      let canTranslate = $node.parent().is(`[${I18N_ATTR_FLAG}]`)
       const
       content = $node.text(),
       textPath = generatePath('element'),
-      canTranslate = !$node.parent().is('[no-translate]'),
       // Initial rendering
-      $fragment = $(document.createTextNode( self.__interpolate__( content, canTranslate, scope ) ) )
+      $fragment = $(document.createTextNode( self.__interpolate__( content, scope, canTranslate ) ))
 
-      // Track for update rendering
+      // Update rendering handler
+      const updateTextContent = ( memo?: VariableSet ) => {
+        // Check again
+        canTranslate = $fragment.parent().is(`[${I18N_ATTR_FLAG}]`)
+
+        const text = self.__interpolate__( content, memo, canTranslate )
+        if( !$fragment[0] ) return
+        $fragment[0].textContent = text
+
+        // Reset track for i18n translation if needed
+        canTranslate && self.__trackTranslationDep__({
+          path: textPath,
+          $fragment,
+          update: updateTextContent,
+          memo: memo || scope
+        })
+      }
+
+      // Track for dependency update
       if( content && self.__isReactive__( content, scope ) ){
-        const
-        deps = self.__extractTextDeps__( content, scope ),
-        updateTextContent = ( memo?: VariableSet ) => {
-          const text = self.__interpolate__( content, canTranslate, memo )
-          if( !$fragment[0] ) return
-          $fragment[0].textContent = text
-        }
+        const  deps = self.__extractTextDeps__( content, scope )
         
         deps.forEach( dep => self.__trackDep__( dependencies, dep, {
           path: textPath,
           $fragment,
           update: updateTextContent,
           memo: scope,
-          // Set this node for translation or not
-          translate: canTranslate,
           batch: deps.length > 1
         }) )
       }
+
+      // Track for i18n translation
+      canTranslate && self.__trackTranslationDep__({
+        path: textPath,
+        $fragment,
+        update: updateTextContent,
+        memo: scope
+      })
 
       // Track DOM insertion
       self.metrics.inc('elementCount')
@@ -1835,8 +1948,9 @@ export default class Component<MT extends Metavars> extends Events {
     this.$?.remove()
     this.PCC?.clear()
     this.FGUD?.clear()
-    this.state.reset()
+    // this.state.reset()
     this.__macros.clear()
+    this.__i18nDeps.clear()
 
     // @ts-ignore
     this.__previous = null
@@ -2220,7 +2334,7 @@ export default class Component<MT extends Metavars> extends Events {
     return path.startsWith( parentPath )
   }
 
-  private __evaluate__( expr: string, scope?: VariableSet ){
+  private __evaluate__( expr: string, scope?: VariableSet, translate?: boolean ){
     try {
       expr = expr.trim()
       const exec = ( each: string ) => {
@@ -2251,8 +2365,9 @@ export default class Component<MT extends Metavars> extends Events {
         }
       }
 
-      if( /{\s*([^{}]+)\s*}/.test( expr ) )
-        return expr.replace( /{\s*([^{}]+)\s*}/g, ( _, expr ) => exec( expr ) )
+      // Interpolate expression
+      if( INTERPOLATE_PATTERN.test( expr ) )
+        return expr.replace( INTERPOLATE_PATTERN, ( _, expr ) => exec( expr ) )
 
       return exec( expr )
     }
@@ -2312,8 +2427,13 @@ export default class Component<MT extends Metavars> extends Events {
       return _fn( ..._args )
     }
   }
-  private __interpolate__( str: string, translate: boolean, scope?: VariableSet ){
-    return str.replace( /{\s*([^{}]+)\s*}/g, ( _, expr ) => this.__evaluate__( expr, scope ) )
+  private __interpolate__( str: string, scope?: VariableSet, translate?: boolean ){
+    str = str.replace( INTERPOLATE_PATTERN, ( _, expr ) => this.__evaluate__( expr, scope ) )
+    // Apply translation
+    if( translate )
+      str = this.lips.i18n.translate( str ).text
+
+    return str
   }
   private __attachEvent__( element: Cash | Component<MT>, _event: string, instruction: string, scope?: VariableSet ){
     /**
@@ -2430,21 +2550,11 @@ export default class Component<MT extends Metavars> extends Events {
     // Track dependency
     this.metrics.inc('dependencyTrackCount')
   }
-  private __trackTranslationDep__( dependencies: FGUDependencies, dep: string, record: FGUDependency ){
-    /**
-     * Designate dependencies that assign or 
-     * interpolate a `let` variable.
-     */
-    if( record.memo
-        && record.memo[ dep ]
-        && record.memo[ dep ].type === 'let' )
-      record.haslet = true
+  private __trackTranslationDep__( record: FGUDependency ){
+    this.__i18nDeps.set( record.path, record )
 
-    !dependencies.has( dep ) && dependencies.set( dep, new Map() )
-    dependencies.get( dep )?.set( record.path, record )
-
-    // Track dependency
-    this.metrics.inc('dependencyTrackCount')
+    // i18n dependency
+    this.metrics.inc('i18nTrackCount')
   }
 
   private __valueDep__( obj: any, path: string[] ): any {
@@ -2559,6 +2669,39 @@ export default class Component<MT extends Metavars> extends Events {
         const sync = dependent.update( dependent.memo, 'var-partial-updator' )
         typeof sync?.cleanup === 'function' && sync.cleanup()
       }
+    } )
+
+    // Finish measuring
+    this.metrics.endRender()
+  }
+  private __updateI18nDepNodes__(){
+    if( !this.__i18nDeps?.size ) return
+
+    // Track update
+    this.metrics.inc('i18nUpdateCount')
+    // Start measuring
+    this.metrics.startRender()
+    
+    this.__i18nDeps?.forEach( ( dependent, path ) => {
+      if( !dependent.$fragment.closest('body').length ){
+        this.__i18nDeps.delete( path )
+        return
+      }
+      
+      dependent.update( dependent.memo, 'i18n-partial-updator' )
+      /**
+       * The different of i18n dependency update
+       * from other updates is that they are cleared
+       * as soon as the get updated. Let for the updator
+       * function to reset a track if needed.
+       * 
+       * Advantage:
+       * - No tracking of unecessarily dead node
+       * - `i18n` flag attribute changed to no-translate
+       * - Keep fresh `memo` from other updates
+       * - Cleanup safety for highly interactive content UI.
+       */
+      this.__i18nDeps.delete( path )
     } )
 
     // Finish measuring
