@@ -27,7 +27,7 @@
   },
 
   "keywords_count": {
-    "type": "plural-form",
+    "type": "plural",
     "value": {
       "*": "{count} keywords",
       "1": "{count} keyword",

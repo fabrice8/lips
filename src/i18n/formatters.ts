@@ -16,14 +16,14 @@ export default ( type: string, reference: string, value: I18nFormat['value'], pa
       /**
        * Plural forms translation
        */
-      case 'plural-form': {
+      case 'plural': {
         if( typeof value === 'string' ){
-          console.warn(`Plural-form format value cannot be a string`)
+          console.warn(`Plural format value cannot be a string`)
           return 
         }
 
         if( params.count === undefined ){
-          console.warn(`Plural-form format requires <count> parameter or use * by default.`)
+          console.warn(`Plural format requires <count> parameter or use * by default.`)
           // Fall back to '*'
           let formText = value['*']
           // Default form come with variants

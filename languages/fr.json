@@ -24,7 +24,7 @@
   },
   
   "keywords_count": {
-    "type": "plural-form",
+    "type": "plural",
     "value": {
       "*": "{count} mots clés",
       "1": "{count} mot clé",
