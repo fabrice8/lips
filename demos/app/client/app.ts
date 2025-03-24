@@ -1,6 +1,6 @@
-import * as Home from '../pages/home'
-import * as Account from '../pages/account'
-import * as Product from '../pages/product'
+import * as Home from './pages/home'
+import * as Account from './pages/account'
+import * as Product from './pages/product'
 
 export const _static = {
   routes: [

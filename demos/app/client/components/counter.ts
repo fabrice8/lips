@@ -1,4 +1,4 @@
-import type { Handler, Metavars } from '../../../dist/types'
+import type { Handler, Metavars } from '../../../../dist/types'
 
 export type Input = {
   initial: number

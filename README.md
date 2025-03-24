@@ -21,12 +21,14 @@ Lips is a modern, runtime-based UI framework that brings fine-grained reactivity
 <html>
 <head>
   <title>My Lips App</title>
-  <script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips"></script>
 </head>
 <body>
   <div id="app"></div>
   
-  <script>
+  <script type="module">
+    // Import from CDN directly in the module script
+    import Lips from 'https://cdn.jsdelivr.net/npm/@lipsjs/lips'
+
     const lips = new Lips();
     
     // <counter/> component
