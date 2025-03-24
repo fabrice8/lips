@@ -1,8 +1,8 @@
 import type { Template, Handler, Metavars } from '../src'
 
 import Lips from '../src/lips'
-import english from './languages/en.json'
-import french from './languages/fr.json'
+import english from '../languages/en.json'
+import french from '../languages/fr.json'
 
 const lips = new Lips({ debug: true })
 
@@ -383,7 +383,7 @@ function DemoForloop(){
   `
   
   lips
-  .render('DemoInput', { default: template, state, handler })
+  .render('DemoForloop', { default: template, state, handler })
   .appendTo('body')
 }
 
@@ -549,6 +549,78 @@ function DemoSyntaxInteract(){
   .appendTo('body')
 }
 
+function DemoI18n(){
+  type State = {
+    name: string,
+    translate: boolean
+    reply: boolean
+    keywords: string[]
+  }
+
+  lips.i18n.setDictionary('en', english )
+  lips.i18n.setDictionary('fr', french )
+
+  const
+  keywords = [
+    'Undo',
+    'Redo',
+    'Reinitialize',
+    'Settings',
+    'Link',
+    'Device Screens'
+  ],
+  state: State = {
+    name: 'Dilan',
+    translate: false,
+    reply: false,
+    keywords
+  },
+  handler: Handler<Metavars<any, State>> = {
+    onTranslateChange(){
+      this.state.translate = !this.state.translate
+    },
+    onReply(){
+      this.state.reply = !this.state.reply
+    },
+    onChangeLanguage( lang: string ){
+      console.log('set-language --', lang )
+      this.lips.setLanguage( lang )
+    },
+    onHandleKeywords(){
+      this.state.keywords = !this.state.keywords.length ? keywords : []
+    }
+  },
+  template = `
+    <p @format="welcome_user, { name: state.name }"></p>
+
+    <if( state.reply )>
+      <p i18n>I guess all is well.</p>
+    </if>
+
+    <b @format="keywords_count, { count: state.keywords.length }"></b>
+    <ul>
+      <for [keyword] in=state.keywords>
+        <if( state.translate )><li i18n>{keyword}</li></if>
+        <else><li>{keyword}</li></else>
+      </for>
+    </ul>
+
+    <br>
+    <button on-click(onReply) i18n>Reply</button>
+    <button on-click(onTranslateChange) @format="translate_button, { translate: state.translate }"></button>
+    <button on-click(onHandleKeywords) i18n>{state.keywords.length ? 'Clear' : 'Reset'} keywords</button>
+
+    <br><br>
+    <button on-click(onChangeLanguage, 'en-US')>English (US)</button>
+    <button on-click(onChangeLanguage, 'en-UK')>English (UK)</button>
+    <button on-click(onChangeLanguage, 'fr-FR')>French</button>
+  `
+  
+  lips
+  .render('DemoI18n', { default: template, state, handler })
+  .appendTo('body')
+}
+
 // DemoState()
 // DemoContext()
 // DemoForloop()
@@ -558,6 +630,7 @@ function DemoSyntaxInteract(){
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
+DemoI18n()
 
 /**
  * -------------------------------------------------------------------------
@@ -831,7 +904,7 @@ function DemoManyComponent(){
 
   // Change detault translation language
   setTimeout( () => {
-    lips.language('fr-FR')
+    lips.setLanguage('fr-FR')
     lips.setContext('online', false )
   }, 5000 )
 }
@@ -1057,7 +1130,7 @@ function DemoShoppingCart(){
 
 // DemoDeepNexted()
 // DemoSubcomponent()
-DemoManyComponent()
+// DemoManyComponent()
 // DemoShoppingCart()
 
 /**

@@ -8,7 +8,7 @@ export const EVENT_LISTENER_FLAG = 'on-'
 export const SPREAD_VAR_PATTERN = /^\.\.\./
 export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
 export const INTERPOLATE_PATTERN = /{\s*([^{}]+)\s*}/g
-export const META_ATTRIBUTES = ['@html', '@text']
+export const META_ATTRIBUTES = ['@html', '@text', '@format']
 
 $.fn.extend({
   attrs: function(){

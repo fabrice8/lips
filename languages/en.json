@@ -1,0 +1,37 @@
+{
+  "Undo": "Undo",
+  "Redo": "Redo",
+  "Reinitialize": "Reinitialize",
+  "Settings": "Settings",
+  "Link": "Link",
+  "Device Screens": {
+    "*": "Device Screens",
+    "UK": "Media Devices"
+  },
+  "Bold": "Bold",
+  "Button": "Button",
+  "Count": "Count",
+  "Reply": "Reply",
+  
+  "I guess all is well.": "I guess all is well.",
+  "welcome_user": {
+    "type": "variable",
+    "value": "Welcome, {name}!"
+  },
+  "translate_button": {
+    "type": "condition",
+    "value": {
+      "translate === true": "No Translate Keywords",
+      "translate === false": "Translate Keywords"
+    }
+  },
+
+  "keywords_count": {
+    "type": "plural-form",
+    "value": {
+      "*": "{count} keywords",
+      "1": "{count} keyword",
+      "0": "No keywords"
+    }
+  }
+}

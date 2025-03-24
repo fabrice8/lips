@@ -661,18 +661,6 @@ export default class Component<MT extends Metavars> extends Events {
        */
       self.metrics.inc('elementCount')
     }
-    // function execEmptyFragment( $node: Cash ): Cash {
-    //   const
-    //   elementPath = generatePath('element'),
-    //   $contents = $node.contents()
-    //   let $fragment = $()
-
-    //   // Process contents recursively if they exist
-    //   if( $contents.length )
-    //     $fragment = $fragment.add( self.__withPath__( elementPath, () => self.render( elementPath, $contents, scope, dependencies, xmlns ).$log ) )
-
-    //   return $fragment
-    // }
     function execDynamicElement( $node: Cash, dtag: string, renderer: MeshRenderer | null ): Cash {
       const
       { attrs } = self.__getAttributes__( $node ),
@@ -1475,19 +1463,19 @@ export default class Component<MT extends Metavars> extends Events {
       attrs.literals && Object
       .entries( attrs.literals )
       .forEach( ([ attr, value ]) => {
+        if( attr === I18N_ATTR_FLAG ) return
+
         /**
          * Translate standard visual attributes like:
          * 
          * - placeholder text
          * - title
          */
-        let canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
+        const canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
         
         $fragment.attr( attr, canTranslate ? self.lips.i18n.translate( value ).text : value )
 
         const updateAttr = ( memo: VariableSet ) => {
-          // Check again
-          canTranslate = $fragment.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
           $fragment.attr( attr, canTranslate ? self.lips.i18n.translate( value ).text : value )
 
           // Reset track for i18n translation if needed
@@ -1536,12 +1524,9 @@ export default class Component<MT extends Metavars> extends Events {
 
             // Inject text into the element
             case '@text': {
-              let canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`)
-
-              const updateText = ( memo: VariableSet ) => {
-                // Check again
-                canTranslate = $fragment.is(`[${I18N_ATTR_FLAG}]`)
-
+              const 
+              canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`),
+              updateText = ( memo: VariableSet ) => {
                 $fragment.text( self.__evaluate__( value as string, memo, canTranslate ) )
 
                 // Reset track for i18n translation if needed
@@ -1574,6 +1559,52 @@ export default class Component<MT extends Metavars> extends Events {
                 update: updateText,
                 memo: scope
               })
+            } break
+
+            // Inject formated text into the element
+            case '@format': {
+              const [ reference, params ] = value.split(',').map( ( part: string )=> part.trim() )
+              if( !reference )
+                throw new Error('Invalid @format reference')
+
+              if( !params )
+                throw new Error('Invalid @format parameters')
+
+              const applyFormat = ( memo: VariableSet ) => {
+                /**
+                 * IMPORTANT: Parse parameters if provided
+                 * with `!` flag to signal interpolation
+                 * exception during expression evaluation.
+                 */
+                const _params = self.__evaluate__(`!${params.trim()}`, memo )
+                if( typeof _params !== 'object' )
+                  throw new Error('Invalid @format parameters')
+
+                // Get the translation
+                const text = self.lips.i18n.format( reference, _params )
+                text !== undefined && $fragment.text( text )
+                
+                // Track for i18n translation updates
+                self.__trackTranslationDep__({
+                  path: elementPath,
+                  $fragment,
+                  update: applyFormat,
+                  memo
+                })
+              }
+
+              applyFormat( scope )
+              
+              // Track reactive dependencies in parameters
+              self
+              .__extractExpressionDeps__( params, scope )
+              .forEach( dep => self.__trackDep__( dependencies, dep, {
+                $fragment,
+                path: `${elementPath}.${attr}`,
+                update: applyFormat,
+                memo: scope,
+                batch: true
+              }))
             } break
 
             // Convert object style attribute to string
@@ -1618,12 +1649,9 @@ export default class Component<MT extends Metavars> extends Events {
                * - placeholder text
                * - title
                */
-              let canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
-
-              const updateAttrs = ( memo: VariableSet ) => {
-                // Check again
-                canTranslate = $fragment.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr )
-
+              const 
+              canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr ),
+              updateAttrs = ( memo: VariableSet ) => {
                 const res = value
                             ? self.__evaluate__( value as string, memo, canTranslate )
                             /**
@@ -1742,18 +1770,15 @@ export default class Component<MT extends Metavars> extends Events {
       return $fragment
     }
     function execText( $node: Cash ): Cash {
-      let canTranslate = $node.parent().is(`[${I18N_ATTR_FLAG}]`)
       const
       content = $node.text(),
       textPath = generatePath('element'),
+      canTranslate = $node.parent().is(`[${I18N_ATTR_FLAG}]`),
       // Initial rendering
       $fragment = $(document.createTextNode( self.__interpolate__( content, scope, canTranslate ) ))
 
       // Update rendering handler
       const updateTextContent = ( memo?: VariableSet ) => {
-        // Check again
-        canTranslate = $fragment.parent().is(`[${I18N_ATTR_FLAG}]`)
-
         const text = self.__interpolate__( content, memo, canTranslate )
         if( !$fragment[0] ) return
         $fragment[0].textContent = text
@@ -1805,10 +1830,6 @@ export default class Component<MT extends Metavars> extends Events {
       // Lips in-build scope variables syntax components
       if( $node.is('let') ) return execLet( $node )
       else if( $node.is('const') ) return execConst( $node )
-
-      // Lips's empty fragment
-      // else if( $node.is('lips') && $node.is('[fragment]') ) 
-      //   return execEmptyFragment( $node )
 
       /**
        * Lips's dynamic tags like:
@@ -1995,7 +2016,8 @@ export default class Component<MT extends Metavars> extends Events {
 
     let
     PARTIAL_CONTENT: Cash | undefined,
-    ITERATOR_REGISTRY: Array<{ boundaries: FragmentBoundaries, argvalues?: VariableSet }> = []
+    ITERATOR_REGISTRY: Array<{ boundaries: FragmentBoundaries, argvalues?: VariableSet }> = [],
+    processingUpdate = false
 
     const
     PARTIAL_PATHS: string[] = [],
@@ -2114,14 +2136,14 @@ export default class Component<MT extends Metavars> extends Events {
       if( !ITERATOR_REGISTRY[ index ] ) return
       const boundaries = ITERATOR_REGISTRY[ index ].boundaries
 
-      delete ITERATOR_REGISTRY[ index ]
+      ITERATOR_REGISTRY.splice( index, 1 )
 
       // Must have boundary markers in the DOM
       if( !document.contains( boundaries.start ) || !document.contains( boundaries.end ) ){
         console.warn(`Partial mesh item<${index}> boundaries missing`)
         return
       }
-        
+      
       // Collect all nodes between markers to remove
       const nodesToRemove = []
       let currentNode = boundaries.start.nextSibling
@@ -2170,57 +2192,64 @@ export default class Component<MT extends Metavars> extends Events {
           else return partialRender( PARTIAL_CONTENT, argvalues )
         },
         update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ){
-          if( !PARTIAL_PATHS.length ) return
+          if( !PARTIAL_PATHS.length || processingUpdate ) return
           
-          boundaries = boundaries || fragmentBoundaries
+          processingUpdate = true
+          try {
+            boundaries = boundaries || fragmentBoundaries
+            
+            /**
+             * Granular rendering of iterator nodes
+             */
+            if( declaration?.iterator ){
+              const newArgs: VariableSet[] = argvalues?.['#'].value
+              if( !Array.isArray( newArgs ) ) return
 
-          /**
-           * Granular rendering of iterator nodes
-           */
-          if( declaration?.iterator ){
-            const newArgs: VariableSet[] = argvalues?.['#'].value
-            if( !Array.isArray( newArgs ) ) return
+              if( Array.isArray( ITERATOR_REGISTRY ) ){
+                /**
+                 * Perform granular updates when 
+                 * length hasn't changed
+                 */
+                if( ITERATOR_REGISTRY.length === newArgs.length ){
+                  // Update item's dependency without re-rendering
+                  for( let i = 0; i < newArgs.length; i++ )
+                    !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] )
+                    && partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
 
-            if( Array.isArray( ITERATOR_REGISTRY ) ){
-              /**
-               * Perform granular updates when 
-               * length hasn't changed
-               */
-              if( ITERATOR_REGISTRY.length === newArgs.length ){
-                // Update item's dependency without re-rendering
-                for( let i = 0; i < newArgs.length; i++ )
-                  !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] )
-                  && partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
+                  return
+                }
 
-                return
-              }
+                /**
+                 * Update incrementally existing items when 
+                 * length has changed
+                 */
+                const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
+                for( let i = 0; i < existsLength; i++ )
+                  partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
+                
+                // Add new items additions
+                if( newArgs.length > ITERATOR_REGISTRY.length ){
+                  if( !PARTIAL_CONTENT?.length ) return
 
-              /**
-               * Update incrementally existing items when 
-               * length has changed
-               */
-              const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
-              for( let i = 0; i < existsLength; i++ )
-                partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
-              
-              // Add new items additions
-              if( newArgs.length > ITERATOR_REGISTRY.length ){
-                if( !PARTIAL_CONTENT?.length ) return
-
-                for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
-                  const $partialLog = partialRender( PARTIAL_CONTENT, newArgs[ i ], i )
-                  $(boundaries.end).before( $partialLog )
+                  for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
+                    const $partialLog = partialRender( PARTIAL_CONTENT, newArgs[ i ], i )
+                    $(boundaries.end).before( $partialLog )
+                  }
+                }
+                // Remove items
+                else if( newArgs.length < ITERATOR_REGISTRY.length ){
+                  for( let i = ITERATOR_REGISTRY.length - 1; i >= newArgs.length; i-- )
+                    partialRemove( i )
                 }
               }
-              // Remove items
-              else if( newArgs.length < ITERATOR_REGISTRY.length ){
-                for( let i = newArgs.length; i < ITERATOR_REGISTRY.length; i++ )
-                  partialRemove( i )
-              }
             }
+            // Update dependencies
+            else partialUpdate( deps, argvalues )
           }
-          // Update dependencies
-          else partialUpdate( deps, argvalues )
+          /**
+           * Reset the flag after the current execution cycle
+           */
+          finally { setTimeout( () => processingUpdate = false, 0 ) }
         }
       }
     }
@@ -2365,9 +2394,21 @@ export default class Component<MT extends Metavars> extends Events {
         }
       }
 
-      // Interpolate expression
-      if( INTERPOLATE_PATTERN.test( expr ) )
+      // Check for interpolation or object expression
+      if( /{\s*([^{}]+)\s*}/.test( expr ) ){
+        /**
+         * IMPORTANT: Object exception flag.
+         * 
+         * Case where closures supposedly to define
+         * interpolation are instead flagged with `!` 
+         * sign to be processed as a javascript object.
+         */
+        if( expr.startsWith('!{') && expr.endsWith('}') )
+          return exec( expr.slice(1) )
+
+        // Interpolation
         return expr.replace( INTERPOLATE_PATTERN, ( _, expr ) => exec( expr ) )
+      }
 
       return exec( expr )
     }
@@ -2603,7 +2644,7 @@ export default class Component<MT extends Metavars> extends Events {
             dependents.delete( path )
             return
           }
-
+          
           /**
            * For batch updates, collect all updates first
            * and execute batch once.
@@ -2683,12 +2724,6 @@ export default class Component<MT extends Metavars> extends Events {
     this.metrics.startRender()
     
     this.__i18nDeps?.forEach( ( dependent, path ) => {
-      if( !dependent.$fragment.closest('body').length ){
-        this.__i18nDeps.delete( path )
-        return
-      }
-      
-      dependent.update( dependent.memo, 'i18n-partial-updator' )
       /**
        * The different of i18n dependency update
        * from other updates is that they are cleared
@@ -2697,11 +2732,16 @@ export default class Component<MT extends Metavars> extends Events {
        * 
        * Advantage:
        * - No tracking of unecessarily dead node
-       * - `i18n` flag attribute changed to no-translate
-       * - Keep fresh `memo` from other updates
+       * - `i18n` flag or attribute changed to no-translate
+       * - Keep fresh `memo` from other update processes
        * - Cleanup safety for highly interactive content UI.
        */
-      this.__i18nDeps.delete( path )
+      if( !dependent.$fragment.closest('body').length ){
+        this.__i18nDeps.delete( path )
+        return
+      }
+      
+      dependent.update( dependent.memo, 'i18n-partial-updator' )
     } )
 
     // Finish measuring

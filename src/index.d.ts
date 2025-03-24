@@ -18,7 +18,12 @@ export type Variable = {
 }
 export type VariableSet = Record<string, Variable>
 
-export type LanguageDictionary = Record<string, Record<string, string> | string>
+export type I18nVariant = Record<string, string>
+export type I18nFormat = {
+  type: string
+  value: string | I18nVariant | Record<string, string | I18nVariant>
+}
+export type Dictionary = Record<string, string | I18nFormat | I18nVariant>
 
 export type DeclarationTagType = 'nexted' | 'child'
 export type DeclarationTag = {

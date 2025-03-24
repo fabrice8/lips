@@ -1,0 +1,34 @@
+{
+  "Undo": "Annuler",
+  "Redo": "Refaire",
+  "Reinitialize": "Réinitialiser",
+  "Settings": "Paramêtre",
+  "Link": "Lien",
+  "Device Screens": "Dispositifs",
+  "Bold": "Gras",
+  "Button": "Bouton",
+  "Count": "Compter",
+  "Reply": "Repondre",
+  "I guess all is well.": "Tout va bien, je crois!",
+
+  "welcome_user": {
+    "type": "variable",
+    "value": "Bienvenue, {name}!"
+  },
+  "translate_button": {
+    "type": "condition",
+    "value": {
+      "translate === true": "Pas Traduire",
+      "translate === false": "Traduire"
+    }
+  },
+  
+  "keywords_count": {
+    "type": "plural-form",
+    "value": {
+      "*": "{count} mots clés",
+      "1": "{count} mot clé",
+      "0": "Pas de mots clés"
+    }
+  }
+}

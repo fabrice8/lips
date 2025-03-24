@@ -38,7 +38,7 @@ export default class Lips<Context extends Object = {}> {
     this.watcher = new DWS
     this.IUC = new IUC
     
-    const [ getLang, setLang ] = signal<string>('')
+    const [ getLang, setLang ] = signal<string>( this.i18n.lang )
     const [ getContext, setContext ] = signal<Context>( config?.context || {} as Context )
 
     this.__setLang = setLang
@@ -158,9 +158,12 @@ export default class Lips<Context extends Object = {}> {
     return this.__root
   }
 
-  language( lang: string ){
+  setLanguage( lang: string ){
     this.i18n.lang = lang
     this.__setLang( lang )
+  }
+  getLanguage(){
+    return this.__getLang()
   }
 
   setContext( arg: Context | string, value?: any ){

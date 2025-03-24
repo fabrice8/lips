@@ -10,7 +10,7 @@ export interface State {
   argvlist: Record<string, any>[] | null
 }
 export interface Static {
-  lastInput: any
+  lastIn: any
   processingBatch: boolean
 }
 
@@ -23,7 +23,7 @@ export const state: State = {
   argvlist: null
 }
 export const _static: Static = {
-  lastInput: null,
+  lastIn: null,
   processingBatch: false
 }
 
@@ -120,18 +120,20 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
          * avoid unnecessary processing.
          */
         if( this.state.argvlist
-            && this.static.lastInput
-            && this.input.in === this.static.lastInput )
+            && this.static.lastIn
+            && this.input.in === this.static.lastIn )
           return
     
         if( !_in.length ){
-          console.warn('empty for loop <in> attribute Array value')
+          if( !this.static.lastIn )
+            console.warn('For loop with empty initial rendering <in> attribute array value will not update')
+          
           this.state.argvlist = []
           return
         }
 
         // Cache the input for future reference checks
-        this.static.lastInput = _in
+        this.static.lastIn = _in
 
         /**
          * Skip full regeneration If we already have an 
@@ -179,18 +181,20 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
          * avoid unnecessary processing.
          */
         if( this.state.argvlist
-            && this.static.lastInput
-            && this.input.in === this.static.lastInput )
+            && this.static.lastIn
+            && this.input.in === this.static.lastIn )
           return
 
         if( !_in.size ){
-          console.warn('empty for loop <in> attribute Map value')
+          if( !this.static.lastIn )
+            console.warn('For loop with empty initial rendering <in> attribute map value will not update')
+          
           this.state.argvlist = []
           return
         }
 
         // Cache the input for future reference checks
-        this.static.lastInput = _in
+        this.static.lastIn = _in
         
         /**
          * Skip full regeneration If we already have an 
@@ -251,18 +255,20 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
          * avoid unnecessary processing.
          */
         if( this.state.argvlist
-            && this.static.lastInput
-            && this.input.in === this.static.lastInput )
+            && this.static.lastIn
+            && this.input.in === this.static.lastIn )
           return
 
         if( !Object.keys( _in ).length ){
-          console.warn('empty for loop <in> attribute Object value')
+          if( !this.static.lastIn )
+            console.warn('For loop with empty initial rendering <in> attribute object value will not update')
+          
           this.state.argvlist = []
           return
         }
 
         // Cache the input for future reference checks
-        this.static.lastInput = _in
+        this.static.lastIn = _in
         
         /**
          * Skip full regeneration If we already have an 
