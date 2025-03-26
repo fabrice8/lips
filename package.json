@@ -3,15 +3,15 @@
   "version": "0.0.4",
   "description": "Fast, Lightweight Reactive UI Framework",
   "main": "./dist/lips.min.js",
+  "types": "./dist/types/lips.d.ts",
   "files": [
-    "dist/",
-    "*.d.ts",
-    "dist/types/**/*"
+    "dist/**/*"
   ],
   "exports": {
     ".": {
       "import": "./dist/lips.min.js",
-      "require": "./dist/lips.min.js"
+      "require": "./dist/lips.min.js",
+      "types": "./dist/types/lips.d.ts"
     }
   },
   "author": "Fabrice K.E.M",
