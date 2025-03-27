@@ -14,7 +14,7 @@ import * as Switch from './syntax/switch'
 import * as Router from './syntax/router'
 
 export * from './types'
-export const Component = ComponentClass
+export type Component<MT extends Metavars> = ComponentClass<MT>
 
 export default class Lips<Context extends Object = {}> {
   public debug = false
@@ -121,7 +121,7 @@ export default class Lips<Context extends Object = {}> {
       prepath: '0',
       lips: this
     },
-    component = new Component<MT>( name, _default || '', { ...scope, input }, options )
+    component = new ComponentClass<MT>( name, _default || '', { ...scope, input }, options )
 
     // Perform synchronous cleanup operations
     window.addEventListener( 'beforeunload', () => {
