@@ -1,6 +1,4 @@
-import type { Template, Handler, Metavars } from '../src'
-
-import Lips from '../src/lips'
+import Lips, { Template, Handler, Metavars } from '../src/lips'
 import english from '../languages/en.json'
 import french from '../languages/fr.json'
 

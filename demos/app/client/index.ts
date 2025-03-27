@@ -1,6 +1,6 @@
 import Lips from '../../../dist/lips.min'
-import english from '../languages/en.json'
-import french from '../languages/fr.json'
+import english from './languages/en.json'
+import french from './languages/fr.json'
 
 import registry from './registry'
 import * as App from './app'

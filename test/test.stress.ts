@@ -1,5 +1,4 @@
-import Lips from '../src/lips';
-import type { Handler, Metavars } from '../src';
+import Lips, { Handler, Metavars } from '../src/lips';
 
 // Types for our stress test
 interface StressTestState {
