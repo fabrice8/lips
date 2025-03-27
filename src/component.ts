@@ -781,7 +781,7 @@ export default class Component<MT extends Metavars> extends Events {
                 type: 'arg',
                 value: value ? self.__evaluate__( value, memo ) : true
               }
-
+              
               activeRenderer.update( [ key ], { [ key ]: _value }, boundaries )
             }
             
@@ -2079,12 +2079,17 @@ export default class Component<MT extends Metavars> extends Events {
         if( !dependents ) return
         
         dependents.forEach( ( dependent ) => {
-          // Process only dependents of this partial
-          const partialPath = PARTIAL_PATHS.find( p => dependent.partial?.find( pp => p == pp ) )
+          // Process only dependents of this partial and its subpartials
+          const partialPath = PARTIAL_PATHS.find( p => {
+            return dependent.partial?.find( pp => {
+              return p == pp // This partial
+                    || self.__hasSamePathParent__( pp, self.__getPathParent__( p ) ) // Subpartials
+            } )
+          } )
           if( !dependent.partial || !partialPath ) return
 
           /**
-           * Targeted iterator item only. 
+           * Targeted iterator item only.
            */
           if( index !== undefined && !partialPath.endsWith(`r[${index}]`) )
             return
@@ -2094,7 +2099,7 @@ export default class Component<MT extends Metavars> extends Events {
             dependents.delete( dependent.path )
             return
           }
-        
+          
           if( dependent.memo?.[ dep ]
               && argvalues?.[ dep ]
               && isEqual( dependent.memo[ dep ], argvalues[ dep ] ) ) return
@@ -2193,7 +2198,7 @@ export default class Component<MT extends Metavars> extends Events {
         },
         update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ){
           if( !PARTIAL_PATHS.length || processingUpdate ) return
-          
+
           processingUpdate = true
           try {
             boundaries = boundaries || fragmentBoundaries
@@ -2355,7 +2360,7 @@ export default class Component<MT extends Metavars> extends Events {
   }
   private __getPathParent__( path: string ){
     const __ = path.split('/')
-    __.pop()
+    if( __.length > 1 ) __.pop()
 
     return __.join('/')
   }

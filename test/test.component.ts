@@ -385,6 +385,42 @@ function DemoForloop(){
   .appendTo('body')
 }
 
+function DemoForIfElse(){
+  type State = {
+    letters: string[]
+  }
+
+  const
+  state: State = {
+    letters: ['A','B','C','D','E','F']
+  },
+  handler: Handler<Metavars<any, State>> = {
+    onMount(){
+      setTimeout( () => this.state.letters = ['F','G','H','J', 'K', 'L', 'M', 'N'], 2000 )
+      setTimeout( () => this.state.letters[3] = 'O', 6000 )
+      setTimeout( () => this.state.letters = ['O', 'P', 'Q'], 80000 )
+      setTimeout( () => this.state.letters = ['Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'], 10000 )
+    }
+  },
+  template = `
+    <for [each, idx] in=state.letters>
+      <log( each )/>
+
+      <if( idx % 3 )>
+        <let composite="{each}{idx}"/>
+        <div>#{composite}</div>
+      </if>
+      <else>
+        <div>[{idx}] {each}</div>
+      </else>
+    </for>
+  `
+  
+  lips
+  .render('DemoForIfElse', { default: template, state, handler })
+  .appendTo('body')
+}
+
 function DemoSyntaxInteract(){
   type TemplateInput = {
     initial: number
@@ -622,13 +658,14 @@ function DemoI18n(){
 // DemoState()
 // DemoContext()
 // DemoForloop()
+DemoForIfElse()
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
-DemoI18n()
+// DemoI18n()
 
 /**
  * -------------------------------------------------------------------------
