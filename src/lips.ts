@@ -1,4 +1,4 @@
-import type { LipsConfig, Template, ComponentOptions, Metavars } from '.'
+import type { LipsConfig, Template, ComponentOptions, Metavars } from './types'
 
 import I18N from './i18n'
 import IUC from './iuc'
@@ -12,6 +12,8 @@ import * as For from './syntax/for'
 import * as Async from './syntax/async'
 import * as Switch from './syntax/switch'
 import * as Router from './syntax/router'
+
+export * from './types'
 
 export default class Lips<Context extends Object = {}> {
   public debug = false
@@ -113,7 +115,7 @@ export default class Lips<Context extends Object = {}> {
   render<MT extends Metavars>( name: string, template: Template<MT>, input?: MT['Input'] ){
     const
     { default: _default, ...scope } = template,
-    options: ComponentOptions = {
+    options: ComponentOptions<Context> = {
       debug: this.debug,
       prepath: '0',
       lips: this

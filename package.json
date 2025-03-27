@@ -19,7 +19,7 @@
   "scripts": {
     "dev": "bun compile --watch",
     "compile": "bun build --entrypoints ./test/* ./src/lips.ts --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external",
-    "build:declaration": "tsc --project tsconfig.types.json && cp ./src/index.d.ts ./dist/types/index.d.ts",
+    "build:declaration": "tsc --project tsconfig.types.json",
     "prepack": "bun compile && bun run build:declaration",
     "test": "Echo 'Error: No test specified' && exit 1"
   },

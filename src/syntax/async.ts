@@ -1,4 +1,4 @@
-import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate, VariableSet } from '..'
+import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate, VariableSet } from '../types'
 
 export interface Input {
   await: Promise<any>

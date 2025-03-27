@@ -1,9 +1,9 @@
 
-import type Lips from '../../../dist/lips.min'
+import type Lips from '../../../dist/types/lips'
 
-import * as Counter from '../components/counter'
-import * as Profile from '../components/profile'
-import * as Footer from '../components/footer'
+import * as Counter from './components/counter'
+import * as Profile from './components/profile'
+import * as Footer from './components/footer'
 
 export default ( lips: Lips ) => {
   lips.register('counter', Counter )

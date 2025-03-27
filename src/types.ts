@@ -1,4 +1,5 @@
-import type Lips from '.'
+import type { Cash } from 'cash-dom'
+import type Lips from './lips'
 import type Component from './component'
 
 export interface Metavars<Input extends Object = {}, State extends Object = {}, Static extends Object = {}, Context extends Object = {}> {
@@ -39,17 +40,32 @@ export type Declaration = {
   tags?: Record<string, DeclarationTag>
 }
 
-export interface Handler<MT extends Metavars> {
-  onCreate?: ( this: Component<MT> ) => void
-  onInput?: ( this: Component<MT>, input: MT['Input'] ) => void
-  onMount?: ( this: Component<MT> ) => void
-  onRender?: ( this: Component<MT> ) => void
-  onUpdate?: ( this: Component<MT> ) => void
-  onAttach?: ( this: Component<MT> ) => void
-  onDetach?: ( this: Component<MT> ) => void
-  onContext?: ( this: Component<MT> ) => void
-
-  [method: string]: ( this: Component<MT>, ...args: any[] ) => void
+export type LifeCycleEventTypes = 'onCreate'
+                                  | 'onInput'
+                                  | 'onMount'
+                                  | 'onRender'
+                                  | 'onUpdate'
+                                  | 'onAttach'
+                                  | 'onDetach'
+                                  | 'onContext'
+                                  | 'onDestroy'
+export interface LifecycleEvents<MT extends Metavars> {
+  onCreate: ( this: Component<MT> ) => void
+  onInput: ( this: Component<MT>, input: MT['Input'] ) => void
+  onMount: ( this: Component<MT> ) => void
+  onRender: ( this: Component<MT> ) => void
+  onUpdate: ( this: Component<MT> ) => void
+  onAttach: ( this: Component<MT> ) => void
+  onDetach: ( this: Component<MT> ) => void
+  onContext: ( this: Component<MT> ) => void
+  onDestroy: ( this: Component<MT> ) => void
+}
+export type Handler<MT extends Metavars> = Partial<LifecycleEvents<MT>> & {
+  /**
+   * This mapped type creates a type for all string 
+   * keys EXCEPT those that are lifecycle event names
+   */
+  [ K in string as K extends keyof LifecycleEvents<MT> ? never : K]?: (this: Component<MT>, ...args: any[]) => void;
 }
 export type Template<MT extends Metavars> = {
   default?: string
@@ -75,8 +91,8 @@ export type ComponentScope<MT extends Metavars> = {
   stylesheet?: string
   declaration?: Declaration
 }
-export type ComponentOptions = {
-  lips: Lips
+export type ComponentOptions<Context extends Object> = {
+  lips: Lips<Context>
   debug?: boolean
   prepath?: string
 }
@@ -127,6 +143,7 @@ export interface FGUSync {
   cleanup?: () => void
 }
 export interface I18nDependency {
+  path: string
   $fragment: Cash
   memo: VariableSet
   update: ( memo: VariableSet, by?: string ) => FGUSync | void
@@ -161,15 +178,15 @@ export type FragmentBoundaries = {
 export interface MeshRenderer {
   path: string | null
   argv: string[]
-  mesh( argvalues?: VariableSet ): Cash
-  update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ): Cash
+  mesh( argvalues?: VariableSet ): Cash | null
+  update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ): void
 }
 export type MeshTemplate = Record<string, any> & {
   renderer: MeshRenderer
 }
 export interface MeshWireSetup {
-  argv: string[] = []
-  scope: VariableSet = {}
+  argv: string[]
+  scope: VariableSet
   declaration?: Declaration
   useAttributes: boolean
   xmlns?: boolean

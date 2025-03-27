@@ -1,4 +1,4 @@
-import { Metavars } from '.'
+import { Metavars } from './types'
 import type Component from './component'
 
 type WatchData = {

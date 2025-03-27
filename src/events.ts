@@ -1,4 +1,4 @@
-import type { EventListener } from '.'
+import type { EventListener } from './types'
 
 export type EventOptions = {
   emit?: boolean

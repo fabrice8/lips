@@ -1,4 +1,4 @@
-import type { Handler, Metavars, Template } from '..'
+import type { Handler, Metavars, Template } from '../types'
 
 type RouteDef<MT extends Metavars> = {
   path: string

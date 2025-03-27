@@ -21,7 +21,7 @@ import type {
   SyntaxAttributes,
   DynamicTemplate,
   I18nDependency
-} from '.'
+} from './types'
 
 import UQS from './uqs'
 import Events from './events'
@@ -99,7 +99,7 @@ export default class Component<MT extends Metavars> extends Events {
    */
   ;[key: string]: any
 
-  constructor( name: string, template: string, { input, state, context, _static, handler, stylesheet, macros, declaration }: ComponentScope<MT>, options: ComponentOptions ){
+  constructor( name: string, template: string, { input, state, context, _static, handler, stylesheet, macros, declaration }: ComponentScope<MT>, options: ComponentOptions<any> ){
     super()
     this.lips = options.lips
     
@@ -384,7 +384,7 @@ export default class Component<MT extends Metavars> extends Events {
   setHandler( list: Handler<MT> ){
     Object
     .entries( list )
-    .map( ([ method, fn ]) => this[ method ] = fn.bind(this) )
+    .map( ([ method, fn ]) => this[ method ] = fn?.bind(this) )
   }
   setStylesheet( sheet?: string ){
     const cssOptions = {
@@ -2591,7 +2591,7 @@ export default class Component<MT extends Metavars> extends Events {
     // Track dependency
     this.metrics.inc('dependencyTrackCount')
   }
-  private __trackTranslationDep__( record: FGUDependency ){
+  private __trackTranslationDep__( record: I18nDependency ){
     this.__i18nDeps.set( record.path, record )
 
     // i18n dependency

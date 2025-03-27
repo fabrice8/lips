@@ -1,4 +1,4 @@
-import type { I18nVariant, I18nFormat } from '..'
+import type { I18nVariant, I18nFormat } from '../types'
 
 function injectParams( text: string, params?: Record<string, any> ){
   if( !params ) return text

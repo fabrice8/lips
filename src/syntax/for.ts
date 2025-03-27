@@ -1,4 +1,4 @@
-import type { Declaration, Handler, Metavars, MeshRenderer, VariableSet } from '..'
+import type { Declaration, Handler, Metavars, MeshRenderer, VariableSet } from '../types'
 
 export interface Input {
   in: Record<string, any> | any[]

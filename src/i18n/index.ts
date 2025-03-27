@@ -1,4 +1,4 @@
-import type { Dictionary } from '..'
+import type { Dictionary } from '../types'
 
 import Formatters from './formatters'
 

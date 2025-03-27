@@ -1,4 +1,4 @@
-import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate } from '..'
+import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate } from '../types'
 
 export interface Input {
   by: boolean
