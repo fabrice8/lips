@@ -3,7 +3,7 @@ import type { LipsConfig, Template, ComponentOptions, Metavars } from './types'
 import I18N from './i18n'
 import IUC from './iuc'
 import DWS from './dws'
-import Component from './component'
+import ComponentClass from './component'
 import Stylesheet from './stylesheet'
 import { effect, signal } from './signal'
 import { isDiff } from './utils'
@@ -14,6 +14,7 @@ import * as Switch from './syntax/switch'
 import * as Router from './syntax/router'
 
 export * from './types'
+export const Component = ComponentClass
 
 export default class Lips<Context extends Object = {}> {
   public debug = false
@@ -21,7 +22,7 @@ export default class Lips<Context extends Object = {}> {
   private config?: LipsConfig<Context> = {}
   private store: Record<string, Template<any>> = {}
 
-  private __root?: Component<any>
+  private __root?: ComponentClass<any>
   public i18n = new I18N()
   public watcher: DWS<any>
   public IUC: IUC
