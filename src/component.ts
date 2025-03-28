@@ -769,7 +769,8 @@ export default class Component<MT extends Metavars> extends Events {
               batch: true
             }) )
           }
-          else if( ( key === '#' || activeRenderer.argv.includes( key ) ) && self.__isReactive__( value as string, scope ) ) {
+          else if( ( key === '#' || activeRenderer.argv.includes( key ) )
+                    && self.__isReactive__( value as string, scope ) ) {
             const 
             deps = self.__extractExpressionDeps__( value as string, scope ),
             partialUpdate = ( memo: VariableSet, by?: string ) => {
@@ -1268,14 +1269,14 @@ export default class Component<MT extends Metavars> extends Events {
 
           allvalues[ key ] = val
 
-          if( macro.argv.includes( key ) )
+          if( macro.argv.includes( key ) ){
             argvalues[ key ] = {
               value: val,
               type: 'arg'
             }
-
-          if( macro.argv.includes( key ) )
+            
             TRACKABLE_ATTRS[ key ] = value
+          }
         }
           
         /**
@@ -2072,7 +2073,16 @@ export default class Component<MT extends Metavars> extends Events {
     partialUpdate = ( deps: string[], argvalues: VariableSet, index?: number ) => {
       // Start measuring
       self.metrics.startRender()
-      
+
+      /**
+       * IMPORTANT: Targeted item paths only within
+       * iterator context to avoid unecessary dependency
+       * checks or updates.
+       */
+      const targetedPaths = index !== undefined 
+                                ? PARTIAL_PATHS.filter( p => p.endsWith(`r[${index}]`) )
+                                : PARTIAL_PATHS
+
       // Execute partial mesh update
       deps.forEach( ( dep ) => {
         const dependents = self.FGUD.get( dep )
@@ -2080,19 +2090,10 @@ export default class Component<MT extends Metavars> extends Events {
         
         dependents.forEach( ( dependent ) => {
           // Process only dependents of this partial and its subpartials
-          const partialPath = PARTIAL_PATHS.find( p => {
-            return dependent.partial?.find( pp => {
-              return p == pp // This partial
-                    || self.__hasSamePathParent__( pp, self.__getPathParent__( p ) ) // Subpartials
-            } )
+          const partialPath = targetedPaths.find( p => {
+            return dependent.partial?.find( pp => p == pp || self.__hasSamePathParent__( pp, p ) )
           } )
           if( !dependent.partial || !partialPath ) return
-
-          /**
-           * Targeted iterator item only.
-           */
-          if( index !== undefined && !partialPath.endsWith(`r[${index}]`) )
-            return
           
           if( fragmentBoundaries?.start && !document.contains( fragmentBoundaries.start ) ){
             console.warn(`${meshPath} -- partial boundaries missing in the DOM`)
