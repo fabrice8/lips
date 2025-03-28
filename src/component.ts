@@ -2026,7 +2026,7 @@ export default class Component<MT extends Metavars> extends Events {
       // Render the partial
       const
       partialPath = `${fragmentPath}.${meshPath || 'r'}${index !== undefined ? `[${index}]` : ''}`,
-      { $log, dependencies, events } = self.render( partialPath, $contents, { ...scope, ...argvalues }, undefined, xmlns )
+      { $log, dependencies, events } = self.__withPath__( partialPath, () => self.render( partialPath, $contents, { ...scope, ...argvalues }, undefined, xmlns ) )
 
       PARTIAL_PATHS.push( partialPath )
 
