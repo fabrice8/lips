@@ -5,7 +5,7 @@ import type Component from './component'
  * Update Queue System for high-frequency DOM updates
  */
 export default class UpdateQueue<MT extends Metavars > {
-  private pending = new Set<FGUDBatchEntry>()
+  private pending = new Map<string, FGUDBatchEntry>()
   private isPending = false
   private component: Component<MT>
   
@@ -25,7 +25,14 @@ export default class UpdateQueue<MT extends Metavars > {
    * Queue updates to be processed in the next tick
    */
   queue( entry: FGUDBatchEntry ){
-    this.pending.add( entry )
+    /**
+     * TODO: Review the override of pending update
+     * of same dependent.
+     * 
+     * If not functioning as expected. Revert
+     * `this.pending` to a `Set` instead of `Map`.
+     */
+    this.pending.set( entry.dependent.path, entry )
     this.component.metrics.inc('dependencyUpdateCount')
     
     // Schedule processing if not already pending
@@ -39,7 +46,9 @@ export default class UpdateQueue<MT extends Metavars > {
    * Schedule processing using microtasks for better performance
    */
   private scheduleProcessing(){
-    Promise.resolve().then( () => this.processQueue() )
+    Promise
+    .resolve()
+    .then( () => this.processQueue() )
   }
   
   /**
@@ -47,7 +56,7 @@ export default class UpdateQueue<MT extends Metavars > {
    */
   private processQueue(){
     // Get all dependency entries to process
-    const entriesToProcess = Array.from( this.pending )
+    const entriesToProcess = Array.from( this.pending.values() )
     
     // Update metrics
     this.metrics.batchCount++
