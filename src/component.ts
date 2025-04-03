@@ -1174,13 +1174,12 @@ export default class Component<MT extends Metavars> extends Events {
 
             for( const _key in spreads )
               extracted[ _key ] = spreads[ _key ]
-
-            console.log('update component spread --', extracted )
+            
             component?.subInput( extracted )
           }
           
-          if( self.__isReactive__( key as string, scope ) ){
-            const deps = self.__extractExpressionDeps__( value as string, scope )
+          if( self.__isReactive__( key, scope ) ){
+            const deps = self.__extractExpressionDeps__( key, scope )
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
               nodetype: 'component',
@@ -1189,7 +1188,7 @@ export default class Component<MT extends Metavars> extends Events {
               boundaries,
               path: `${componentPath}.${key}`,
               update: spreadvalues,
-              syntax: true,
+              syntax: isSyntax,
               memo: scope,
               batch: true
             }) )
@@ -1202,8 +1201,6 @@ export default class Component<MT extends Metavars> extends Events {
                           : value ? self.__evaluate__( value as string, memo ) : true
 
             component?.subInput({ [key]: _value })
-
-            console.log('update component evalue --', key, _value )
           }
           
           if( self.__isReactive__( value as string, scope ) ){
@@ -1216,7 +1213,7 @@ export default class Component<MT extends Metavars> extends Events {
               boundaries,
               path: `${componentPath}.${key}`,
               update: evalue,
-              syntax: true,
+              syntax: isSyntax,
               memo: scope,
               batch: true
             }) )
@@ -1396,7 +1393,6 @@ export default class Component<MT extends Metavars> extends Events {
               && toUpdateDeps.push( _key )
             }
             
-            // console.log('Update macro spread --', key, memo, toUpdateDeps, extracted )
             toUpdateDeps.length
             && macrowire.renderer.update( toUpdateDeps, extracted )
 
@@ -2075,9 +2071,8 @@ export default class Component<MT extends Metavars> extends Events {
 
     let
     PARTIAL_CONTENT: Cash | undefined,
-    ITERATOR_REGISTRY: Array<{ boundaries: FragmentBoundaries, argvalues?: VariableSet }> = [],
-    processingUpdate = false
-
+    ITERATOR_REGISTRY: Array<{ boundaries: FragmentBoundaries, argvalues?: VariableSet }> = []
+    
     const
     PARTIAL_PATHS: string[] = [],
     partialRender = ( $contents: Cash, argvalues?: VariableSet, index?: number ) => {
@@ -2257,65 +2252,56 @@ export default class Component<MT extends Metavars> extends Events {
         },
         update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ){
           if( !PARTIAL_PATHS.length ) return
+          
+          boundaries = boundaries || fragmentBoundaries
+          
+          /**
+           * Granular rendering of iterator nodes
+           */
+          if( declaration?.iterator ){
+            const newArgs: VariableSet[] = argvalues?.['#'].value
+            if( !Array.isArray( newArgs ) ) return
 
-          // processingUpdate = true
-          try {
-            boundaries = boundaries || fragmentBoundaries
-            
-            /**
-             * Granular rendering of iterator nodes
-             */
-            if( declaration?.iterator ){
-              const newArgs: VariableSet[] = argvalues?.['#'].value
-              if( !Array.isArray( newArgs ) ) return
+            if( Array.isArray( ITERATOR_REGISTRY ) ){
+              /**
+               * Perform granular updates when 
+               * length hasn't changed
+               */
+              if( ITERATOR_REGISTRY.length === newArgs.length ){
+                // Update item's dependency without re-rendering
+                for( let i = 0; i < newArgs.length; i++ )
+                  !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] )
+                  && partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
 
-              if( Array.isArray( ITERATOR_REGISTRY ) ){
-                /**
-                 * Perform granular updates when 
-                 * length hasn't changed
-                 */
-                if( ITERATOR_REGISTRY.length === newArgs.length ){
-                  // Update item's dependency without re-rendering
-                  for( let i = 0; i < newArgs.length; i++ )
-                    !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] )
-                    && partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
+                return
+              }
 
-                  return
-                }
+              /**
+               * Update incrementally existing items when 
+               * length has changed
+               */
+              const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
+              for( let i = 0; i < existsLength; i++ )
+                partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
+              
+              // Add new items additions
+              if( newArgs.length > ITERATOR_REGISTRY.length ){
+                if( !PARTIAL_CONTENT?.length ) return
 
-                /**
-                 * Update incrementally existing items when 
-                 * length has changed
-                 */
-                const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
-                for( let i = 0; i < existsLength; i++ )
-                  partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
-                
-                // Add new items additions
-                if( newArgs.length > ITERATOR_REGISTRY.length ){
-                  if( !PARTIAL_CONTENT?.length ) return
-
-                  for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
-                    const $partialLog = partialRender( PARTIAL_CONTENT, newArgs[ i ], i )
-                    $(boundaries.end).before( $partialLog )
-                  }
-                }
-                // Remove items
-                else if( newArgs.length < ITERATOR_REGISTRY.length ){
-                  for( let i = ITERATOR_REGISTRY.length - 1; i >= newArgs.length; i-- )
-                    partialRemove( i )
+                for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
+                  const $partialLog = partialRender( PARTIAL_CONTENT, newArgs[ i ], i )
+                  $(boundaries.end).before( $partialLog )
                 }
               }
+              // Remove items
+              else if( newArgs.length < ITERATOR_REGISTRY.length ){
+                for( let i = ITERATOR_REGISTRY.length - 1; i >= newArgs.length; i-- )
+                  partialRemove( i )
+              }
             }
-            // Update dependencies
-            else partialUpdate( deps, argvalues )
           }
-          /**
-           * Reset the flag after the current execution cycle
-           */
-          finally { 
-            // setTimeout( () => processingUpdate = false, 0 )
-          }
+          // Update dependencies
+          else partialUpdate( deps, argvalues )
         }
       }
     }
@@ -2697,7 +2683,6 @@ export default class Component<MT extends Metavars> extends Events {
        */
       if( !this.__shouldUpdate__( dep_scope, parts, current, previous ) ) return
       
-      console.log('gen update --', dep_scope, parts, dependents )
       dependents.forEach( dependent => {
         const { path, batch, $fragment, boundaries, update, memo, syntax } = dependent
         try {
