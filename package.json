@@ -1,6 +1,6 @@
 {
   "name": "@lipsjs/lips",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Fast, Lightweight Reactive UI Framework",
   "main": "./dist/lips.min.js",
   "types": "./dist/types/lips.d.ts",
