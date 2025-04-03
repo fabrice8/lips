@@ -137,18 +137,34 @@ export type VirtualEventsRegistry<T> = {
 /**
  * (FGU) Fine-Grain Update Dependencies
  */
+export type NodeType = 'component'
+                        | 'dynamic'
+                        | 'element'
+                        | 'macro'
+                        | 'text'
+                        | 'let'
+                        | 'log'
+export type FGUDTarget = 'spread-attr'
+                          | 'meta-attr'
+                          | 'argument'
+                          | 'value'
+                          | 'attr'
+                          | 'dtag'
 export interface FGUSync {
-  // $fragment?: Cash
   memo?: VariableSet
   cleanup?: () => void
 }
 export interface I18nDependency {
+  nodetype: NodeType
+  target: FGUDTarget
   path: string
   $fragment: Cash
   memo: VariableSet
   update: ( memo: VariableSet, by?: string ) => FGUSync | void
 }
 export interface FGUDependency {
+  nodetype: NodeType
+  target: FGUDTarget
   path: string
   $fragment: Cash | null
   boundaries?: FragmentBoundaries

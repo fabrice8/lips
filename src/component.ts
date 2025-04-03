@@ -63,7 +63,6 @@ export default class Component<MT extends Metavars> extends Events {
   private __previous: InteractiveMetavars<MT>
   private __macros: Map<string, Macro> = new Map() // Cached macros templates
   private __i18nDeps: Map<string, I18nDependency> = new Map()
-  private __renderCache: Map<string, RenderedNode> = new Map()
 
   // Initial FGU dependencies
   public FGUD: FGUDependencies = new Map()
@@ -496,6 +495,8 @@ export default class Component<MT extends Metavars> extends Events {
         const deps = self.__extractExpressionDeps__( args as string, scope )
         
         deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+          nodetype: 'log',
+          target: 'argument',
           $fragment: null,
           path: logPath,
           update: memo => self.__evaluate__(`console.log(${args})`, memo ),
@@ -553,6 +554,8 @@ export default class Component<MT extends Metavars> extends Events {
 
           const deps = self.__extractExpressionDeps__( key as string, scope )
           deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+            nodetype: 'let',
+            target: 'spread-attr',
             $fragment: null,
             path: `${varPath}.${key}`,
             update: memo => spreadExtract( true, memo ),
@@ -585,6 +588,8 @@ export default class Component<MT extends Metavars> extends Events {
             }
 
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+              nodetype: 'let',
+              target: 'attr',
               $fragment: null,
               path: `${varPath}.${key}`,
               update: updateVar,
@@ -761,6 +766,8 @@ export default class Component<MT extends Metavars> extends Events {
             }
 
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+              nodetype: 'dynamic',
+              target: 'spread-attr',
               $fragment: null,
               boundaries,
               path: `${elementPath}.${key}`,
@@ -787,6 +794,8 @@ export default class Component<MT extends Metavars> extends Events {
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+              nodetype: 'dynamic',
+              target: 'attr',
               $fragment: null,
               boundaries,
               path: `${elementPath}.${key}`,
@@ -832,8 +841,10 @@ export default class Component<MT extends Metavars> extends Events {
           }
 
           // Check if boundaries are in DOM
-          if( !document.contains( boundaries.start ) || !document.contains( boundaries.end ) )
-            throw new Error('Dynamic element boundaries not found')
+          if( !document.contains( boundaries.start ) || !document.contains( boundaries.end ) ){
+            // console.warn('Dynamic element boundaries not found')
+            return
+          }
 
           // Render new content
           const
@@ -853,6 +864,8 @@ export default class Component<MT extends Metavars> extends Events {
         deps = self.__extractExpressionDeps__( dtag as string, scope )
 
         deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+          nodetype: 'dynamic',
+          target: 'dtag',
           $fragment: null,
           boundaries,
           path: elementPath,
@@ -1094,7 +1107,7 @@ export default class Component<MT extends Metavars> extends Events {
             input.__contents__ = $nodeContents
         }
       }
-
+      
       // Use preserved child component is available
       if( component ){
         component.setInput( deepClone( input ) )
@@ -1121,87 +1134,95 @@ export default class Component<MT extends Metavars> extends Events {
         $fragment = $fragment.add( component.node )
         // Cache component for reuse.
         self.PCC.set( componentPath, component )
-
-        // Listen to this nexted component's events
-        Object
-        .entries( events )
-        .forEach( ([ _event, instruction ]) => !!component && self.__attachEvent__( component, _event, instruction, scope ) )
-        
-        /**
-         * Setup input dependency track
-         */
-        TRACKABLE_ATTRS && Object
-        .entries( TRACKABLE_ATTRS )
-        .forEach( ([ key, value ]) => {
-          let 
-          isSyntax = false,
-          isFunction = false
-
-          if( key.startsWith( SYNCTAX_VAR_FLAG ) ){
-            isSyntax = true
-            key = key.replace( SYNCTAX_VAR_FLAG, '')
-          }
-          if( key.startsWith( FUNCTION_ATTR_FLAG ) ){
-            isFunction = true
-            key = key.replace( FUNCTION_ATTR_FLAG, '')
-          }
-
-          if( SPREAD_VAR_PATTERN.test( key ) ){
-            const spreadvalues = ( memo: VariableSet ) => {
-              const
-              extracted: Record<string, any> = {},
-              spreads = self.__evaluate__( key.replace( SPREAD_VAR_PATTERN, '' ) as string, memo )
-              if( typeof spreads !== 'object' )
-                throw new Error(`Invalid spread operator ${key}`)
-
-              for( const _key in spreads )
-                extracted[ _key ] = spreads[ _key ]
-
-              component?.subInput( extracted )
-            }
-            
-            if( self.__isReactive__( key as string, scope ) ){
-              const deps = self.__extractExpressionDeps__( value as string, scope )
-              
-              deps.forEach( dep => self.__trackDep__( dependencies, dep, {
-                $fragment: null,
-                boundaries,
-                path: `${componentPath}.${key}`,
-                update: spreadvalues,
-                syntax: isSyntax,
-                memo: scope,
-                batch: true
-              }) )
-            }
-          }
-          else {
-            const evalue = ( memo: VariableSet ) => {
-              const _value = isFunction
-                            ? self.__evaluateFunction__( value, [], memo )
-                            : value ? self.__evaluate__( value as string, memo ) : true
-
-              component?.subInput({ [key]: _value })
-            }
-            
-            if( self.__isReactive__( value as string, scope ) ){
-              const deps = self.__extractExpressionDeps__( value as string, scope )
-              
-              deps.forEach( dep => self.__trackDep__( dependencies, dep, {
-                $fragment: null,
-                boundaries,
-                path: `${componentPath}.${key}`,
-                update: evalue,
-                syntax: isSyntax,
-                memo: scope,
-                batch: true
-              }) )
-            }
-          }
-        })
-
-        // Close boundaries to the initial fragment when it's added to DOM
-        $fragment = $fragment.add( boundaries.end )
       }
+
+      // Close boundaries to the initial fragment when it's added to DOM
+      $fragment = $fragment.add( boundaries.end )
+
+      // Listen to this nexted component's events
+      Object
+      .entries( events )
+      .forEach( ([ _event, instruction ]) => !!component && self.__attachEvent__( component, _event, instruction, scope ) )
+      
+      /**
+       * Setup input dependency track
+       */
+      TRACKABLE_ATTRS && Object
+      .entries( TRACKABLE_ATTRS )
+      .forEach( ([ key, value ]) => {
+        let 
+        isSyntax = false,
+        isFunction = false
+
+        if( key.startsWith( SYNCTAX_VAR_FLAG ) ){
+          isSyntax = true
+          key = key.replace( SYNCTAX_VAR_FLAG, '')
+        }
+        if( key.startsWith( FUNCTION_ATTR_FLAG ) ){
+          isFunction = true
+          key = key.replace( FUNCTION_ATTR_FLAG, '')
+        }
+
+        if( SPREAD_VAR_PATTERN.test( key ) ){
+          const spreadvalues = ( memo: VariableSet ) => {
+            const
+            extracted: Record<string, any> = {},
+            spreads = self.__evaluate__( key.replace( SPREAD_VAR_PATTERN, '' ) as string, memo )
+
+            if( typeof spreads !== 'object' )
+              throw new Error(`Invalid spread operator ${key}`)
+
+            for( const _key in spreads )
+              extracted[ _key ] = spreads[ _key ]
+
+            console.log('update component spread --', extracted )
+            component?.subInput( extracted )
+          }
+          
+          if( self.__isReactive__( key as string, scope ) ){
+            const deps = self.__extractExpressionDeps__( value as string, scope )
+            
+            deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+              nodetype: 'component',
+              target: 'spread-attr',
+              $fragment: null,
+              boundaries,
+              path: `${componentPath}.${key}`,
+              update: spreadvalues,
+              syntax: true,
+              memo: scope,
+              batch: true
+            }) )
+          }
+        }
+        else {
+          const evalue = ( memo: VariableSet ) => {
+            const _value = isFunction
+                          ? self.__evaluateFunction__( value, [], memo )
+                          : value ? self.__evaluate__( value as string, memo ) : true
+
+            component?.subInput({ [key]: _value })
+
+            console.log('update component evalue --', key, _value )
+          }
+          
+          if( self.__isReactive__( value as string, scope ) ){
+            const deps = self.__extractExpressionDeps__( value as string, scope )
+            
+            deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+              nodetype: 'component',
+              target: 'attr',
+              $fragment: null,
+              boundaries,
+              path: `${componentPath}.${key}`,
+              update: evalue,
+              syntax: true,
+              memo: scope,
+              batch: true
+            }) )
+          }
+        }
+      })
 
       // Track component creation
       self.metrics.inc('componentCount')
@@ -1288,7 +1309,7 @@ export default class Component<MT extends Metavars> extends Events {
          * Eg. <div active=undefined></div> is same as <div active></div>
          * which is considered as <div active=true></div>
          * 
-         * REVIEW well before during maintenance
+         * REVIEW well before or during maintenance
          */
         macro.argv.forEach( each => {
           if( argvalues[ each ] !== undefined ) return
@@ -1375,6 +1396,7 @@ export default class Component<MT extends Metavars> extends Events {
               && toUpdateDeps.push( _key )
             }
             
+            // console.log('Update macro spread --', key, memo, toUpdateDeps, extracted )
             toUpdateDeps.length
             && macrowire.renderer.update( toUpdateDeps, extracted )
 
@@ -1382,6 +1404,8 @@ export default class Component<MT extends Metavars> extends Events {
           }
 
           deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+            nodetype: 'macro',
+            target: 'spread-attr',
             $fragment: null,
             boundaries,
             path: `${macroPath}.${key}`,
@@ -1408,6 +1432,8 @@ export default class Component<MT extends Metavars> extends Events {
           }
         
           deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+            nodetype: 'macro',
+            target: 'attr',
             $fragment: null,
             boundaries,
             path: `${macroPath}.${key}`,
@@ -1481,6 +1507,8 @@ export default class Component<MT extends Metavars> extends Events {
 
           // Reset track for i18n translation if needed
           canTranslate && self.__trackTranslationDep__({
+            nodetype: 'element',
+            target: 'attr',
             path: elementPath,
             $fragment,
             update: updateAttr,
@@ -1490,6 +1518,8 @@ export default class Component<MT extends Metavars> extends Events {
         
         // Track for i18n translation
         canTranslate && self.__trackTranslationDep__({
+          nodetype: 'element',
+          target: 'attr',
           path: elementPath,
           $fragment,
           update: updateAttr,
@@ -1514,6 +1544,8 @@ export default class Component<MT extends Metavars> extends Events {
                 const deps = self.__extractExpressionDeps__( value as string, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+                  nodetype: 'element',
+                  target: 'meta-attr',
                   $fragment,
                   path: `${elementPath}.${attr}`,
                   update: updateHTML,
@@ -1532,6 +1564,8 @@ export default class Component<MT extends Metavars> extends Events {
 
                 // Reset track for i18n translation if needed
                 canTranslate && self.__trackTranslationDep__({
+                  nodetype: 'element',
+                  target: 'meta-attr',
                   path: elementPath,
                   $fragment,
                   update: updateText,
@@ -1545,6 +1579,8 @@ export default class Component<MT extends Metavars> extends Events {
                 const deps = self.__extractExpressionDeps__( value as string, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+                  nodetype: 'element',
+                  target: 'meta-attr',
                   $fragment,
                   path: `${elementPath}.${attr}`,
                   update: updateText,
@@ -1555,6 +1591,8 @@ export default class Component<MT extends Metavars> extends Events {
 
               // Track for i18n translation
               canTranslate && self.__trackTranslationDep__({
+                nodetype: 'element',
+                target: 'meta-attr',
                 path: elementPath,
                 $fragment,
                 update: updateText,
@@ -1587,6 +1625,8 @@ export default class Component<MT extends Metavars> extends Events {
                 
                 // Track for i18n translation updates
                 self.__trackTranslationDep__({
+                  nodetype: 'element',
+                  target: 'meta-attr',
                   path: elementPath,
                   $fragment,
                   update: applyFormat,
@@ -1600,6 +1640,8 @@ export default class Component<MT extends Metavars> extends Events {
               self
               .__extractExpressionDeps__( params, scope )
               .forEach( dep => self.__trackDep__( dependencies, dep, {
+                nodetype: 'element',
+                target: 'meta-attr',
                 $fragment,
                 path: `${elementPath}.${attr}`,
                 update: applyFormat,
@@ -1633,6 +1675,8 @@ export default class Component<MT extends Metavars> extends Events {
                 const deps = self.__extractExpressionDeps__( value as string, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+                  nodetype: 'element',
+                  target: 'attr',
                   $fragment,
                   path: `${elementPath}.${attr}`,
                   update: updateStyle,
@@ -1681,6 +1725,8 @@ export default class Component<MT extends Metavars> extends Events {
 
                   // Reset track for i18n translation if needed
                   canTranslate && self.__trackTranslationDep__({
+                    nodetype: 'element',
+                    target: 'attr',
                     path: elementPath,
                     $fragment,
                     update: updateAttrs,
@@ -1695,6 +1741,8 @@ export default class Component<MT extends Metavars> extends Events {
                 const deps = self.__extractExpressionDeps__( value as string, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+                  nodetype: 'element',
+                  target: 'attr',
                   $fragment,
                   path: `${elementPath}.${attr}`,
                   update: updateAttrs,
@@ -1705,6 +1753,8 @@ export default class Component<MT extends Metavars> extends Events {
               
               // Track for i18n translation
               canTranslate && self.__trackTranslationDep__({
+                nodetype: 'element',
+                target: 'attr',
                 path: elementPath,
                 $fragment,
                 update: updateAttrs,
@@ -1741,6 +1791,8 @@ export default class Component<MT extends Metavars> extends Events {
           const deps = self.__extractExpressionDeps__( key, scope )
 
           deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+            nodetype: 'element',
+            target: 'spread-attr',
             $fragment,
             path: `${elementPath}.${key}`,
             update: updateSpreadAttrs,
@@ -1786,6 +1838,8 @@ export default class Component<MT extends Metavars> extends Events {
 
         // Reset track for i18n translation if needed
         canTranslate && self.__trackTranslationDep__({
+          nodetype: 'text',
+          target: 'value',
           path: textPath,
           $fragment,
           update: updateTextContent,
@@ -1798,6 +1852,8 @@ export default class Component<MT extends Metavars> extends Events {
         const  deps = self.__extractTextDeps__( content, scope )
         
         deps.forEach( dep => self.__trackDep__( dependencies, dep, {
+          nodetype: 'text',
+          target: 'value',
           path: textPath,
           $fragment,
           update: updateTextContent,
@@ -1808,6 +1864,8 @@ export default class Component<MT extends Metavars> extends Events {
 
       // Track for i18n translation
       canTranslate && self.__trackTranslationDep__({
+        nodetype: 'text',
+        target: 'value',
         path: textPath,
         $fragment,
         update: updateTextContent,
@@ -2073,7 +2131,7 @@ export default class Component<MT extends Metavars> extends Events {
     partialUpdate = ( deps: string[], argvalues: VariableSet, index?: number ) => {
       // Start measuring
       self.metrics.startRender()
-
+      
       /**
        * IMPORTANT: Targeted item paths only within
        * iterator context to avoid unecessary dependency
@@ -2084,11 +2142,11 @@ export default class Component<MT extends Metavars> extends Events {
                                 : PARTIAL_PATHS
 
       // Execute partial mesh update
-      deps.forEach( ( dep ) => {
+      deps.forEach( dep => {
         const dependents = self.FGUD.get( dep )
         if( !dependents ) return
         
-        dependents.forEach( ( dependent ) => {
+        dependents.forEach( dependent => {
           // Process only dependents of this partial and its subpartials
           const partialPath = targetedPaths.find( p => {
             return dependent.partial?.find( pp => p == pp || self.__hasSamePathParent__( pp, p ) )
@@ -2198,9 +2256,9 @@ export default class Component<MT extends Metavars> extends Events {
           else return partialRender( PARTIAL_CONTENT, argvalues )
         },
         update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ){
-          if( !PARTIAL_PATHS.length || processingUpdate ) return
+          if( !PARTIAL_PATHS.length ) return
 
-          processingUpdate = true
+          // processingUpdate = true
           try {
             boundaries = boundaries || fragmentBoundaries
             
@@ -2255,7 +2313,9 @@ export default class Component<MT extends Metavars> extends Events {
           /**
            * Reset the flag after the current execution cycle
            */
-          finally { setTimeout( () => processingUpdate = false, 0 ) }
+          finally { 
+            // setTimeout( () => processingUpdate = false, 0 )
+          }
         }
       }
     }
@@ -2637,6 +2697,7 @@ export default class Component<MT extends Metavars> extends Events {
        */
       if( !this.__shouldUpdate__( dep_scope, parts, current, previous ) ) return
       
+      console.log('gen update --', dep_scope, parts, dependents )
       dependents.forEach( dependent => {
         const { path, batch, $fragment, boundaries, update, memo, syntax } = dependent
         try {
@@ -2708,7 +2769,7 @@ export default class Component<MT extends Metavars> extends Events {
     dependents?.forEach( ( dependent, path ) => {
       if( !dependent.haslet
           || !this.__hasSamePathParent__( path, this.__getPathParent__( varPath ) ) ) return
-
+          
       dependent.memo = { ...dependent.memo, ...newScope }
       
       if( dependent.batch ) this.UQS.queue({ dep, dependent })
