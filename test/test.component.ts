@@ -658,7 +658,7 @@ function DemoI18n(){
 // DemoState()
 // DemoContext()
 // DemoForloop()
-DemoForIfElse()
+// DemoForIfElse()
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
@@ -1824,7 +1824,6 @@ function ParticleSystemDemo() {
   type ParticleSystemState = {
     particles: Particle[]
     particlePool: Particle[] // Pool of reusable particles
-    animationFrame: number
     isRunning: boolean
     mouseX: number
     mouseY: number
@@ -1840,6 +1839,9 @@ function ParticleSystemDemo() {
     wind: number
     turbulence: number
     lastUpdateTime: number // For fixed timestep
+  }
+  type ParticleSystemStatic = {
+    animationFrame: number
   }
 
   // Cached color maps to avoid string generation during animation
@@ -1881,11 +1883,13 @@ function ParticleSystemDemo() {
   }
 
   // Create the particle system component template
-  const particleSystem: Template<Metavars<ParticleSystemInput, ParticleSystemState>> = {
+  const particleSystem: Template<Metavars<ParticleSystemInput, ParticleSystemState, ParticleSystemStatic>> = {
+    _static: {
+      animationFrame: 0
+    },
     state: {
       particles: [],
       particlePool: [], // Reusable particle pool
-      animationFrame: 0,
       isRunning: false,
       mouseX: 0,
       mouseY: 0,
@@ -2243,7 +2247,7 @@ function ParticleSystemDemo() {
           this.boundAnimate = this.animate.bind(this);
         }
         
-        this.state.animationFrame = requestAnimationFrame(this.boundAnimate);
+        this.static.animationFrame = requestAnimationFrame(this.boundAnimate);
       },
       
       // Optimized animation loop
@@ -2278,13 +2282,13 @@ function ParticleSystemDemo() {
         this.state.turbulence = 0.03 + sinValue2 * 0.02;
         
         // Schedule the next frame
-        this.state.animationFrame = requestAnimationFrame(this.boundAnimate);
+        this.static.animationFrame = requestAnimationFrame(this.boundAnimate);
       },
       
       // Stop the animation loop
       stopAnimation() {
         this.state.isRunning = false;
-        cancelAnimationFrame(this.state.animationFrame);
+        cancelAnimationFrame(this.static.animationFrame);
       },
       
       // Toggle the animation
@@ -2360,8 +2364,8 @@ function ParticleSystemDemo() {
         
         <svg class="particle-system-svg" 
             width=input.width 
-            height=input.height 
-            viewBox="'0 0 '+ input.width +' '+ input.height">
+            height=input.height
+            viewBox="0 0 {input.width} {input.height}">
           
           <!-- Background gradient -->
           <defs>
@@ -2387,18 +2391,18 @@ function ParticleSystemDemo() {
           </if>
           
           <!-- Particles - Using pre-computed particle type for faster rendering decisions -->
-          <if(state.particles.length)>
+          <if( state.particles.length )>
             <for [particle] in=state.particles>
-              <if(particle.type === 'circle')>
+              <if( particle.type === 'circle' )>
                 <circle
                   cx=particle.x
                   cy=particle.y
                   r=(particle.size/2)
                   fill=particle.color
                   opacity=particle.alpha.toFixed(2)
-                  transform="'rotate('+ particle.rotation * 180 / Math.PI +', '+ particle.x +', '+ particle.y +')'"/>
+                  transform="rotate({particle.rotation * 180 / Math.PI}, {particle.x}, {particle.y})"/>
               </if>
-              <else-if(particle.type === 'rect')>
+              <else-if( particle.type === 'rect' )>
                 <rect 
                   x=(particle.x - particle.size/2)
                   y=(particle.y - particle.size/2)
@@ -2406,21 +2410,21 @@ function ParticleSystemDemo() {
                   height=particle.size
                   fill=particle.color
                   opacity=particle.alpha.toFixed(2)
-                  transform="'rotate('+ particle.rotation * 180 / Math.PI +', '+ particle.x +', '+ particle.y +')'"/>
+                  transform="rotate({particle.rotation * 180 / Math.PI}, {particle.x}, {particle.y})"/>
               </else-if>
               <else>
                 <polygon
                   points=self.getParticlePoints(particle)
                   fill=particle.color
                   opacity=particle.alpha.toFixed(2)
-                  transform="'rotate('+ particle.rotation * 180 / Math.PI +', '+ particle.x +', '+ particle.y +')'"/>
+                  transform="rotate({particle.rotation * 180 / Math.PI}, {particle.x}, {particle.y})"/>
               </else>
             </for>
           </if>
         </svg>
         
         <div class="particle-system-controls">
-          <button class="'particle-system-button '+(state.isRunning ? 'stop' : '')" 
+          <button class="particle-system-button {state.isRunning ? 'stop' : ''}" 
                   on-click(toggleAnimation)>
             {state.isRunning ? 'Pause' : 'Start'} Animation
           </button>
@@ -2582,7 +2586,7 @@ function ParticleSystemDemo() {
     `
   }
 
-  const lips = new Lips({ debug: true })
+  const lips = new Lips({ debug: false })
   
   // Register the particle system component
   lips.register('particle-system', particleSystem)
