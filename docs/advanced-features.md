@@ -128,11 +128,14 @@ Macros can accept parameters using the square bracket syntax:
     <if(rest.address)>
       <address>{rest.address}</address>
     </if>
+
+    <div>{argvalues.profession}</div>
   </div>
 </macro>
 ```
 
 The `...rest` parameter captures all additional properties passed to the macro.
+The `argvalues` is a reserved variable that operate like `arguments` in javascript syntax which in this case is an object containing all arguments passed to the macro.
 
 #### Using Macros
 

@@ -227,6 +227,79 @@ function DemoLetConstVariable(){
   .appendTo('body')
 }
 
+function DemoMacro(){
+  type Product = { name: string, expiry: string, source: string, quantity: number }
+  type State = {
+    items: Array<Product>,
+    selected: Product | null
+  }
+
+  const
+  state: State = {
+    items: [
+      { name: 'Sudocream', expiry: '02/04/2026', source: 'phx', quantity: 12000 },
+      { name: 'Thotheman', expiry: '02/04/2026', source: 'ernest', quantity: 8000 },
+      { name: 'Paracetamol', expiry: '02/04/2026', source: 'fizzy.ph', quantity: 2500 },
+      { name: 'Lumaterm', expiry: '02/04/2026', source: 'Landpharm', quantity: 6800 },
+    ],
+    selected: null
+  },
+  handler: Handler<Metavars<any, State>> = {
+    onShowDetails( details: Product ){
+      this.state.selected = details
+    }
+  },
+  macros = `
+    <macro [name, source] name="card">
+      <div class="card"
+            style="cursor:pointer; border: 1px solid {active ? 'gray' : 'white'}"
+            on-click(onShowDetails, argvalues)>
+        <p>{name} <span style="color: gray">({source})</span></p>
+      </div>
+    </macro>
+
+    <macro [name, source, quantity, expiry, active] name="details">
+      <fieldset>
+        <h2>{name}</h2>
+        <small>Details</small>
+        <ul>
+          <li>Source: {source}</li>
+          <li>Quantity: {quantity}</li>
+          <li>Expr: {expiry}</li>
+        </ul>
+      </fieldset>
+    </macro>
+  `,
+  template = `
+    <div>
+      <div style="width: 25%">
+        <h3>Pending Orders</h3>
+
+        <for [each, index] in=state.items>
+          <card id=index ...each active=(each.active ?? false)/>
+        </for>
+      </div>
+
+      <div style="width: 75%">
+        <if( state.selected )>
+          <details ...state.selected/>
+        </if>
+      </div>
+    </div>
+  `,
+  stylesheet = `
+    display: flex;
+    align-item: center;
+    padding: 15px;
+    margin: 15px;
+    border: 3px solid black;
+  `
+
+  lips
+  .render<Metavars<any, State>>('DemoMacro', { default: template, state, handler, macros, stylesheet })
+  .appendTo('body')
+}
+
 function DemoComponent(){
   type State = {
     count: number
@@ -659,6 +732,7 @@ function DemoI18n(){
 // DemoContext()
 // DemoForloop()
 // DemoForIfElse()
+// DemoMacro()
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
