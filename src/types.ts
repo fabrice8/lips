@@ -17,7 +17,9 @@ export type Variable = {
   value: any
   type: 'let' | 'const' | 'arg'
 }
-export type VariableSet = Record<string, Variable>
+export type VariableSet = Record<string, Variable> & {
+  __factory__?: () => any
+}
 
 export type I18nVariant = Record<string, string>
 export type I18nFormat = {

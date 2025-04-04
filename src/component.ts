@@ -1323,19 +1323,13 @@ export default class Component<MT extends Metavars> extends Events {
       })
 
       /**
-       * Return all possible arguments into single object 
-       * var that can be accessible in macro template 
-       * beside the spreading vars effect.
-       * 
-       * Useful for cases where many `argv` are passed
-       * to the macro but there a need to handle all in
-       * a single variable.
+       * Return all possible arguments passed to the macro
+       * in a single object variable form that can be 
+       * accessible in macro template as `argvalues`.
        */
-      if( macro.argv.includes('__') )
-        argvalues['__'] = {
-          value: allvalues,
-          type: 'arg'
-        }
+      argvalues.__factory__ = () => {
+        return allvalues
+      }
 
       /**
        * - $fragment
@@ -1388,6 +1382,11 @@ export default class Component<MT extends Metavars> extends Events {
                 value: spreads[ _key ],
                 type: 'arg'
               }
+
+              /**
+               * Update allvalues variable as well
+               */
+              allvalues[ _key ] = spreads[ _key ]
               
               /**
                * Schedule only what changed to be
@@ -1396,7 +1395,7 @@ export default class Component<MT extends Metavars> extends Events {
               ;(!memo[ _key ] || !isEqual( spreads[ _key ], memo[ _key ].value ))
               && toUpdateDeps.push( _key )
             }
-            
+
             toUpdateDeps.length
             && macrowire.renderer.update( toUpdateDeps, extracted )
 
@@ -1420,14 +1419,16 @@ export default class Component<MT extends Metavars> extends Events {
           deps = self.__extractExpressionDeps__( value as string, scope ),
           evalue = ( memo: VariableSet ) => {
             const
-            newvalue: Variable =
+            newvalue: Variable = 
+            allvalues[ key ] = value ? self.__evaluate__( value as string, memo ) : true
+
             memo[ key ] = {
-              value: value ? self.__evaluate__( value as string, memo ) : true,
+              value: newvalue,
               type: 'arg'
             }
 
             macrowire.renderer.update( [ key ], { [ key ]: newvalue } )
-
+            
             return { memo }
           }
         
@@ -2431,15 +2432,22 @@ export default class Component<MT extends Metavars> extends Events {
         const _state = this.state.toJSON()
 
         if( scope ){
+          let argvalues
           const _scope: Record<string, any> = {}
-          for( const key in scope )
+          for( const key in scope ){
+            if( key === '__factory__' && typeof scope.__factory__ === 'function' ){
+              argvalues = scope.__factory__()
+              continue
+            }
+
             _scope[ key ] = scope[ key ].value
+          }
 
           const
           expression = `with( scope ){ return ${each}; }`,
-          fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', expression )
+          fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', 'argvalues', expression )
         
-          return fn( this, this.input, _state, this.static, this.context, _scope || {} )
+          return fn( this, this.input, _state, this.static, this.context, _scope || {}, argvalues )
         }
         else {
           const 
