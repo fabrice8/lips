@@ -261,7 +261,11 @@ export default class Component<MT extends Metavars> extends Events {
          * Assign CSS relationship attribute
          * for only non-syntax components.
          */
-        !declaration?.syntax && this.$?.each( ( i, el ) => typeof el.setAttribute == 'function' && el.setAttribute('rel', this.__name__ ) )
+        !declaration?.syntax 
+        && this.$?.each( ( i, el ) => {
+          typeof el.setAttribute == 'function'
+          && el.setAttribute('rel', this.__name__ )
+        } )
 
         this.isRendered = true
         
