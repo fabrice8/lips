@@ -40,10 +40,24 @@ export default class Events {
     if( !this.options.emit ) return
 
     /**
-     * TODO: Do not allow any proxied variables 
+     * DO NOT ALLOW any proxied variables 
      * to be emitted out of a component.
      */
-    const serialized = params.map( p => typeof p.toJSON === 'function' ? p.toJSON() : p )
+    const
+    deepclean = ( each: any ): any => {
+      if( typeof each.toJSON === 'function' ) return each.toJSON()
+
+      if( Array.isArray( each ) )
+        return each.map( deepclean )
+
+      if( typeof each === 'object' ){
+        for( const key in each )
+          each[ key ] = deepclean( each[ key ] )
+      }
+
+      return each
+    },
+    serialized = params.map( deepclean )
 
     this.__events[ _event ]?.forEach( fn => fn( ...serialized ) )
 
