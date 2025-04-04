@@ -147,7 +147,7 @@ export default class Component<MT extends Metavars> extends Events {
      */
     typeof this.onCreate == 'function'
     && this.onCreate.bind(this)()
-    this.emit('component:create', this )
+    this.emit('component:create')
 
     /**
      * Triggered an initial input is provided
@@ -156,7 +156,7 @@ export default class Component<MT extends Metavars> extends Events {
         && Object.keys( this.input ).length
         && typeof this.onInput == 'function' ){
       this.onInput.bind(this)( this.input )
-      this.emit('component:input', this )
+      this.emit('component:input')
     }
 
     /**
@@ -215,7 +215,7 @@ export default class Component<MT extends Metavars> extends Events {
        */
       typeof this.onContext == 'function'
       && this.onContext.bind(this)()
-      this.emit('component:context', this )
+      this.emit('component:context')
     })
 
     /**
@@ -271,7 +271,7 @@ export default class Component<MT extends Metavars> extends Events {
          */
         typeof this.onMount == 'function'
         && this.onMount.bind(this)()
-        this.emit('component:mount', this )
+        this.emit('component:mount')
 
         /**
          * Watch when component's element get 
@@ -289,7 +289,7 @@ export default class Component<MT extends Metavars> extends Events {
          * Triggered anytime component gets updated
          */
         typeof this.onUpdate == 'function' && this.onUpdate.bind(this)()
-        this.emit('component:update', this )
+        this.emit('component:update')
         
         /**
          * Save as previous meta variables for next cycle.
@@ -312,7 +312,7 @@ export default class Component<MT extends Metavars> extends Events {
        * Triggered anytime component gets rendered
        */
       typeof this.onRender == 'function' && this.onRender.bind(this)()
-      this.emit('component:render', this )
+      this.emit('component:render')
     })
   }
 
@@ -2051,7 +2051,7 @@ export default class Component<MT extends Metavars> extends Events {
     // Trigger on-destroy lifecycle events
     typeof this.onDestroy === 'function'
     && this.onDestroy.bind(this)()
-    this.emit('component:destroy', this )
+    this.emit('component:destroy')
   }
   
   private __meshwire__( setup: MeshWireSetup, TRACKABLE_ATTRS: Record<string, string> ){

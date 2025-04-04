@@ -23,28 +23,23 @@ export default class DWS<MT extends Metavars> {
             this.unwatch( component )
             return
           }
-
-          // console.log('Hello - ', watchData, component.__name__, document.contains( $node[0] as Element ) )
           
           if( watchData.type === 'attach' && document.contains( $node[0] as Element ) ){
             this.unwatch( component )
-            component.emit('component:attached', component )
-            // console.log('attached', component )
-
+            component.emit('component:attached')
+            
             typeof component.onAttach == 'function'
             && component.onAttach.bind( component )()
           }
           else if( watchData.type === 'detach' && !document.contains( $node[0] as Element ) ){
             this.unwatch( component )
-            component.emit('component:detached', component )
+            component.emit('component:detached')
 
             typeof component.onDetach == 'function'
             && component.onDetach.bind( component )()
           }
         }
-        catch( error ){
-          console.log('DWS error --', error )
-        }
+        catch( error ){ console.log('DWS error --', error ) }
       })
 
       // Stop observing if no components left to watch
@@ -58,19 +53,21 @@ export default class DWS<MT extends Metavars> {
 
     // For attachment, check if already in DOM
     if( type === 'attach' && document.contains( $node[0] as Element ) ){
-      component.emit('component:attached', component )
+      component.emit('component:attached')
 
       typeof component.onAttach == 'function'
       && component.onAttach.bind( component )()
+      
       return
     }
 
     // For detachment, check if already out of DOM
     if( type === 'detach' && !document.contains( $node[0] as Element ) ){
-      component.emit('component:detached', component )
+      component.emit('component:detached')
 
       typeof component.onDetach == 'function'
       && component.onDetach.bind( component )()
+
       return
     }
 
@@ -80,7 +77,7 @@ export default class DWS<MT extends Metavars> {
     // Start new watch
     const timeout = setTimeout( () => {
       this.unwatch( component )
-      component.emit(`component:${type}ment-timeout`, component )
+      component.emit(`component:${type}ment-timeout`)
     }, this.TIMEOUT )
 
     this.observedComponents.set( component, { timeout, type })
