@@ -59,6 +59,9 @@ export default class IUC {
     // Store proxy->target relationships
     proxyMap = new WeakMap(),
     exec = ( __: any ) => {
+      // Already proxied
+      if( typeof __.toJSON === 'function' ) return __
+
       // Recursively wrap nested array or map values
       if( __ instanceof Map )
         __.forEach( ( value, key ) => __.set( key, deepProxy( value ) ) )
