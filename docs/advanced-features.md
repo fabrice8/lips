@@ -79,7 +79,7 @@ When context properties change, components that observe those properties will au
 
 ### Macros
 
-Macros allow you to define reusable template snippets with parameters. They're similar to components but are expanded inline during rendering, making them lightweight and efficient.
+Macros allow you to define reusable template snippets with arguments. They're similar to components but are expanded inline during rendering, making them lightweight and efficient.
 
 #### Defining Macros
 
@@ -114,14 +114,14 @@ const component = {
 };
 ```
 
-#### Macro Parameters
+#### Macro Arguments
 
-Macros can accept parameters using the square bracket syntax:
+Macros can accept arguments using the square bracket syntax:
 
 ```html
-<macro [name, age, ...rest] name="person-info">
+<macro [title, name, age, ...rest] name="person-info">
   <div class="person">
-    <h2>{name}, {age}</h2>
+    <h2>{title}. {name}, {age}</h2>
     <if(rest.bio)>
       <p>{rest.bio}</p>
     </if>
@@ -129,13 +129,14 @@ Macros can accept parameters using the square bracket syntax:
       <address>{rest.address}</address>
     </if>
 
-    <div>{argvalues.profession}</div>
+    <div></div>
+    <div>Profession: {arguments.profession}</div>
   </div>
 </macro>
 ```
 
-The `...rest` parameter captures all additional properties passed to the macro.
-The `argvalues` is a reserved variable that operate like `arguments` in javascript syntax which in this case is an object containing all arguments passed to the macro.
+The `...rest` argument captures all additional properties passed to the macro.
+The `arguments` is a reserved variable that same as `arguments` in javascript syntax. In this case, it's an object containing all arguments passed to the macro.
 
 #### Using Macros
 

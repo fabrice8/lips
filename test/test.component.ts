@@ -253,7 +253,7 @@ function DemoMacro(){
     <macro [name, source] name="card">
       <div class="card"
             style="cursor:pointer; border: 1px solid {active ? 'gray' : 'white'}"
-            on-click(onShowDetails, argvalues)>
+            on-click(onShowDetails, arguments)>
         <p>{name} <span style="color: gray">({source})</span></p>
       </div>
     </macro>
