@@ -674,8 +674,9 @@ export default class Component<MT extends Metavars> extends Events {
       const
       { attrs } = self.__getAttributes__( $node ),
       elementPath = generatePath('element'),
-      boundaries = self.__getBoundaries__( elementPath )
-      
+      boundaries = self.__getBoundaries__( elementPath ),
+      __arguments__: Record<string, any> = {}
+
       let
       $fragment = $(boundaries.start),
       // Keep track of the latest mesh scope
@@ -685,7 +686,10 @@ export default class Component<MT extends Metavars> extends Events {
       if( activeRenderer ){
         attrs.literals && Object
         .entries( attrs.literals )
-        .forEach( ([ key, value ]) => argvalues[ key ] = { type: 'arg', value } )
+        .forEach( ([ key, value ]) => {
+          __arguments__[ key ] = value
+          argvalues[ key ] = { type: 'arg', value }
+        } )
 
         attrs.expressions && Object
         .entries( attrs.expressions )
@@ -699,6 +703,8 @@ export default class Component<MT extends Metavars> extends Events {
               throw new Error(`Invalid spread operator ${key}`)
 
             for( const _key in spreads ){
+              __arguments__[ _key ] = spreads[ _key ]
+
               // Only consume declared arguments' value
               if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
 
@@ -709,15 +715,25 @@ export default class Component<MT extends Metavars> extends Events {
             }
           }
           else {
+            const evalue = value ? self.__evaluate__( value, scope ) : true
+            __arguments__[ key ] = evalue
+
             // Only consume declared arguments' value
             if( key !== '#' && !activeRenderer.argv.includes( key ) ) return
 
             argvalues[ key ] = {
               type: 'arg',
-              value: value ? self.__evaluate__( value, scope ) : true
+              value: evalue
             }
           }
         })
+
+        /**
+         * Return all possible arguments passed to the macro
+         * in a single object variable form that can be 
+         * accessible in macro template as `argvalues`.
+         */
+        argvalues.__factory__ = () => __arguments__
 
         const $log = activeRenderer.mesh( argvalues )
         if( $log && $log.length )
@@ -748,6 +764,8 @@ export default class Component<MT extends Metavars> extends Events {
 
               const toUpdateDeps: string[] = []
               for( const _key in spreads ){
+                __arguments__[ _key ] = spreads[ _key ]
+
                 // Only update declared arguments' value
                 if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
 
@@ -765,6 +783,8 @@ export default class Component<MT extends Metavars> extends Events {
                 && toUpdateDeps.push( _key )
               }
 
+              extracted.__factory__ = () => __arguments__
+
               toUpdateDeps.length 
               && activeRenderer.update( toUpdateDeps, extracted, boundaries )
             }
@@ -781,20 +801,22 @@ export default class Component<MT extends Metavars> extends Events {
             }) )
           }
           else if( ( key === '#' || activeRenderer.argv.includes( key ) )
-                    && self.__isReactive__( value as string, scope ) ) {
+                    && self.__isReactive__( value as string, scope ) ){
             const 
             deps = self.__extractExpressionDeps__( value as string, scope ),
             partialUpdate = ( memo: VariableSet, by?: string ) => {
               if( !activeRenderer ) return
 
-              const
-              _value: Variable =
-              argvalues[ key ] = {
+              const evalue: Variable = value ? self.__evaluate__( value, memo ) : true
+              __arguments__[ key ] = evalue
+
+              const _value = argvalues[ key ] = {
                 type: 'arg',
-                value: value ? self.__evaluate__( value, memo ) : true
-              }
+                value: evalue
+              },
+              __factory__ = () => __arguments__
               
-              activeRenderer.update( [ key ], { [ key ]: _value }, boundaries )
+              activeRenderer.update( [ key ], { [ key ]: _value, __factory__ } as VariableSet, boundaries )
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
@@ -839,6 +861,22 @@ export default class Component<MT extends Metavars> extends Events {
             argvalues = '#' in argvalues
                                 ? { ...memo, ...argvalues['#'].value }
                                 : { ...memo, ...argvalues }
+
+            if( '#' in argvalues )
+              argvalues = { ...memo, ...argvalues['#'].value }
+            
+            else {
+              argvalues = { ...memo, ...argvalues }
+
+              Object
+              .entries( argvalues )
+              .forEach( ([ key, content ]) => {
+                if( typeof content === 'function' ) return
+                __arguments__[ key ] = content.value
+              } )
+            }
+
+            argvalues.__factory__ = () => __arguments__
                                 
             activeRenderer = result
             $newContent = activeRenderer ? activeRenderer.mesh( argvalues ) : null
@@ -1249,17 +1287,19 @@ export default class Component<MT extends Metavars> extends Events {
        * Parse assigned attributes to be injected into
        * the component as input.
        */
-      let
-      argvalues: VariableSet = {},
-      allvalues: Record<string, any> = {},
-      $fragment = $(boundaries.start)
-
+      const
+      __arguments__: Record<string, any> = {},
+      argvalues: VariableSet = {}
+      
       /**
        * Cast attributes to compnent inputs
        */
       attrs.literals && Object
       .entries( attrs.literals )
-      .forEach( ([ key, value ]) => argvalues[ key ] = { value, type: 'arg' } )
+      .forEach( ([ key, value ]) => {
+        __arguments__[ key ] = value
+        argvalues[ key ] = { value, type: 'arg' }
+      })
 
       attrs.expressions && Object
       .entries( attrs.expressions )
@@ -1270,7 +1310,7 @@ export default class Component<MT extends Metavars> extends Events {
             throw new Error(`Invalid spread operator ${key}`)
 
           for( const _key in spreads ){
-            allvalues[ _key ] = spreads[ _key ]
+            __arguments__[ _key ] = spreads[ _key ]
 
             if( macro.argv.includes( _key ) )
               argvalues[ _key ] = {
@@ -1289,7 +1329,7 @@ export default class Component<MT extends Metavars> extends Events {
         else {
           const val = value ? self.__evaluate__( value as string, scope ) : true
 
-          allvalues[ key ] = val
+          __arguments__[ key ] = val
 
           if( macro.argv.includes( key ) ){
             argvalues[ key ] = {
@@ -1327,15 +1367,14 @@ export default class Component<MT extends Metavars> extends Events {
        * in a single object variable form that can be 
        * accessible in macro template as `argvalues`.
        */
-      argvalues.__factory__ = () => {
-        return allvalues
-      }
+      argvalues.__factory__ = () => __arguments__
 
       /**
        * - $fragment
        * - macroPath
        * - template.declaration?
        */
+      let $fragment = $(boundaries.start)
       const
       setup: MeshWireSetup = {
         $node: macro.$node,
@@ -1367,7 +1406,7 @@ export default class Component<MT extends Metavars> extends Events {
         if( SPREAD_VAR_PATTERN.test( key ) ){
           if( !self.__isReactive__( key as string, scope ) ) return
 
-          const 
+          const
           deps = self.__extractExpressionDeps__( key as string, scope ),
           spreadvalues = ( memo: VariableSet ) => {
             const
@@ -1384,9 +1423,9 @@ export default class Component<MT extends Metavars> extends Events {
               }
 
               /**
-               * Update allvalues variable as well
+               * Update __arguments__ variable as well
                */
-              allvalues[ _key ] = spreads[ _key ]
+              __arguments__[ _key ] = spreads[ _key ]
               
               /**
                * Schedule only what changed to be
@@ -1418,14 +1457,10 @@ export default class Component<MT extends Metavars> extends Events {
           const
           deps = self.__extractExpressionDeps__( value as string, scope ),
           evalue = ( memo: VariableSet ) => {
-            const
-            newvalue: Variable = 
-            allvalues[ key ] = value ? self.__evaluate__( value as string, memo ) : true
+            const newvalue: Variable = value ? self.__evaluate__( value as string, memo ) : true
 
-            memo[ key ] = {
-              value: newvalue,
-              type: 'arg'
-            }
+            __arguments__[ key ] = newvalue
+            memo[ key ] = { value: newvalue, type: 'arg' }
 
             macrowire.renderer.update( [ key ], { [ key ]: newvalue } )
             
@@ -2080,6 +2115,20 @@ export default class Component<MT extends Metavars> extends Events {
     
     const
     PARTIAL_PATHS: string[] = [],
+    getFactory = ( newScope: VariableSet ) => {
+      return () => {
+        const args: Record<string, any> = {}
+        
+        Object
+        .entries( newScope )
+        .forEach( ([k, v]) => {
+          if( typeof v === 'function' ) return
+          args[k] = v.value
+        })
+
+        return args
+      }
+    },
     partialRender = ( $contents: Cash, argvalues?: VariableSet, index?: number ) => {
       // Render the partial
       const
@@ -2248,6 +2297,9 @@ export default class Component<MT extends Metavars> extends Events {
             let $partialLog = $()
             itemsValues.forEach( ( values, index ) => {
               if( !PARTIAL_CONTENT?.length ) return null
+
+              values.__factory__ = getFactory( values )
+
               $partialLog = $partialLog.add( partialRender( PARTIAL_CONTENT, values, index ) )
             } )
 
@@ -2275,9 +2327,13 @@ export default class Component<MT extends Metavars> extends Events {
               if( ITERATOR_REGISTRY.length === newArgs.length ){
                 // Update item's dependency without re-rendering
                 for( let i = 0; i < newArgs.length; i++ )
-                  !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] )
-                  && partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
-
+                  if( !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] ) ){
+                    const values = newArgs[ i ]
+                    values.__factory__ = getFactory( values )
+                    
+                    partialUpdate( Object.keys( newArgs[ i ] ), values, i )
+                  }
+                  
                 return
               }
 
@@ -2286,15 +2342,22 @@ export default class Component<MT extends Metavars> extends Events {
                * length has changed
                */
               const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
-              for( let i = 0; i < existsLength; i++ )
-                partialUpdate( Object.keys( newArgs[ i ] ), newArgs[ i ], i )
+              for( let i = 0; i < existsLength; i++ ){
+                const values = newArgs[ i ]
+                values.__factory__ = getFactory( values )
+
+                partialUpdate( Object.keys( newArgs[ i ] ), values, i )
+              }
               
               // Add new items additions
               if( newArgs.length > ITERATOR_REGISTRY.length ){
                 if( !PARTIAL_CONTENT?.length ) return
 
                 for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
-                  const $partialLog = partialRender( PARTIAL_CONTENT, newArgs[ i ], i )
+                  const values = newArgs[ i ]
+                  values.__factory__ = getFactory( values )
+                  
+                  const $partialLog = partialRender( PARTIAL_CONTENT, values, i )
                   $(boundaries.end).before( $partialLog )
                 }
               }
@@ -2423,6 +2486,7 @@ export default class Component<MT extends Metavars> extends Events {
   private __evaluate__( expr: string, scope?: VariableSet, translate?: boolean ){
     try {
       expr = expr.trim()
+
       const exec = ( each: string ) => {
         /**
          * Only use none-proxy state for eval
@@ -2432,22 +2496,32 @@ export default class Component<MT extends Metavars> extends Events {
         const _state = this.state.toJSON()
 
         if( scope ){
-          let argvalues
-          const _scope: Record<string, any> = {}
-          for( const key in scope ){
-            if( key === '__factory__' && typeof scope.__factory__ === 'function' ){
-              argvalues = scope.__factory__()
-              continue
-            }
+          let
+          __scope__: Record<string, any> = {},
+          __arguments__: Record<string, any> | undefined
 
-            _scope[ key ] = scope[ key ].value
+          for( const key in scope ){
+            if( key === '__factory__' ) continue
+            __scope__[ key ] = scope[ key ].value
+          }
+
+          /**
+           * 
+           * IMPORTANT: `__factory__` is use to update the contextual 
+           * scope with fresh data and also injected as `arguments`.
+           */
+          if( typeof scope.__factory__ === 'function' ){
+            __arguments__ = scope.__factory__()
+
+            if( typeof __arguments__ === 'object' )
+              __scope__ = { ...__scope__, ...__arguments__ }
           }
 
           const
           expression = `with( scope ){ return ${each}; }`,
-          fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', 'argvalues', expression )
+          fn = new Function('self', 'input', 'state', 'static', 'context', 'scope', 'arguments', expression )
         
-          return fn( this, this.input, _state, this.static, this.context, _scope || {}, argvalues )
+          return fn( this, this.input, _state, this.static, this.context, __scope__ || {}, __arguments__ )
         }
         else {
           const 
@@ -2600,7 +2674,7 @@ export default class Component<MT extends Metavars> extends Events {
      * - input.name
      * - context.action
      */
-    MVP = /\b(state|input|context)(?:\.[a-zA-Z_]\w*)+(?=\[|\.|$|\s|;|,|\))/g,
+    MVP = /\b(state|input|context|arguments)(?:\.[a-zA-Z_]\w*)+(?=\[|\.|$|\s|;|,|\))/g,
     /**
      * Metacall pattern
      * 
@@ -2631,7 +2705,7 @@ export default class Component<MT extends Metavars> extends Events {
   }
   private __isReactive__( expr: string, scope?: VariableSet ): boolean {
     // Reactive component variables
-    if( /(state|input|context|self)\.[\w.]+/.test( expr ) ) return true
+    if( /(self|state|input|context|arguments)\.[\w.]+/.test( expr ) ) return true
     // Reactive internal scope
     if( scope
         && Object.keys( scope ).length
