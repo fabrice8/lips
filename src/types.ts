@@ -125,15 +125,13 @@ export type SyntaxAttributes = {
   expressions: Record<string, any>
 }
 
-export type VirtualEvent = {
-  $fragment: Cash
+export interface VirtualEvent<MT extends Metavars> {
+  element: Cash | Component<MT>
   _event: string
   instruction: string
+  path: string
   scope?: Record<string, any>
-}
-export type VirtualEventsRegistry<T> = {
-  element: Cash | T
-  _event: string
+  get __dependencies__(): FGUDependencies
 }
 
 /**
@@ -142,11 +140,13 @@ export type VirtualEventsRegistry<T> = {
 export type NodeType = 'component'
                         | 'dynamic'
                         | 'element'
+                        | 'event'
                         | 'macro'
                         | 'text'
                         | 'let'
                         | 'log'
-export type FGUDTarget = 'spread-attr'
+export type FGUDTarget = 'event-handler'
+                          | 'spread-attr'
                           | 'meta-attr'
                           | 'argument'
                           | 'value'
@@ -183,10 +183,10 @@ export type FGUDBatchEntry = {
   dependent: FGUDependency
 }
 
-export type RenderedNode = {
+export type RenderedNode<MT extends Metavars> = {
   $log: Cash
   dependencies: FGUDependencies
-  events?: VirtualEvent[]
+  events?: VirtualEvent<MT>[]
 }
 export type FragmentBoundaries = {
   start: Comment
@@ -196,8 +196,8 @@ export type FragmentBoundaries = {
 export interface MeshRenderer {
   path: string | null
   argv: string[]
-  mesh( argvalues?: VariableSet ): Cash | null
-  update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ): void
+  mesh( argvalues?: VariableSet, scope?: VariableSet ): Cash | null
+  update( deps: string[], argvalues: VariableSet, scope: VariableSet, boundaries?: FragmentBoundaries ): void
 }
 export type MeshTemplate = Record<string, any> & {
   renderer: MeshRenderer

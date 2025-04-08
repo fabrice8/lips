@@ -16,7 +16,6 @@ import type {
   Declaration,
   FragmentBoundaries,
   VirtualEvent,
-  VirtualEventsRegistry,
   MeshWireSetup,
   SyntaxAttributes,
   DynamicTemplate,
@@ -69,7 +68,7 @@ export default class Component<MT extends Metavars> extends Events {
   // Preserved Child Components
   private PCC: Map<string, Component<MT>> = new Map()
   // Virtual Events Registry
-  private VER: VirtualEventsRegistry<Component<MT>>[] = []
+  private VER: Array<VirtualEvent<MT>> = []
 
   private prepath = '0'
   private debug = false
@@ -409,10 +408,10 @@ export default class Component<MT extends Metavars> extends Events {
     return this.$
   }
   
-  render( inpath: string, $nodes?: Cash, scope: VariableSet = {}, sharedDeps?: FGUDependencies, xmlns?: boolean ): RenderedNode {
+  render( inpath: string, $nodes?: Cash, scope: VariableSet = {}, sharedDeps?: FGUDependencies, xmlns?: boolean ): RenderedNode<MT> {
     const
     dependencies: FGUDependencies = sharedDeps || new Map(),
-    attachableEvents: VirtualEvent[] = []
+    attachableEvents: Array<VirtualEvent<MT>> = []
 
     if( $nodes && !$nodes.length ){
       console.warn('Undefined node element to render')
@@ -733,7 +732,7 @@ export default class Component<MT extends Metavars> extends Events {
          * in a single object variable form that can be 
          * accessible in macro template as `argvalues`.
          */
-        argvalues.__factory__ = () => __arguments__
+        // argvalues.__factory__ = () => __arguments__
 
         const $log = activeRenderer.mesh( argvalues )
         if( $log && $log.length )
@@ -783,10 +782,10 @@ export default class Component<MT extends Metavars> extends Events {
                 && toUpdateDeps.push( _key )
               }
 
-              extracted.__factory__ = () => __arguments__
+              // extracted.__factory__ = () => __arguments__
 
               toUpdateDeps.length 
-              && activeRenderer.update( toUpdateDeps, extracted, boundaries )
+              && activeRenderer.update( toUpdateDeps, extracted, memo, boundaries )
             }
 
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
@@ -813,10 +812,10 @@ export default class Component<MT extends Metavars> extends Events {
               const _value = argvalues[ key ] = {
                 type: 'arg',
                 value: evalue
-              },
-              __factory__ = () => __arguments__
+              }
+              // __factory__ = () => __arguments__
               
-              activeRenderer.update( [ key ], { [ key ]: _value, __factory__ } as VariableSet, boundaries )
+              activeRenderer.update( [ key ], { [ key ]: _value } as VariableSet, memo, boundaries )
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
@@ -876,7 +875,7 @@ export default class Component<MT extends Metavars> extends Events {
               } )
             }
 
-            argvalues.__factory__ = () => __arguments__
+            // argvalues.__factory__ = () => __arguments__
                                 
             activeRenderer = result
             $newContent = activeRenderer ? activeRenderer.mesh( argvalues ) : null
@@ -1184,7 +1183,18 @@ export default class Component<MT extends Metavars> extends Events {
       // Listen to this nexted component's events
       Object
       .entries( events )
-      .forEach( ([ _event, instruction ]) => !!component && self.__attachEvent__( component, _event, instruction, scope ) )
+      .forEach( ([ _event, instruction ]) => {
+        if( !component ) return
+
+        self.__attachEvent__({
+          element: component,
+          path: componentPath,
+          _event,
+          instruction,
+          scope,
+          get __dependencies__(){ return dependencies }
+        })
+      })
       
       /**
        * Setup input dependency track
@@ -1242,7 +1252,7 @@ export default class Component<MT extends Metavars> extends Events {
                           ? self.__evaluateFunction__( value, [], memo )
                           : value ? self.__evaluate__( value as string, memo ) : true
 
-            component?.subInput({ [key]: _value })
+            component?.subInput({ [ key ]: _value })
           }
           
           if( self.__isReactive__( value as string, scope ) ){
@@ -1436,7 +1446,7 @@ export default class Component<MT extends Metavars> extends Events {
             }
 
             toUpdateDeps.length
-            && macrowire.renderer.update( toUpdateDeps, extracted )
+            && macrowire.renderer.update( toUpdateDeps, extracted, memo )
 
             return { memo: { ...memo, ...extracted } }
           }
@@ -1462,7 +1472,7 @@ export default class Component<MT extends Metavars> extends Events {
             __arguments__[ key ] = newvalue
             memo[ key ] = { value: newvalue, type: 'arg' }
 
-            macrowire.renderer.update( [ key ], { [ key ]: newvalue } )
+            macrowire.renderer.update( [ key ], { [ key ]: newvalue }, memo )
             
             return { memo }
           }
@@ -1519,7 +1529,9 @@ export default class Component<MT extends Metavars> extends Events {
       $contents.length
       && $fragment.append( self.__withPath__( elementPath, () => self.render( elementPath +'.n', $contents, scope, dependencies, isXMLNS ).$log ) )
 
-      const { attrs, events } = self.__getAttributes__( $node )
+      const
+      __scopeupdate__: Record<string, any> = {},
+      { attrs, events } = self.__getAttributes__( $node )
       /**
        * Literal value attributes
        */
@@ -1572,6 +1584,8 @@ export default class Component<MT extends Metavars> extends Events {
             case '@html': {
               const updateHTML = ( memo: VariableSet ) => {
                 $fragment.html( self.__evaluate__( value as string, memo ) )
+
+
               }
 
               updateHTML( scope )
@@ -1837,7 +1851,7 @@ export default class Component<MT extends Metavars> extends Events {
           }) )
         }
       })
-      
+
       assignAttrs( attrs.expressions, true )
       
       // Record attachable events to the element
@@ -1845,10 +1859,12 @@ export default class Component<MT extends Metavars> extends Events {
       .entries( events )
       .forEach( ([ _event, value ]) => {
         attachableEvents.push({
+          element: $fragment,
+          path: elementPath,
           _event,
-          $fragment,
           instruction: value as string,
-          scope
+          scope,
+          get __dependencies__(){ return dependencies }
         })
       })
 
@@ -1985,9 +2001,7 @@ export default class Component<MT extends Metavars> extends Events {
        * This to avoid loosing binding to attached
        * DOM element's events
        */
-      attachableEvents.forEach( ({ $fragment, _event, instruction, scope }) => {
-        this.__attachEvent__( $fragment, _event, instruction, scope )
-      })
+      attachableEvents.forEach( this.__attachEvent__.bind(this) )
 
       /**
        * METRICS: Tracking total occurence of recursive rendering
@@ -2045,7 +2059,7 @@ export default class Component<MT extends Metavars> extends Events {
     /**
      * Detached all events
      */
-    this.VER.forEach( ({ element, _event }) => this.__detachEvent__( element, _event ) )
+    this.VER.forEach( this.__detachEvent__.bind(this) )
     this.VER = []
 
     /**
@@ -2129,11 +2143,11 @@ export default class Component<MT extends Metavars> extends Events {
         return args
       }
     },
-    partialRender = ( $contents: Cash, argvalues?: VariableSet, index?: number ) => {
+    partialRender = ( $contents: Cash, freshscope: VariableSet, argvalues?: VariableSet, index?: number ) => {
       // Render the partial
       const
       partialPath = `${fragmentPath}.${meshPath || 'r'}${index !== undefined ? `[${index}]` : ''}`,
-      { $log, dependencies, events } = self.__withPath__( partialPath, () => self.render( partialPath, $contents, { ...scope, ...argvalues }, undefined, xmlns ) )
+      { $log, dependencies, events } = self.__withPath__( partialPath, () => self.render( partialPath, $contents, { ...freshscope, ...argvalues }, undefined, xmlns ) )
 
       PARTIAL_PATHS.push( partialPath )
 
@@ -2177,7 +2191,7 @@ export default class Component<MT extends Metavars> extends Events {
 
       return $log
     },
-    partialUpdate = ( deps: string[], argvalues: VariableSet, index?: number ) => {
+    partialUpdate = ( deps: string[], freshscope: VariableSet, argvalues: VariableSet, index?: number ) => {
       // Start measuring
       self.metrics.startRender()
       
@@ -2212,7 +2226,7 @@ export default class Component<MT extends Metavars> extends Events {
               && argvalues?.[ dep ]
               && isEqual( dependent.memo[ dep ], argvalues[ dep ] ) ) return
 
-          dependent.memo = { ...scope, ...dependent.memo, ...argvalues }
+          dependent.memo = { ...freshscope, ...dependent.memo, ...argvalues }
           
           if( dependent.batch ) self.UQS.queue({ dep, dependent })
           else {
@@ -2275,9 +2289,11 @@ export default class Component<MT extends Metavars> extends Events {
       renderer: {
         path: meshPath,
         argv,
-        mesh( argvalues?: VariableSet, clone: boolean = false ){
+        mesh( argvalues, freshscope, clone = false ){
           PARTIAL_CONTENT = $node.contents()
           if( !PARTIAL_CONTENT?.length ) return null
+
+          freshscope = freshscope || scope
 
           /**
            * 
@@ -2300,16 +2316,17 @@ export default class Component<MT extends Metavars> extends Events {
 
               values.__factory__ = getFactory( values )
 
-              $partialLog = $partialLog.add( partialRender( PARTIAL_CONTENT, values, index ) )
+              $partialLog = $partialLog.add( partialRender( PARTIAL_CONTENT, freshscope, values, index ) )
             } )
 
             return $partialLog
           }
-          else return partialRender( PARTIAL_CONTENT, argvalues )
+          else return partialRender( PARTIAL_CONTENT, freshscope, argvalues )
         },
-        update( deps: string[], argvalues: VariableSet, boundaries?: FragmentBoundaries ){
+        update( deps, argvalues, freshscope, boundaries ){
           if( !PARTIAL_PATHS.length ) return
           
+          freshscope = freshscope || scope
           boundaries = boundaries || fragmentBoundaries
           
           /**
@@ -2328,10 +2345,13 @@ export default class Component<MT extends Metavars> extends Events {
                 // Update item's dependency without re-rendering
                 for( let i = 0; i < newArgs.length; i++ )
                   if( !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] ) ){
-                    const values = newArgs[ i ]
+                    const
+                    values = newArgs[ i ],
+                    specDeps = Object.keys( values )
+
                     values.__factory__ = getFactory( values )
                     
-                    partialUpdate( Object.keys( newArgs[ i ] ), values, i )
+                    partialUpdate( specDeps, freshscope, values, i )
                   }
                   
                 return
@@ -2343,10 +2363,13 @@ export default class Component<MT extends Metavars> extends Events {
                */
               const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
               for( let i = 0; i < existsLength; i++ ){
-                const values = newArgs[ i ]
+                const
+                values = newArgs[ i ],
+                specDeps = Object.keys( values )
+
                 values.__factory__ = getFactory( values )
 
-                partialUpdate( Object.keys( newArgs[ i ] ), values, i )
+                partialUpdate( specDeps, freshscope, values, i )
               }
               
               // Add new items additions
@@ -2357,7 +2380,7 @@ export default class Component<MT extends Metavars> extends Events {
                   const values = newArgs[ i ]
                   values.__factory__ = getFactory( values )
                   
-                  const $partialLog = partialRender( PARTIAL_CONTENT, values, i )
+                  const $partialLog = partialRender( PARTIAL_CONTENT, freshscope, values, i )
                   $(boundaries.end).before( $partialLog )
                 }
               }
@@ -2369,7 +2392,7 @@ export default class Component<MT extends Metavars> extends Events {
             }
           }
           // Update dependencies
-          else partialUpdate( deps, argvalues )
+          else partialUpdate( deps, freshscope, argvalues )
         }
       }
     }
@@ -2603,6 +2626,8 @@ export default class Component<MT extends Metavars> extends Events {
       if( params.length )
         _args = [ ..._args, ...params ]
 
+      console.log('final params --', _args )
+
       return _fn( ..._args )
     }
   }
@@ -2614,7 +2639,12 @@ export default class Component<MT extends Metavars> extends Events {
 
     return str
   }
-  private __attachEvent__( element: Cash | Component<MT>, _event: string, instruction: string, scope?: VariableSet ){
+  private __attachEvent__( metadata: VirtualEvent<MT> ){
+    const
+    { element, path, _event, instruction, scope, __dependencies__ } = metadata,
+    eventPath = `${path}.${_event}`
+    let eventScope = scope
+
     /**
      * Execute function script directly attach 
      * as the listener.
@@ -2635,16 +2665,49 @@ export default class Component<MT extends Metavars> extends Events {
      *       must be defined as `handler` at the component
      *       level before any assignment.
      */
-    element.on( _event, ( ...params: any[] ) => this.__evaluateFunction__( instruction, params, scope ) )
+    element.on( _event, ( ...params: any[] ) => this.__evaluateFunction__( instruction, params, eventScope ) )
 
-    this.VER.push({ element, _event })
+    this.VER.push( metadata )
     
     // Track DOM operation
     this.metrics.inc('domUpdatesCount')
     this.metrics.inc('domRemovalsCount')
+      
+    // Track the event handler as a dependency
+    if( this.__isReactive__( instruction as string, scope ) ){
+      const deps = this.__extractExpressionDeps__( instruction as string, scope )
+      
+      deps.forEach( dep => this.__trackDep__( __dependencies__, dep, {
+        nodetype: 'event',
+        target: 'event-handler',
+        $fragment: null,
+        path: eventPath,
+        /**
+         * Update event's scope with fresh memo
+         */
+        update: memo => { eventScope = memo },
+        memo: scope || {},
+        batch: false
+      }))
+    }
   }
-  private __detachEvent__( $element: Cash | Component<MT>, _event: string ){
-    $element.off( _event )
+  private __detachEvent__({ element, path, _event, instruction, scope, __dependencies__ }: VirtualEvent<MT> ){
+    element.off( _event )
+
+    // Clean up tracking event handler dependencies
+    if( this.__isReactive__( instruction as string, scope ) ){
+      const 
+      deps = this.__extractExpressionDeps__( instruction as string, scope ),
+      eventPath = `${path}.${_event}`
+      
+      deps.forEach( dep => {
+        // From partial dependencies if there is
+        __dependencies__.get( dep )?.delete( eventPath )
+        // From main dependencies
+        this.FGUD.get( dep )?.delete( eventPath )
+      })
+    }
+    
     // Track DOM operation
     this.metrics.inc('domOperations')
     this.metrics.inc('domRemovalsCount')
