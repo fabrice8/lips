@@ -351,7 +351,7 @@ function DemoDynamicComponent(){
       <br>
       <p>Count it</p>
       <{static.easycount} [count]>
-        <span>{count} - SQRT()</span> => <b> {Math.sqrt( arguments.count )}</b>
+        <span>{count} - SQRT()</span> => <b> {Math.sqrt( count )}</b>
       </>
     </div>
   `

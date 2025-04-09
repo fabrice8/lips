@@ -673,8 +673,7 @@ export default class Component<MT extends Metavars> extends Events {
       const
       { attrs } = self.__getAttributes__( $node ),
       elementPath = generatePath('element'),
-      boundaries = self.__getBoundaries__( elementPath ),
-      __arguments__: Record<string, any> = {}
+      boundaries = self.__getBoundaries__( elementPath )
 
       let
       $fragment = $(boundaries.start),
@@ -685,10 +684,7 @@ export default class Component<MT extends Metavars> extends Events {
       if( activeRenderer ){
         attrs.literals && Object
         .entries( attrs.literals )
-        .forEach( ([ key, value ]) => {
-          __arguments__[ key ] = value
-          argvalues[ key ] = { type: 'arg', value }
-        } )
+        .forEach( ([ key, value ]) => argvalues[ key ] = { type: 'arg', value } )
 
         attrs.expressions && Object
         .entries( attrs.expressions )
@@ -702,8 +698,6 @@ export default class Component<MT extends Metavars> extends Events {
               throw new Error(`Invalid spread operator ${key}`)
 
             for( const _key in spreads ){
-              __arguments__[ _key ] = spreads[ _key ]
-
               // Only consume declared arguments' value
               if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
 
@@ -714,26 +708,16 @@ export default class Component<MT extends Metavars> extends Events {
             }
           }
           else {
-            const evalue = value ? self.__evaluate__( value, scope ) : true
-            __arguments__[ key ] = evalue
-
             // Only consume declared arguments' value
             if( key !== '#' && !activeRenderer.argv.includes( key ) ) return
 
             argvalues[ key ] = {
               type: 'arg',
-              value: evalue
+              value: value ? self.__evaluate__( value, scope ) : true
             }
           }
         })
-
-        /**
-         * Return all possible arguments passed to the macro
-         * in a single object variable form that can be 
-         * accessible in macro template as `argvalues`.
-         */
-        argvalues.__factory__ = () => __arguments__
-
+        
         const $log = activeRenderer.mesh( argvalues )
         if( $log && $log.length )
           $fragment = $fragment.add( $log )
@@ -763,8 +747,6 @@ export default class Component<MT extends Metavars> extends Events {
 
               const toUpdateDeps: string[] = []
               for( const _key in spreads ){
-                __arguments__[ _key ] = spreads[ _key ]
-
                 // Only update declared arguments' value
                 if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
 
@@ -781,9 +763,7 @@ export default class Component<MT extends Metavars> extends Events {
                 ;( !memo[ _key ] || !isEqual( spreads[ _key ], memo[ _key ].value ) )
                 && toUpdateDeps.push( _key )
               }
-
-              extracted.__factory__ = () => __arguments__
-
+              
               toUpdateDeps.length 
               && activeRenderer.update( toUpdateDeps, extracted, memo, boundaries )
             }
@@ -802,20 +782,16 @@ export default class Component<MT extends Metavars> extends Events {
           else if( ( key === '#' || activeRenderer.argv.includes( key ) )
                     && self.__isReactive__( value, scope ) ){
             const 
-            deps = self.__extractExpressionDeps__( key, scope ),
+            deps = self.__extractExpressionDeps__( value, scope ),
             partialUpdate = ( memo: VariableSet, by?: string ) => {
               if( !activeRenderer ) return
 
-              const evalue: Variable = value ? self.__evaluate__( value, memo ) : true
-              __arguments__[ key ] = evalue
-
               const _value = argvalues[ key ] = {
                 type: 'arg',
-                value: evalue
-              },
-              __factory__ = () => __arguments__
-              
-              activeRenderer.update( [ key ], { [ key ]: _value, __factory__ } as VariableSet, memo, boundaries )
+                value: value ? self.__evaluate__( value, memo ) : true
+              }
+
+              activeRenderer.update( [ key ], { [ key ]: _value }, memo, boundaries )
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
@@ -860,23 +836,7 @@ export default class Component<MT extends Metavars> extends Events {
             argvalues = '#' in argvalues
                                 ? { ...memo, ...argvalues['#'].value }
                                 : { ...memo, ...argvalues }
-
-            if( '#' in argvalues )
-              argvalues = { ...memo, ...argvalues['#'].value }
-            
-            else {
-              argvalues = { ...memo, ...argvalues }
-
-              Object
-              .entries( argvalues )
-              .forEach( ([ key, content ]) => {
-                if( typeof content === 'function' ) return
-                __arguments__[ key ] = content.value
-              } )
-            }
-
-            argvalues.__factory__ = () => __arguments__
-                                
+                                 
             activeRenderer = result
             $newContent = activeRenderer ? activeRenderer.mesh( argvalues, memo ) : null
           }
