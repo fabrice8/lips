@@ -555,7 +555,7 @@ export default class Component<MT extends Metavars> extends Events {
             if( update ) return { memo }
           }
 
-          const deps = self.__extractExpressionDeps__( key as string, scope )
+          const deps = self.__extractExpressionDeps__( key, scope )
           deps.forEach( dep => self.__trackDep__( dependencies, dep, {
             nodetype: 'let',
             target: 'spread-attr',
@@ -569,9 +569,9 @@ export default class Component<MT extends Metavars> extends Events {
           spreadExtract()
         }
         else if( assign ){
-          if( self.__isReactive__( assign as string, scope ) ){
+          if( self.__isReactive__( assign, scope ) ){
             const 
-            deps = self.__extractExpressionDeps__( assign as string, scope ),
+            deps = self.__extractExpressionDeps__( assign, scope ),
             updateVar = ( memo: VariableSet, by?: string ) => {
               if( scope[ key ] && scope[ key ].type === 'const' )
                 throw new Error(`Cannot override <const ${key}=[value]/> variable`)
@@ -732,7 +732,7 @@ export default class Component<MT extends Metavars> extends Events {
          * in a single object variable form that can be 
          * accessible in macro template as `argvalues`.
          */
-        // argvalues.__factory__ = () => __arguments__
+        argvalues.__factory__ = () => __arguments__
 
         const $log = activeRenderer.mesh( argvalues )
         if( $log && $log.length )
@@ -749,9 +749,9 @@ export default class Component<MT extends Metavars> extends Events {
         .forEach( ([ key, value ]) => {
           if( !activeRenderer ) return
           
-          if( SPREAD_VAR_PATTERN.test( key ) && self.__isReactive__( key as string, scope ) ){
+          if( SPREAD_VAR_PATTERN.test( key ) && self.__isReactive__( key, scope ) ){
             const
-            deps = self.__extractExpressionDeps__( key as string, scope ),
+            deps = self.__extractExpressionDeps__( key, scope ),
             spreadPartialUpdate = ( memo: VariableSet, by?: string ) => {
               if( !activeRenderer ) return
 
@@ -782,7 +782,7 @@ export default class Component<MT extends Metavars> extends Events {
                 && toUpdateDeps.push( _key )
               }
 
-              // extracted.__factory__ = () => __arguments__
+              extracted.__factory__ = () => __arguments__
 
               toUpdateDeps.length 
               && activeRenderer.update( toUpdateDeps, extracted, memo, boundaries )
@@ -800,9 +800,9 @@ export default class Component<MT extends Metavars> extends Events {
             }) )
           }
           else if( ( key === '#' || activeRenderer.argv.includes( key ) )
-                    && self.__isReactive__( value as string, scope ) ){
+                    && self.__isReactive__( value, scope ) ){
             const 
-            deps = self.__extractExpressionDeps__( value as string, scope ),
+            deps = self.__extractExpressionDeps__( key, scope ),
             partialUpdate = ( memo: VariableSet, by?: string ) => {
               if( !activeRenderer ) return
 
@@ -812,10 +812,10 @@ export default class Component<MT extends Metavars> extends Events {
               const _value = argvalues[ key ] = {
                 type: 'arg',
                 value: evalue
-              }
-              // __factory__ = () => __arguments__
+              },
+              __factory__ = () => __arguments__
               
-              activeRenderer.update( [ key ], { [ key ]: _value } as VariableSet, memo, boundaries )
+              activeRenderer.update( [ key ], { [ key ]: _value, __factory__ } as VariableSet, memo, boundaries )
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
@@ -875,10 +875,10 @@ export default class Component<MT extends Metavars> extends Events {
               } )
             }
 
-            // argvalues.__factory__ = () => __arguments__
+            argvalues.__factory__ = () => __arguments__
                                 
             activeRenderer = result
-            $newContent = activeRenderer ? activeRenderer.mesh( argvalues ) : null
+            $newContent = activeRenderer ? activeRenderer.mesh( argvalues, memo ) : null
           }
 
           // Check if boundaries are in DOM
@@ -902,7 +902,7 @@ export default class Component<MT extends Metavars> extends Events {
 
           $newContent && $(boundaries.start).after( $newContent )
         },
-        deps = self.__extractExpressionDeps__( dtag as string, scope )
+        deps = self.__extractExpressionDeps__( dtag, scope )
 
         deps.forEach( dep => self.__trackDep__( dependencies, dep, {
           nodetype: 'dynamic',
@@ -1250,13 +1250,13 @@ export default class Component<MT extends Metavars> extends Events {
           const evalue = ( memo: VariableSet ) => {
             const _value = isFunction
                           ? self.__evaluateFunction__( value, [], memo )
-                          : value ? self.__evaluate__( value as string, memo ) : true
+                          : value ? self.__evaluate__( value, memo ) : true
 
             component?.subInput({ [ key ]: _value })
           }
           
-          if( self.__isReactive__( value as string, scope ) ){
-            const deps = self.__extractExpressionDeps__( value as string, scope )
+          if( self.__isReactive__( value, scope ) ){
+            const deps = self.__extractExpressionDeps__( value, scope )
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, {
               nodetype: 'component',
@@ -1414,10 +1414,10 @@ export default class Component<MT extends Metavars> extends Events {
         }
 
         if( SPREAD_VAR_PATTERN.test( key ) ){
-          if( !self.__isReactive__( key as string, scope ) ) return
+          if( !self.__isReactive__( key, scope ) ) return
 
           const
-          deps = self.__extractExpressionDeps__( key as string, scope ),
+          deps = self.__extractExpressionDeps__( key, scope ),
           spreadvalues = ( memo: VariableSet ) => {
             const
             extracted: VariableSet = {},
@@ -1463,9 +1463,9 @@ export default class Component<MT extends Metavars> extends Events {
             batch: true
           }) )
         }
-        else if( self.__isReactive__( value as string, scope ) ){
+        else if( self.__isReactive__( value, scope ) ){
           const
-          deps = self.__extractExpressionDeps__( value as string, scope ),
+          deps = self.__extractExpressionDeps__( value, scope ),
           evalue = ( memo: VariableSet ) => {
             const newvalue: Variable = value ? self.__evaluate__( value as string, memo ) : true
 
@@ -1590,8 +1590,8 @@ export default class Component<MT extends Metavars> extends Events {
 
               updateHTML( scope )
 
-              if( track && self.__isReactive__( value as string, scope ) ){
-                const deps = self.__extractExpressionDeps__( value as string, scope )
+              if( track && self.__isReactive__( value, scope ) ){
+                const deps = self.__extractExpressionDeps__( value, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
                   nodetype: 'element',
@@ -1625,8 +1625,8 @@ export default class Component<MT extends Metavars> extends Events {
 
               updateText( scope )
               
-              if( track && self.__isReactive__( value as string, scope ) ){
-                const deps = self.__extractExpressionDeps__( value as string, scope )
+              if( track && self.__isReactive__( value, scope ) ){
+                const deps = self.__extractExpressionDeps__( value, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
                   nodetype: 'element',
@@ -1721,8 +1721,8 @@ export default class Component<MT extends Metavars> extends Events {
 
               updateStyle( scope )
               
-              if( track && self.__isReactive__( value as string, scope ) ){
-                const deps = self.__extractExpressionDeps__( value as string, scope )
+              if( track && self.__isReactive__( value, scope ) ){
+                const deps = self.__extractExpressionDeps__( value, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
                   nodetype: 'element',
@@ -1787,8 +1787,8 @@ export default class Component<MT extends Metavars> extends Events {
 
               updateAttrs( scope )
               
-              if( track && self.__isReactive__( value as string, scope ) ){
-                const deps = self.__extractExpressionDeps__( value as string, scope )
+              if( track && self.__isReactive__( value, scope ) ){
+                const deps = self.__extractExpressionDeps__( value, scope )
 
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, {
                   nodetype: 'element',
@@ -2289,7 +2289,7 @@ export default class Component<MT extends Metavars> extends Events {
       renderer: {
         path: meshPath,
         argv,
-        mesh( argvalues, freshscope, clone = false ){
+        mesh( argvalues, freshscope ){
           PARTIAL_CONTENT = $node.contents()
           if( !PARTIAL_CONTENT?.length ) return null
 
@@ -2313,9 +2313,6 @@ export default class Component<MT extends Metavars> extends Events {
             let $partialLog = $()
             itemsValues.forEach( ( values, index ) => {
               if( !PARTIAL_CONTENT?.length ) return null
-
-              values.__factory__ = getFactory( values )
-
               $partialLog = $partialLog.add( partialRender( PARTIAL_CONTENT, freshscope, values, index ) )
             } )
 
@@ -2344,15 +2341,8 @@ export default class Component<MT extends Metavars> extends Events {
               if( ITERATOR_REGISTRY.length === newArgs.length ){
                 // Update item's dependency without re-rendering
                 for( let i = 0; i < newArgs.length; i++ )
-                  if( !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] ) ){
-                    const
-                    values = newArgs[ i ],
-                    specDeps = Object.keys( values )
-
-                    values.__factory__ = getFactory( values )
-                    
-                    partialUpdate( specDeps, freshscope, values, i )
-                  }
+                  if( !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] ) )
+                    partialUpdate( Object.keys( newArgs[ i ] ), freshscope, newArgs[ i ], i )
                   
                 return
               }
@@ -2362,25 +2352,15 @@ export default class Component<MT extends Metavars> extends Events {
                * length has changed
                */
               const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
-              for( let i = 0; i < existsLength; i++ ){
-                const
-                values = newArgs[ i ],
-                specDeps = Object.keys( values )
-
-                values.__factory__ = getFactory( values )
-
-                partialUpdate( specDeps, freshscope, values, i )
-              }
+              for( let i = 0; i < existsLength; i++ )
+                partialUpdate( Object.keys( newArgs[ i ] ), freshscope, newArgs[ i ], i )
               
               // Add new items additions
               if( newArgs.length > ITERATOR_REGISTRY.length ){
                 if( !PARTIAL_CONTENT?.length ) return
 
                 for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
-                  const values = newArgs[ i ]
-                  values.__factory__ = getFactory( values )
-                  
-                  const $partialLog = partialRender( PARTIAL_CONTENT, freshscope, values, i )
+                  const $partialLog = partialRender( PARTIAL_CONTENT, freshscope, newArgs[ i ], i )
                   $(boundaries.end).before( $partialLog )
                 }
               }
@@ -2625,9 +2605,7 @@ export default class Component<MT extends Metavars> extends Events {
 
       if( params.length )
         _args = [ ..._args, ...params ]
-
-      console.log('final params --', _args )
-
+      
       return _fn( ..._args )
     }
   }
@@ -2643,6 +2621,7 @@ export default class Component<MT extends Metavars> extends Events {
     const
     { element, path, _event, instruction, scope, __dependencies__ } = metadata,
     eventPath = `${path}.${_event}`
+
     let eventScope = scope
 
     /**
@@ -2674,8 +2653,8 @@ export default class Component<MT extends Metavars> extends Events {
     this.metrics.inc('domRemovalsCount')
       
     // Track the event handler as a dependency
-    if( this.__isReactive__( instruction as string, scope ) ){
-      const deps = this.__extractExpressionDeps__( instruction as string, scope )
+    if( this.__isReactive__( instruction, scope ) ){
+      const deps = this.__extractExpressionDeps__( instruction, scope )
       
       deps.forEach( dep => this.__trackDep__( __dependencies__, dep, {
         nodetype: 'event',
@@ -2695,9 +2674,9 @@ export default class Component<MT extends Metavars> extends Events {
     element.off( _event )
 
     // Clean up tracking event handler dependencies
-    if( this.__isReactive__( instruction as string, scope ) ){
+    if( this.__isReactive__( instruction, scope ) ){
       const 
-      deps = this.__extractExpressionDeps__( instruction as string, scope ),
+      deps = this.__extractExpressionDeps__( instruction, scope ),
       eventPath = `${path}.${_event}`
       
       deps.forEach( dep => {
@@ -2803,8 +2782,14 @@ export default class Component<MT extends Metavars> extends Events {
     return path.reduce( ( curr, part ) => curr?.[ part ], obj )
   }
   private __shouldUpdate__( dep_scope: string, parts: string[], current: InteractiveMetavars<MT>, previous: InteractiveMetavars<MT> ): boolean {
-    // Allow component's method `self.fn` call evaluation
-    if( dep_scope === 'self' ) return true
+    /**
+     * IMPORTANT:
+     * 
+     * Allow component's method `self.fn` call evaluation
+     * and scope based variables
+     */
+    if( dep_scope === 'self' 
+        || !['state', 'input', 'context'].includes( dep_scope ) ) return true
 
     // Check metavars changes
     const
