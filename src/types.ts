@@ -18,6 +18,7 @@ export type Variable = {
   type: 'let' | 'const' | 'arg'
 }
 export type VariableSet = Record<string, Variable> & {
+  // __arguments__?: Record<string, any>
   __factory__?: () => any
 }
 
@@ -121,8 +122,14 @@ export type Macro = {
 
 export type SyntaxAttributes = {
   literals: Record<string, any>
-  functions: Record<string, any>
   expressions: Record<string, any>
+  map: {
+    explicitAttrs: string[]
+    spreadAttrs: string[]
+    beforeSpreadAttrs: string[]
+    afterSpreadAttrs: string[]
+    metaAttrs: string[]
+  }
 }
 
 export interface VirtualEvent<MT extends Metavars> {
@@ -168,13 +175,14 @@ export interface FGUDependency {
   nodetype: NodeType
   target: FGUDTarget
   path: string
+  memo: VariableSet
   $fragment: Cash | null
   boundaries?: FragmentBoundaries
   haslet?: boolean
   batch?: boolean
   syntax?: boolean
   partial?: string[]
-  memo: VariableSet
+  priority?: number
   update: ( memo: VariableSet, by?: string ) => FGUSync | void
 }
 export type FGUDependencies = Map<string, Map<string, FGUDependency>>

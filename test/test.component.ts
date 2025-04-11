@@ -656,6 +656,135 @@ function DemoSyntaxInteract(){
   .appendTo('body')
 }
 
+function createSpec(){
+  type TemplateInput = {
+    initial: number
+    limit: number
+  }
+  type TemplateState = {
+    count: number
+  }
+
+  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
+    state: {
+      count: 0
+    },
+    handler: {
+      onInput(){ console.log('spec input --', this.input ) }
+    },
+    default: `
+      <fieldset on-click( () => self.emit('select') )>
+        <h2 style="margin-top: 0">
+          <span style="color: {input.active ? 'turquoise' : 'unset'}">{input.name}</span>
+          <if( input.deprecated )><small style="color: orange"> (Deprecated)</small></if>
+        </h2>
+        <!-- <const ...static.vars></const> -->
+
+        <ul>
+          <li>Type: {input.type}</li>
+          <li>Size: {input.size || '-'}</li>
+          <li>Version: {input.version}</li>
+          <li>
+            Installed:
+            <if( input.installed )>
+              <span style="color: green">Yes</span>
+            </if>
+            <else><span style="color: gray">No</span></else>
+          </li>
+        </ul>
+      </fieldset>
+    `
+  }
+
+  return easyCount
+}
+function DemoAttrsPositioning(){
+  lips.register('spec', createSpec() )
+
+  const
+  state = {
+    specs: [
+      { type: 'Lib', name: 'Request', version: '2.2.0', latest: '2.88.2', deprecated: true },
+      { type: 'Framework', name: 'Lips', version: '1.0.0', size: '86kb', installed: true, active: true },
+      { type: 'Framework', name: 'React', version: '4.9.0', latest: '19.1.0', size: '156kb', installed: false },
+      { type: 'App', name: 'Chrome', version: '24.2.0', latest: '26.1.11', size: '132Mb', deprecated: false },
+      { type: 'OS', name: 'Ubuntu', size: '2.4Gb', deprecated: true }
+    ],
+    version: '10.10.1',
+    selected: null
+  },
+  handler: Handler<Metavars<any, any>> = {
+    onSelect( index ){
+      this.state.selected = index
+    },
+    getSpecs( index ){
+      return this.state.specs[ index ]
+    },
+    onInstall( index, version ){
+      this.state.specs[ index ].installed = true
+      this.state.version = version
+    },
+    onUninstall( index, version ){
+      this.state.specs[ index ].installed = false
+      this.state.version = null
+    },
+    onUpgrade( index, partial = false ){
+      this.state.version = this.state.specs[ index ].latest
+      
+      if( partial === false ){
+        this.state.specs[ index ].version = this.state.specs[ index ].latest
+        this.state.specs[ index ].upgraded = true
+      }
+    }
+  },
+  template = `
+    <ul style="list-type: none">
+      <for [index] from=0 to=(state.specs.length - 1)>
+        <li style="border: 4px solid {state.selected === index ? 'turquoise' : 'black'}; margin: 5px 0;">
+          <let specs=self.getSpecs( index )/>
+
+          <spec version=state.version
+                ...specs
+                active=(state.selected === index)
+                on-select( onSelect, index )/>
+
+          <div style="display: flex; align-items: center; justify-content: between;padding: 10px;">
+            <let version=state.version active=(state.selected === index)/>
+            
+            <if( !specs.installed )>
+              <button on-click( onInstall, index, specs.version )>Install {specs.name +(specs.version ? '~'+ specs.version : '')}</button>
+            </if>
+            <else>
+              <button on-click( onUninstall, index, specs.version )>Uninstall {specs.name +(specs.version ? '~'+ specs.version : '')}</button>
+            </else>
+
+            <if( active )>
+              <small style="padding: 0 10px;">Selected</small>
+            </if>
+            
+            <if( specs.installed && !specs.upgraded && specs.latest )>
+              <div style="padding: 0 100px">
+                <span>Version {specs.latest} available!</span>
+                
+                <if( state.version === specs.latest )>
+                  <span style="padding: 0 10px;color: orange">Mounted</span>
+                </if>
+                <else>
+                  <button style="margin: 0 10px" on-click( onUpgrade, index, true )>Mount</button>
+                </else>
+
+                <button style="margin: 0 10px" on-click( onUpgrade, index, false )>Upgrade</button>
+              </div>
+            </if>
+          </div>
+        </li>
+      </for>
+    </ul>
+  `
+
+  lips.root({ default: template, state, handler }, 'body')
+}
+
 function DemoI18n(){
   type State = {
     name: string,
@@ -739,6 +868,7 @@ function DemoI18n(){
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
+DemoAttrsPositioning()
 // DemoI18n()
 
 /**
