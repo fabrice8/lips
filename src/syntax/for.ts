@@ -51,9 +51,6 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
           throw new Error('Expected <from> <to> attributes of the for loop to be defined')
 
         _to = parseFloat( String( _to ) )
-
-        if( _from === _to )
-          throw new Error('<from> and <to> attribute cannot have the same value')
         
         const 
         isAscending = _from < _to,
