@@ -9,6 +9,7 @@ export const SPREAD_VAR_PATTERN = /^\.\.\./
 export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
 export const INTERPOLATE_PATTERN = /{\s*([^{}]+)\s*}/g
 export const META_ATTRIBUTES = ['@html', '@text', '@format']
+export const LAYOUT_AFFECTING_ATTRS = [ 'display', 'visibility', 'position', 'width', 'height' ]
 
 $.fn.extend({
   attrs: function(){

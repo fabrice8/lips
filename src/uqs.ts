@@ -5,7 +5,7 @@ import type Component from './component'
  * Update Queue System for high-frequency DOM updates
  */
 export default class UpdateQueue<MT extends Metavars > {
-  private pending = new Map<string, FGUDBatchEntry>()
+  private pending: Set<FGUDBatchEntry>[] = []
   private isPending = false
   private component: Component<MT>
   
@@ -26,19 +26,54 @@ export default class UpdateQueue<MT extends Metavars > {
    */
   queue( entry: FGUDBatchEntry ){
     /**
+     * Add priority slot if not
+     * 
+     * Default => 2
+     */
+    const priority = entry.dependent.priority ?? 2
+    if( !this.pending[ priority ] )
+      this.pending[ priority ] = new Set()
+
+    /**
      * TODO: Review the override of pending update
      * of same dependent.
      * 
      * If not functioning as expected. Revert
      * `this.pending` to a `Set` instead of `Map`.
      */
-    this.pending.set( entry.dependent.path, entry )
+    this.pending[ priority ].add( entry )
     this.component.metrics.inc('dependencyUpdateCount')
     
     // Schedule processing if not already pending
     if( !this.isPending ){
       this.isPending = true
       this.scheduleProcessing()
+    }
+  }
+  apply({ dep, dependent }: FGUDBatchEntry, by = 'batch-updator' ){
+    try {
+      // Apply the update
+      const sync = dependent.update( dependent.memo, by )
+      if( sync ){
+        /**
+         * Post-update memo for co-dependency update 
+         * processors like partial updates.
+         */
+        typeof sync.memo === 'object'
+        && this.component.FGUD.get( dep )?.set( dependent.path, { ...dependent, memo: sync.memo } )
+        
+        /**
+         * Manual cleanup callback function after
+         * dependency track adopted new changes.
+         * 
+         * Useful for DOM cleanup for instance of 
+         * complex wired $fragment.
+         */
+        typeof sync.cleanup === 'function' && sync.cleanup()
+      }
+    }
+    catch( error ){
+      console.error( 'Failed to update dependency --', error )
     }
   }
   
@@ -55,53 +90,36 @@ export default class UpdateQueue<MT extends Metavars > {
    * Process all queued updates in a batch
    */
   private processQueue(){
-    // Get all dependency entries to process
-    const entriesToProcess = Array.from( this.pending.values() )
-    
-    // Update metrics
-    this.metrics.batchCount++
-    this.metrics.lastBatchSize = entriesToProcess.length
-    this.metrics.updatesProcessed += entriesToProcess.length
-    this.metrics.avgBatchSize = (this.metrics.updatesProcessed / this.metrics.batchCount).toFixed(2)
-    
-    // Clear the queue
-    this.pending.clear()
-    // Track batch stats
-    this.component.metrics.trackBatch( entriesToProcess.length )
-    
-    // Apply all updates
-    this.applyUpdates( entriesToProcess )
+    const exec = ( badge: Set<FGUDBatchEntry> ) => {
+      const entries = Array.from( badge )
+
+      // Update metrics
+      this.metrics.batchCount++
+      this.metrics.lastBatchSize = entries.length
+      this.metrics.updatesProcessed += entries.length
+      this.metrics.avgBatchSize = (this.metrics.updatesProcessed / this.metrics.batchCount).toFixed(2)
+      
+      // Clear the queue
+      badge.clear()
+      // Track batch stats
+      this.component.metrics.trackBatch( entries.length )
+      // Apply all updates
+      entries.forEach( entry => this.apply( entry ) )
+    }
+
+    /**
+     * Execute dependency entries by priority 0 to x
+     */
+    this.pending.forEach( badge => badge && badge.size && exec( badge ) )
+
     // Reset pending flag
     this.isPending = false
     
     // Check if more updates were queued during processing
-    if( this.pending.size > 0 ){
+    if( this.pending.find( each => each && each.size > 0 ) ){
       this.isPending = true
       this.scheduleProcessing()
     }
-  }
-  
-  /**
-   * Apply updates to the DOM
-   */
-  private applyUpdates( entries: FGUDBatchEntry[] ){
-    entries.forEach( ({ dep, dependent }) => {
-      try {
-        // Apply the update
-        const sync = dependent.update( dependent.memo, 'batch-updator' )
-        if( sync ){
-          // Update memo if provided
-          typeof sync.memo === 'object'
-          && this.component.FGUD.get( dep )?.set( dependent.path, { ...dependent, memo: sync.memo } )
-          
-          // Run cleanup if provided
-          typeof sync.cleanup === 'function' && sync.cleanup()
-        }
-      }
-      catch( error ){
-        console.error( 'Failed to update dependency --', error )
-      }
-    })
   }
   
   /**
