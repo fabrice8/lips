@@ -17,9 +17,9 @@ export type Variable = {
   value: any
   type: 'let' | 'const' | 'arg'
 }
+export type VariableArguments = Record<string, any>
 export type VariableSet = Record<string, Variable> & {
-  // __arguments__?: Record<string, any>
-  __factory__?: () => any
+  __arguments__?: VariableArguments
 }
 
 export type I18nVariant = Record<string, string>
@@ -163,19 +163,11 @@ export interface FGUSync {
   memo?: VariableSet
   cleanup?: () => void
 }
-export interface I18nDependency {
-  nodetype: NodeType
-  target: FGUDTarget
-  path: string
-  $fragment: Cash
-  memo: VariableSet
-  update: ( memo: VariableSet, by?: string ) => FGUSync | void
-}
 export interface FGUDependency {
   nodetype: NodeType
+  nodepath: string
+  deppath?: string
   target: FGUDTarget
-  path: string
-  memo: VariableSet
   $fragment: Cash | null
   boundaries?: FragmentBoundaries
   haslet?: boolean
@@ -189,6 +181,21 @@ export type FGUDependencies = Map<string, Map<string, FGUDependency>>
 export type FGUDBatchEntry = {
   dep: string
   dependent: FGUDependency
+}
+export type FGUDMemorySlot = { 
+  tracks: Map<string, number>
+  memo: VariableSet
+}
+export type FGUDMemory = Map<string, FGUDMemorySlot>
+
+export interface I18nDependency {
+  nodetype: NodeType
+  nodepath: string
+  deppath?: string
+  target: FGUDTarget
+  $fragment: Cash
+  priority?: number
+  update: ( memo: VariableSet, by?: string ) => FGUSync | void
 }
 
 export type RenderedNode<MT extends Metavars> = {

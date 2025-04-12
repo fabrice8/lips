@@ -52,15 +52,25 @@ export default class UpdateQueue<MT extends Metavars > {
   }
   apply({ dep, dependent }: FGUDBatchEntry, by = 'batch-updator' ){
     try {
+      const
+      deppath = dependent.deppath || dependent.nodepath,
+      memoslot = this.component.FGUDMemory.get( dependent.nodepath )
+      if( !memoslot ){
+        console.warn(`unexpected occurence: <${deppath}> has no memo`)
+        return
+      }
+
+
       // Apply the update
-      const sync = dependent.update( dependent.memo, by )
+      const sync = dependent.update( memoslot.memo || {}, by )
+
       if( sync ){
         /**
          * Post-update memo for co-dependency update 
          * processors like partial updates.
          */
-        typeof sync.memo === 'object'
-        && this.component.FGUD.get( dep )?.set( dependent.path, { ...dependent, memo: sync.memo } )
+        if( typeof sync.memo === 'object' ) 
+          memoslot.memo = sync.memo
         
         /**
          * Manual cleanup callback function after
