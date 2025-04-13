@@ -228,7 +228,7 @@ function DemoLetConstVariable(){
 }
 
 function DemoMacro(){
-  type Product = { name: string, expiry: string, source: string, quantity: number }
+  type Product = { name: string, expiry: string, source: string, quantity: number, active?: boolean }
   type State = {
     items: Array<Product>,
     selected: Product | null
@@ -246,20 +246,32 @@ function DemoMacro(){
   },
   handler: Handler<Metavars<any, State>> = {
     onShowDetails( details: Product ){
-      this.state.selected = details
+      const item = this.state.items.find( each => each.name == details.name )
+      if( !item ) throw new Error('Item not found')
+
+      item.active = !item.active
+      this.state.selected = item
+    },
+    onShowDetailsByIndex( index: number ){
+      this.state.items[ index ].active = true
+      this.state.selected = this.state.items[ index ]
+    },
+    onBuyProduct( product: Product ){
+      console.log('BUY: ', product )
     }
   },
   macros = `
-    <macro [name, source] name="card">
+    <macro [name, source, active] name="card">
+      <log( name, source, active, arguments )/>
       <div class="card"
-            style="cursor:pointer; border: 1px solid {active ? 'gray' : 'white'}"
-            on-click(onShowDetails, arguments)>
+            style="cursor:pointer; border: 1px solid {active ? '#000' : '#fff'}"
+            on-click(onShowDetails, arguments )>
         <p>{name} <span style="color: gray">({source})</span></p>
       </div>
     </macro>
 
     <macro [name, source, quantity, expiry, active] name="details">
-      <fieldset>
+      <fieldset style="border: 1px solid {active ? '#000' : '#fff'}">
         <h2>{name}</h2>
         <small>Details</small>
         <ul>
@@ -267,6 +279,9 @@ function DemoMacro(){
           <li>Quantity: {quantity}</li>
           <li>Expr: {expiry}</li>
         </ul>
+
+        <button style="background:#000;color:#fff" 
+                on-click(onBuyProduct, arguments)>Buy</button>
       </fieldset>
     </macro>
   `,
@@ -861,14 +876,14 @@ function DemoI18n(){
 // DemoContext()
 // DemoForloop()
 // DemoForIfElse()
-// DemoMacro()
+DemoMacro()
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
-DemoAttrsPositioning()
+// DemoAttrsPositioning()
 // DemoI18n()
 
 /**

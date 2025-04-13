@@ -631,7 +631,7 @@ export default class Component<MT extends Metavars> extends Events {
       { attrs } = self.__getAttributes__( $node ),
       elementPath = generatePath('element'),
       boundaries = self.__getBoundaries__( elementPath ),
-      __arguments__: Record<string, any> = {}
+      __arguments__: VariableArguments = {}
 
       let
       contextScope = useScope(),
@@ -686,11 +686,12 @@ export default class Component<MT extends Metavars> extends Events {
         })
 
         /**
-         * Return all possible arguments passed to the macro
-         * in a single object variable form that can be 
-         * accessible in macro template as `argvalues`.
+         * Return all possible arguments passed to the
+         * dynamic element in a single object variable 
+         * form that can be accessible in macro template 
+         * as `arguments`.
          */
-        // contextScope.__factory__ = () => __arguments__
+        contextScope.__arguments__ = __arguments__
 
         const $log = activeRenderer.mesh( argvalues )
         if( $log && $log.length )
@@ -719,7 +720,7 @@ export default class Component<MT extends Metavars> extends Events {
               if( typeof spreads !== 'object' )
                 throw new Error(`Invalid spread operator ${key}`)
 
-              const toUpdateDeps: string[] = []
+              const changedDeps: string[] = []
               for( const _key in spreads ){
                 /**
                  * Attributes positioning: Shun to overriding
@@ -727,31 +728,31 @@ export default class Component<MT extends Metavars> extends Events {
                  * defined after spread key. 
                  */
                 if( attrs.map.afterSpreadAttrs.includes( _key ) ) continue
-                
-                __arguments__[ _key ] = spreads[ _key ]
-
                 // Only update declared arguments' value
                 if( _key !== '#' && !activeRenderer.argv.includes( _key ) ) continue
+                // Ignore unchanged values
+                if( isEqual( spreads[ _key ], memo[ _key ]?.value ) ) continue
 
                 argvalues[ _key ] =
                 extracted[ _key ] = {
-                  type: 'arg',
-                  value: spreads[ _key ]
+                  value: spreads[ _key ],
+                  type: 'arg'
                 }
-                
-                /**
-                 * Schedule only what changed to be
-                 * updated.
-                 */
-                ;( !memo[ _key ] || !isEqual( spreads[ _key ], memo[ _key ].value ) )
-                && toUpdateDeps.push( _key )
+
+                // Update __arguments__ variable as well
+                __arguments__[ _key ] = spreads[ _key ]
+                // Schedule only what changed values for updated.
+                changedDeps.push( _key )
               }
 
-              // if( activeRenderer.argv.length )
-              //   extracted.__factory__ = () => __arguments__
+              if( changedDeps.length ){
+                // Update arguments dep nodes
+                activeRenderer.argv.length
+                && self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
 
-              toUpdateDeps.length 
-              && activeRenderer.update( toUpdateDeps, extracted, memo, boundaries )
+                // Update partial deps
+                activeRenderer.update( changedDeps, extracted, memo, boundaries )
+              }
             }
 
             deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
@@ -779,22 +780,20 @@ export default class Component<MT extends Metavars> extends Events {
                */
               if( attrs.map.beforeSpreadAttrs.includes( key ) ) return
 
-              const evalue: Variable = value ? self.__evaluate__( value, memo ) : true
-              __arguments__[ key ] = evalue
-
-              const
-              _value: Variable = {
-                type: 'arg',
-                value: evalue
-              },
-              toset: VariableSet = { [ key ]: _value }
-
-              argvalues[ key ] = _value
+              const 
+              _value: Variable = value ? self.__evaluate__( value, memo ) : true,
+              newvalue: Variable = { type: 'arg', value: _value }
+              argvalues[ key ] = newvalue
               
-              // if( activeRenderer.argv.length )
-              //   toset.__factory__ = () => __arguments__
+              /**
+               * Update arguments dep nodes
+               */
+              if( activeRenderer.argv.length ){
+                __arguments__[ key ] = _value
+                self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
+              }
               
-              activeRenderer.update( [ key ], toset, memo, boundaries )
+              activeRenderer.update( [ key ], { [ key ]: newvalue }, memo, boundaries )
             }
             
             deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
@@ -848,9 +847,11 @@ export default class Component<MT extends Metavars> extends Events {
 
             activeRenderer = result
             if( activeRenderer ){
-              // if( activeRenderer.argv.length )
-              //   argvalues.__factory__ = () => __arguments__
-                                  
+              // Update arguments dep nodes
+              activeRenderer.argv.length
+              && self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
+              
+              // Rerender mesh content.
               $newContent = activeRenderer.mesh( argvalues )
             }
           }
@@ -1171,8 +1172,8 @@ export default class Component<MT extends Metavars> extends Events {
       .entries( events )
       .forEach( ([ _event, instruction ]) => {
         self.__attachEvent__({
+          nodepath: componentPath,
           element: component,
-          path: componentPath,
           _event,
           instruction,
           scope: contextScope,
@@ -1298,7 +1299,7 @@ export default class Component<MT extends Metavars> extends Events {
        * the component as input.
        */
       const
-      __arguments__: Record<string, any> = {},
+      __arguments__: VariableArguments = {},
       argvalues: VariableSet = {}
       
       /**
@@ -1445,14 +1446,12 @@ export default class Component<MT extends Metavars> extends Events {
               // Schedule only what changed values for updated.
               changedDeps.push( _key )
             }
-
-            console.log( changedDeps, extracted, memo )
             
             if( changedDeps.length ){
-              // extracted.__arguments__ = __arguments__
-              macrowire.renderer.update( changedDeps, extracted, memo )
               // Update arguments dep nodes
-              // self.__updateArgumentsDepNodes__( macroPath, __arguments__ )
+              self.__updateArgumentsDepNodes__( macroPath, __arguments__ )
+              // Update partial deps
+              macrowire.renderer.update( changedDeps, extracted, memo )
             }
 
             return { memo: { ...memo, ...extracted } }
@@ -1481,21 +1480,20 @@ export default class Component<MT extends Metavars> extends Events {
              */
             if( attrs.map.beforeSpreadAttrs.includes( key ) ) return
             
-            const newvalue: Variable = value ? self.__evaluate__( value as string, memo ) : true
-
-            __arguments__[ key ] = newvalue
-
+            const newvalue = value ? self.__evaluate__( value as string, memo ) : true
+            
             /**
              * Update arguments dep nodes
              */
-            // self.__updateArgumentsDepNodes__( macroPath, __arguments__ )
+            __arguments__[ key ] = newvalue
+            self.__updateArgumentsDepNodes__( macroPath, __arguments__ )
+
             // Update the whole partial
-            macrowire.renderer.update( [ key ], { [ key ]: newvalue, __arguments__ } as VariableSet, memo )
+            macrowire.renderer.update( [ key ], { [ key ]: { value: newvalue, type: 'arg' } }, memo )
 
             return { memo }
           }
         
-          console.log('active deps --', deps )
           deps.forEach( dep => self.__trackDep__( dependencies, dep, { ...contextScope, ...argvalues }, {
             nodetype: 'macro',
             nodepath: macroPath,
@@ -1886,8 +1884,8 @@ export default class Component<MT extends Metavars> extends Events {
       .entries( events )
       .forEach( ([ _event, value ]) => {
         attachableEvents.push({
+          nodepath: elementPath,
           element: $fragment,
-          path: elementPath,
           _event,
           instruction: value as string,
           scope: contextScope,
@@ -2236,18 +2234,9 @@ export default class Component<MT extends Metavars> extends Events {
 
           if( fragmentBoundaries?.start && !document.contains( fragmentBoundaries.start ) ){
             console.warn(`${meshPath} -- partial boundaries missing in the DOM`)
+
             dependents.delete( deppath )
-
-            // Cleanup share memory
-            if( memoslot ){
-              // Already cleaned
-              if( !memoslot.tracks.get( deppath ) ) return
-
-              memoslot.tracks.delete( deppath )
-              // Remove memory slot if there are no more tracks
-              !memoslot.tracks.size && this.FGUDMemory.delete( dependent.nodepath )
-            }
-
+            self.__unbindMemo__( dependent )
             return
           }
 
@@ -2258,9 +2247,8 @@ export default class Component<MT extends Metavars> extends Events {
           
           if( memoslot.memo?.[ dep ]
               && argvalues?.[ dep ]
-              && isEqual( memoslot.memo[ dep ], argvalues[ dep ] ) ) return
-
-          memoslot.memo = { ...freshscope, ...memoslot.memo, ...argvalues }
+              && !isEqual( memoslot.memo[ dep ], argvalues[ dep ] ) )
+            memoslot.memo = { ...freshscope, ...memoslot.memo, ...argvalues }
 
           dependent.batch
                   ? self.UQS.queue({ dep, dependent })
@@ -2582,17 +2570,11 @@ export default class Component<MT extends Metavars> extends Events {
           }
 
           /**
-           * IMPORTANT: `__factory__` is use to update the contextual 
-           * scope with fresh data and also injected as `arguments`.
+           * IMPORTANT: `__arguments__` is use to inject
+           * all an element's context variables as `arguments`.
            */
-          // if( typeof scope.__arguments__ === 'object' ){
-          //   __arguments__ = scope.__arguments__
-
-          //   // console.log( __scope__, __arguments__ )
-            
-          //   // if( typeof __arguments__ === 'object' )
-          //   //   __scope__ = { ...__scope__, ...__arguments__ }
-          // }
+          if( typeof scope.__arguments__ === 'object' )
+            __arguments__ = scope.__arguments__
 
           const
           expression = `with( scope ){ return ${each}; }`,
@@ -2692,10 +2674,7 @@ export default class Component<MT extends Metavars> extends Events {
     return str
   }
   private __attachEvent__( metadata: VirtualEvent<MT> ){
-    const
-    { element, path, _event, instruction, scope, __dependencies__ } = metadata,
-    eventPath = `${path}.${_event}`
-
+    const { element, nodepath, _event, instruction, scope, __dependencies__ } = metadata 
     let eventScope = scope
 
     /**
@@ -2731,8 +2710,8 @@ export default class Component<MT extends Metavars> extends Events {
       const deps = this.__extractExpressionDeps__( instruction, scope )
       deps.forEach( dep => this.__trackDep__( __dependencies__, dep, scope || {}, {
         nodetype: 'event',
-        nodepath: eventPath,
-        deppath: `${eventPath}.${_event}`,
+        nodepath,
+        deppath: `${nodepath}.${_event}`,
         target: 'event-handler',
         $fragment: !(element instanceof Component) ? element : null,
         boundaries: element instanceof Component ? element.__boundaries__ : undefined,
@@ -2744,14 +2723,14 @@ export default class Component<MT extends Metavars> extends Events {
       }))
     }
   }
-  private __detachEvent__({ element, path, _event, instruction, scope, __dependencies__ }: VirtualEvent<MT> ){
+  private __detachEvent__({ element, nodepath, _event, instruction, scope, __dependencies__ }: VirtualEvent<MT> ){
     element.off( _event )
 
     // Clean up tracking event handler dependencies
     if( this.__isReactive__( instruction, scope ) ){
       const 
       deps = this.__extractExpressionDeps__( instruction, scope ),
-      eventPath = `${path}.${_event}`
+      eventPath = `${nodepath}.${_event}`
       
       deps.forEach( dep => {
         // From partial dependencies if there is
@@ -2856,28 +2835,40 @@ export default class Component<MT extends Metavars> extends Events {
    * 
    * Same procedure for `event-handlers`
    */
-  private __shareMemory__( memo: VariableSet, record: FGUDependency ){
+  private __bindMemo__( memo: VariableSet, dependent: FGUDependency ){
     const
-    deppath = record.deppath || record.nodepath,
-    sharedMemo = this.FGUDMemory.get( record.nodepath )
+    deppath = dependent.deppath || dependent.nodepath,
+    sharedMemo = this.FGUDMemory.get( dependent.nodepath )
 
     if( sharedMemo ){
       // Add new memory dep tracker
-      sharedMemo.tracks.set( deppath, record.priority || 2 )
+      sharedMemo.tracks.set( deppath, dependent.priority || 2 )
       // REVIEW: Override memo
       sharedMemo.memo = memo
       
       // Alter the existing memory
-      this.FGUDMemory.set( record.nodepath, sharedMemo )
+      this.FGUDMemory.set( dependent.nodepath, sharedMemo )
     }
     // Create fresh shared memo
     else {
       // List of tracked dependencies with their priority
       const tracks = new Map()
 
-      tracks.set( deppath, record.priority )
-      this.FGUDMemory.set( record.nodepath, { tracks, memo })
+      tracks.set( deppath, dependent.priority )
+      this.FGUDMemory.set( dependent.nodepath, { tracks, memo })
     }
+  }
+  private __unbindMemo__( dependent: FGUDependency ){
+    const
+    deppath = dependent.deppath || dependent.nodepath,
+    memoslot = this.FGUDMemory.get( dependent.nodepath )
+    
+    // No memory bind or already cleaned up
+    if( !memoslot || !memoslot.tracks.get( deppath ) ) return
+  
+    memoslot.tracks.delete( deppath )
+    // Remove memory slot if there are no more tracks
+    !memoslot.tracks.size && this.FGUDMemory.delete( dependent.nodepath )
   }
   private __trackDep__( dependencies: FGUDependencies, dep: string, memo: VariableSet, record: FGUDependency ){
     /**
@@ -2908,7 +2899,7 @@ export default class Component<MT extends Metavars> extends Events {
     dependencies.get( dep )?.set( record.deppath || record.nodepath, record )
 
     // Subscribed to shared memory
-    this.__shareMemory__( memo, record )
+    this.__bindMemo__( memo, record )
 
     // Track dependency
     this.metrics.inc('dependencyTrackCount')
@@ -2917,7 +2908,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.__i18nDeps.set( record.deppath || record.nodepath, record )
 
     // Subscribed to shared memory
-    this.__shareMemory__( memo, record )
+    this.__bindMemo__( memo, record )
 
     // i18n dependency
     this.metrics.inc('i18nTrackCount')
@@ -2951,6 +2942,9 @@ export default class Component<MT extends Metavars> extends Events {
     // Start measuring
     this.metrics.startRender()
     
+    // console.debug('FGUD --', this.FGUD )
+    // console.debug('FGUDM --', this.FGUDMemory )
+
     this.FGUD.forEach( ( dependents, dep ) => {
       const [ dep_scope, ...parts ] = dep.split('.')
 
@@ -2968,28 +2962,15 @@ export default class Component<MT extends Metavars> extends Events {
           if( !dependent.syntax
               && (dependent.boundaries?.start && !document.contains( dependent.boundaries.start ))
               || (dependent.$fragment !== null && !dependent.$fragment.closest('body').length) ){
-            const
-            deppath = dependent.deppath || dependent.nodepath,
-            memoslot = this.FGUDMemory.get( dependent.nodepath )
-
-            dependents.delete( deppath )
-
-            // Cleanup share memory
-            if( memoslot ){
-              // Already cleaned
-              if( !memoslot.tracks.get( deppath ) ) return
-
-              memoslot.tracks.delete( deppath )
-              // Remove memory slot if there are no more tracks
-              !memoslot.tracks.size && this.FGUDMemory.delete( dependent.nodepath )
-            }
+            dependents.delete( dependent.deppath || dependent.nodepath )
+            this.__unbindMemo__( dependent )
 
             return
           }
           
           dependent.batch
-            ? this.UQS.queue({ dep, dependent })
-            : this.UQS.apply({ dep, dependent }, 'main-updator' )
+                ? this.UQS.queue({ dep, dependent })
+                : this.UQS.apply({ dep, dependent }, 'main-updator' )
           
           this.metrics.inc('dependencyUpdateCount')
         }
@@ -3059,7 +3040,7 @@ export default class Component<MT extends Metavars> extends Events {
         return
       }
       
-      // memoslot.memo.__arguments__ = __arguments__
+      memoslot.memo.__arguments__ = __arguments__
       dependent.batch
               ? this.UQS.queue({ dep, dependent })
               : this.UQS.apply({ dep, dependent }, 'arguments-partial-updator' )

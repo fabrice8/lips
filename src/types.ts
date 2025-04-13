@@ -136,7 +136,7 @@ export interface VirtualEvent<MT extends Metavars> {
   element: Cash | Component<MT>
   _event: string
   instruction: string
-  path: string
+  nodepath: string
   scope?: Record<string, any>
   get __dependencies__(): FGUDependencies
 }
