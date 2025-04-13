@@ -1,10 +1,10 @@
 import type { LipsConfig, Template, ComponentOptions, Metavars } from './types'
 
-import I18N from './i18n'
 import IUC from './iuc'
 import DWS from './dws'
-import ComponentClass from './component'
+import I18N from './i18n'
 import Stylesheet from './stylesheet'
+import ComponentClass from './component'
 import { effect, signal } from './signal'
 import { isDiff } from './utils'
 import * as If from './syntax/if'
