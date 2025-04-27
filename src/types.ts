@@ -225,6 +225,8 @@ export interface MeshRenderer {
   argv: string[]
   mesh( argvalues?: VariableSet, scope?: VariableSet ): Cash | null
   update( deps: string[], argvalues: VariableSet, scope: VariableSet, boundaries?: FragmentBoundaries ): void
+  fill( $log: Cash, boundaries?: FragmentBoundaries ): void
+  cleanup( boundaries?: FragmentBoundaries ): void
 }
 export type MeshTemplate = Record<string, any> & {
   renderer: MeshRenderer
