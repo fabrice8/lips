@@ -11,6 +11,17 @@ export const INTERPOLATE_PATTERN = /{\s*([^{}]+)\s*}/g
 export const META_ATTRIBUTES = ['@html', '@text', '@format']
 export const LAYOUT_AFFECTING_ATTRS = [ 'display', 'visibility', 'position', 'width', 'height' ]
 
+export const ROOT_PREFIX = ':r'
+export const NODE_PREFIX = ':n'
+export const MACRO_PREFIX = 'm'
+export const COMPONENT_PREFIX = 'c'
+export const SYNTAX_COMPONENT_PREFIX = 'x'
+
+/**
+ * Constant for max update type priorities
+ */
+export const MAX_PRIORITY_TYPES = 100
+
 $.fn.extend({
   attrs: function(){
     const 
