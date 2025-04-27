@@ -4,6 +4,12 @@ import french from '../languages/fr.json'
 
 const lips = new Lips({ debug: true })
 
+/**
+ * -------------------------------------------------------------------------
+ * Reusable components 
+ * -------------------------------------------------------------------------
+ */
+
 function createEasyCount(){
   type TemplateInput = {
     initial: number
@@ -44,6 +50,54 @@ function createEasyCount(){
 
   return easyCount
 }
+function createSpec(){
+  type TemplateInput = {
+    initial: number
+    limit: number
+  }
+  type TemplateState = {
+    count: number
+  }
+
+  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
+    state: {
+      count: 0
+    },
+    handler: {
+      onInput(){ console.log('spec input --', this.input ) }
+    },
+    default: `
+      <fieldset on-click( () => self.emit('select') )>
+        <h2 style="margin-top: 0">
+          <span style="color: {input.active ? 'turquoise' : 'unset'}">{input.name}</span>
+          <if( input.deprecated )><small style="color: orange"> (Deprecated)</small></if>
+        </h2>
+        <!-- <const ...static.vars></const> -->
+
+        <ul>
+          <li>Type: {input.type}</li>
+          <li>Size: {input.size || '-'}</li>
+          <li>Version: {input.version}</li>
+          <li>
+            Installed:
+            <if( input.installed )>
+              <span style="color: green">Yes</span>
+            </if>
+            <else><span style="color: gray">No</span></else>
+          </li>
+        </ul>
+      </fieldset>
+    `
+  }
+
+  return easyCount
+}
+
+/**
+ * -------------------------------------------------------------------------
+ * Template syntax demo 
+ * -------------------------------------------------------------------------
+ */
 
 function DemoState(){
   type State = {
@@ -215,7 +269,7 @@ function DemoLetConstVariable(){
       <li>Price: \${state.price}</li>
       <li>Tax: {state.tax * 100}%</li>
       <br>
-      <li><b>Total</b>: \${total}</li>
+      <li><b>Scope Total</b>: \${total}</li>
     </ul>
 
     <!-- Closure vs initial rendering -->
@@ -224,6 +278,106 @@ function DemoLetConstVariable(){
   
   lips
   .render('DemoLetConstVariable', { default: template, state, handler })
+  .appendTo('body')
+}
+
+function DemoSpreadOperator(){
+  type Book = {
+    name: string
+    topics: string[]
+    bestseller?: boolean
+    actions?: {
+      rent: boolean
+      buy: boolean
+      bookmark: boolean
+    }
+  }
+  type State = {
+    books: Array<Book>
+    blacklisted: number[]
+  }
+
+  const
+  state: State = {
+    books: [
+      { 
+        name: 'Think Big',
+        bestseller: true,
+        topics: ['self-improvement', 'life', 'personal development'],
+        actions: {
+          rent: false,
+          buy: false,
+          bookmark: true
+        }
+      },
+      {
+        name: 'In the Loop',
+        topics: ['philosophy', 'discovery', 'meutic', 'univers'],
+        actions: {
+          rent: true,
+          buy: true,
+          bookmark: true
+        }
+      },
+      {
+        name: 'Quater past two',
+        bestseller: false,
+        topics: ['fiction', 'adventure', 'time chase', '18s'],
+        actions: { rent: true, buy: true, bookmark: true }
+      }
+    ],
+    blacklisted: []
+  },
+  handler: Handler<Metavars<any, State>> = {
+    onBlacklist( index: number ){
+      delete this.state.books[ index ].actions
+
+      this.state.blacklisted.includes( index )
+                      ? this.state.blacklisted.push( index )
+                      : this.state.blacklisted.splice( index, 1 )
+    },
+    onWhitelist( index: number ){
+      this.state.books[ index ].actions = {
+        rent: true,
+        buy: true,
+        bookmark: true
+      }
+
+      this.state.blacklisted.includes( index )
+      && this.state.blacklisted.splice( index, 1 )
+    }
+  },
+  template = `
+    <div>
+      <h3>Book Shop</h3>
+
+      <for [each, index] in=state.books>
+        <div class="card"
+              style="padding: 15px;cursor:pointer; border: 1px solid {state.blacklisted.includes(index) ? '#000' : '#fff'}"
+              ...each.actions>
+          <p>{each.name} <span style="color: gray">{each.bestseller ? '(Bestseller)' : ''}</span></p>
+          <ul style="list-style: none; list-type: inline;">
+            <for [topic] in=each.topics>
+              <li>{topic +(each.topics.length > 0 ? ' - ' : '')}</li>
+            </for>
+          </ul>
+
+          <let actions=each.actions/>
+          <if( actions )>
+            <if( actions.buy )><button>Buy</button></if>
+            <if( actions.rent )><button>Rent</button></if>
+            <if( actions.bookmark )><button>Bookmark</button></if>
+          </if>
+          
+          <button style="background:#000;color:#fff;margin-left:40px" on-click(onBlacklist, index)>Blacklist</button>
+          <button style="background:#fff;color:#000" on-click(onWhitelist, index)>Whitelist</button>
+        </div>
+      </for>
+    </div>
+  `
+
+  lips
+  .render<Metavars<any, State>>('DemoSpreadOperator', { default: template, state, handler })
   .appendTo('body')
 }
 
@@ -291,7 +445,10 @@ function DemoMacro(){
         <h3>Pending Orders</h3>
 
         <for [each, index] in=state.items>
-          <card id=index ...each active=(each.active ?? false)/>
+          <if( each.active )>
+            <card id=index ...each active=(each.active ?? false)/>
+          </if>
+          <else><card id=index ...each/></else>
         </for>
       </div>
 
@@ -382,6 +539,17 @@ function DemoAsyncAwait(){
   }
   
   const
+  _static = {
+    name: 'Peter Gibson'
+  },
+  handler: Handler<Metavars<any, any, Static>> = {
+    getUser( name ){
+      return new Promise( ( resolve, reject ) => {
+        setTimeout( () => resolve({ name, email: 'g.peter@mail.com' }), 3000 )
+        // setTimeout( () => reject('Unexpected error occured'), 1000 )
+      })
+    }
+  },
   template = `
     <async await( getUser, static.name )>
       <loading>Loading...</loading>
@@ -395,18 +563,7 @@ function DemoAsyncAwait(){
       <catch [error]><span>{error}</span></catch>
       <finally><span>Completed</span></finally>
     </async>
-  `,
-  _static = {
-    name: 'Peter Gibson'
-  },
-  handler: Handler<Metavars<any, any, Static>> = {
-    getUser( name ){
-      return new Promise( ( resolve, reject ) => {
-        setTimeout( () => resolve({ name, email: 'g.peter@mail.com' }), 3000 )
-        // setTimeout( () => reject('Unexpected error occured'), 1000 )
-      })
-    }
-  }
+  `
 
   lips
   .render<Metavars<any, any, Static>>('Demo3', { default: template, _static, handler })
@@ -441,6 +598,87 @@ function DemoInterpolation(){
   .appendTo('body')
 }
 
+function DemoIfElse(){
+  type Dictionary = {
+    name: string
+    translation: string 
+  }
+  type State = {
+    current: string | null
+    dictionary: Dictionary | null
+    loading: string | boolean
+  }
+
+  const
+  state: State = {
+    current: null,
+    dictionary: null,
+    loading: false
+  },
+  handler: Handler<Metavars<any, State>> = {
+    onLanguageSelect( lang: string ){
+      switch( lang ){
+        case 'french': {
+          this.state.current = lang
+          this.state.dictionary = {
+            name: 'Français',
+            translation: 'C\'est Lips' 
+          }
+        } break
+        case 'english': {
+          this.state.current = lang
+          this.state.dictionary = {
+            name: 'English',
+            translation: 'This is Lips' 
+          }
+        } break
+        default: {
+          this.state.current = null
+          this.state.dictionary = null
+        }
+      }
+    },
+    onLoadDictionary( type: string ){
+      this.state.loading = type
+      setTimeout( () => this.state.loading = false, 5000 )
+    }
+  },
+  template = `
+    <if( state.current )>
+      <small>Current language: {state.current}</small>
+
+      <if( state.dictionary )>
+        <h3>#{state.dictionary.name}</h3>
+        <p>{state.dictionary.translation}</p>
+      </if>
+    </if>
+
+    <else-if( state.loading === 'english' )>
+      <span>Loading {state.loading} dictionary ...</span>
+    </else-if>
+
+    <else-if( state.loading === 'french' )>
+      <span>Loading {state.loading} booklet ...</span>
+    </else-if>
+    
+    <else>
+      <div>Choose a Dictionary</div>
+    </else>
+
+    <br><br>
+    <button on-click(onLanguageSelect, 'french')>Select French</button>
+    <button on-click(onLanguageSelect, 'english')>Select English</button>
+    <button on-click(onLanguageSelect, false)>Clear</button>
+    <br>
+    <button on-click(onLoadDictionary, 'french')>Load French Dictionary</button>
+    <button on-click(onLoadDictionary, 'english')>Load English Dictionary</button>
+  `
+  
+  lips
+  .render('DemoIfElse', { default: template, state, handler })
+  .appendTo('body')
+}
+
 function DemoForloop(){
   type State = {
     numbers: number[]
@@ -457,7 +695,7 @@ function DemoForloop(){
       setTimeout( () => this.state.numbers[0] = 0, 6000 )
       setTimeout( () => this.state.numbers[0] = 0, 8000 )
       setTimeout( () => { console.log('late mutation None --'); this.state.numbers[0] = 0 }, 10000 )
-      setTimeout( () => { console.log('late mutation Chante --'); this.state.numbers[0] = 9 }, 15000 )
+      setTimeout( () => { console.log('late mutation Change --'); this.state.numbers[0] = 9 }, 15000 )
     }
   },
   template = `
@@ -486,7 +724,7 @@ function DemoForIfElse(){
     onMount(){
       setTimeout( () => this.state.letters = ['F','G','H','J', 'K', 'L', 'M', 'N'], 2000 )
       setTimeout( () => this.state.letters[3] = 'O', 6000 )
-      setTimeout( () => this.state.letters = ['O', 'P', 'Q'], 80000 )
+      setTimeout( () => this.state.letters = ['O', 'P', 'Q'], 8000 )
       setTimeout( () => this.state.letters = ['Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'], 10000 )
     }
   },
@@ -671,48 +909,6 @@ function DemoSyntaxInteract(){
   .appendTo('body')
 }
 
-function createSpec(){
-  type TemplateInput = {
-    initial: number
-    limit: number
-  }
-  type TemplateState = {
-    count: number
-  }
-
-  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
-    state: {
-      count: 0
-    },
-    handler: {
-      onInput(){ console.log('spec input --', this.input ) }
-    },
-    default: `
-      <fieldset on-click( () => self.emit('select') )>
-        <h2 style="margin-top: 0">
-          <span style="color: {input.active ? 'turquoise' : 'unset'}">{input.name}</span>
-          <if( input.deprecated )><small style="color: orange"> (Deprecated)</small></if>
-        </h2>
-        <!-- <const ...static.vars></const> -->
-
-        <ul>
-          <li>Type: {input.type}</li>
-          <li>Size: {input.size || '-'}</li>
-          <li>Version: {input.version}</li>
-          <li>
-            Installed:
-            <if( input.installed )>
-              <span style="color: green">Yes</span>
-            </if>
-            <else><span style="color: gray">No</span></else>
-          </li>
-        </ul>
-      </fieldset>
-    `
-  }
-
-  return easyCount
-}
 function DemoAttrsPositioning(){
   lips.register('spec', createSpec() )
 
@@ -742,6 +938,8 @@ function DemoAttrsPositioning(){
     onUninstall( index, version ){
       this.state.specs[ index ].installed = false
       this.state.version = null
+
+      console.log( this.state.specs )
     },
     onUpgrade( index, partial = false ){
       this.state.version = this.state.specs[ index ].latest
@@ -766,6 +964,7 @@ function DemoAttrsPositioning(){
           <div style="display: flex; align-items: center; justify-content: between;padding: 10px;">
             <let version=state.version active=(state.selected === index)/>
             
+            <log('installed --', specs.installed )/>
             <if( !specs.installed )>
               <button on-click( onInstall, index, specs.version )>Install {specs.name +(specs.version ? '~'+ specs.version : '')}</button>
             </if>
@@ -874,9 +1073,11 @@ function DemoI18n(){
 
 // DemoState()
 // DemoContext()
+// DemoIfElse()
 // DemoForloop()
 // DemoForIfElse()
-DemoMacro()
+DemoSpreadOperator()
+// DemoMacro()
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
@@ -889,6 +1090,7 @@ DemoMacro()
 /**
  * -------------------------------------------------------------------------
  * Mini applications demo 
+ * -------------------------------------------------------------------------
  */
 
 function DemoDeepNexted(){
@@ -1390,6 +1592,7 @@ function DemoShoppingCart(){
 /**
  * ------------------------------------------------------------------------- 
  * Animation Demos
+ * -------------------------------------------------------------------------
  */
 
 function WaveGraphDemo() {
