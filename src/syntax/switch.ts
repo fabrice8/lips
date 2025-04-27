@@ -1,4 +1,4 @@
-import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate } from '../types'
+import type { Declaration, Handler, Metavars, MeshRenderer, MeshTemplate, VariableSet } from '../types'
 
 export interface Input {
   by: string
@@ -6,8 +6,9 @@ export interface Input {
   renderer: MeshRenderer
   default?: MeshTemplate
 }
-export interface State {
-  renderer: MeshRenderer | null
+export interface Static {
+  initialized: boolean
+  prevRenderer: MeshRenderer | null
 }
 
 export const declaration: Declaration = {
@@ -18,29 +19,59 @@ export const declaration: Declaration = {
     'default': { type: 'child' }
   }
 }
-export const state: State = {
-  renderer: null
+export const _static: Static = {
+  initialized: false,
+  prevRenderer: null
 }
 
-export const handler: Handler<Metavars<Input, State>> = {
-  onInput(){
-    let validCases: string[] = []
+export const handler: Handler<Metavars<Input, {}, Static>> = {
+  onInput( memo ){ this.static.initialized && this.processor( this.input, memo ) },
+  onSelfRender(){
+    const $content = this.processor( this.input, undefined, true )
+    this.static.initialized = true
 
-    for( const _case of this.input.case ){
-      if( _case.is == this.input.by || ( Array.isArray( _case.is ) && _case.is.includes( this.input.by ) ) ){
+    return $content
+  },
+
+  processor( options: Input, memo?: VariableSet, init = false ){
+    let validCases: string[] = []
+  
+    // Clean up previously rendered content
+    this.static.prevRenderer?.cleanup()
+
+    for( const _case of options.case ){
+      if( _case.is == options.by || ( Array.isArray( _case.is ) && _case.is.includes( options.by ) ) ){
         Array.isArray( _case.is ) ? 
                 // Array case value: Merge with valid cases
                 validCases = [ ...(new Set([ ...validCases, ..._case.is ]) )]
                 // String case value
                 : validCases.push( _case.is )
+      
+        // Render case content
+        const $content = _case.renderer.mesh({}, memo )
+        this.static.prevRenderer = _case.renderer
 
-        this.state.renderer = _case.renderer
+        if( !$content?.length ) return
+        if( init ) return $content
+        
+        _case.renderer.fill( $content )
       }
     }
 
-    if( !validCases.includes( this.input.by )  )
-      this.state.renderer = this.input.default ? this.input.default.renderer : null
+    if( validCases.includes( options.by ) ) return
+
+    // Render -- Default or Null fallback
+    if( options.default ){
+      // Render default content
+      const $content = options.default.renderer.mesh({}, memo )
+      this.static.prevRenderer = options.default.renderer
+
+      if( !$content?.length ) return
+      if( init ) return $content 
+
+      options.default.renderer.fill( $content )
+    }
+    // Clear renderer
+    else this.static.prevRenderer = null
   }
 }
-
-export default `<{state.renderer}/>`

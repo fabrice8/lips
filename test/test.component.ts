@@ -679,6 +679,51 @@ function DemoIfElse(){
   .appendTo('body')
 }
 
+function DemoSwitch(){
+  type State = {
+    color: string
+  }
+
+  const
+  state: State = {
+    color: 'red'
+  },
+  handler: Handler<Metavars<any, State>> = {
+    onSetColor( color ){ this.state.color = color }
+  },
+  template = `
+    <div>
+      <switch( state.color )>
+        <case is="green">
+          <div style="color: green;">Green light</div>
+        </case>
+        <case is="red">
+          <div style="color: red;">Red light</div>
+        </case>
+        <case is=['cyan', 'turquoise']>
+          <div style="color: {state.color};">{state.color} light</div>
+        </case>
+        <default>
+          <div style="color: orange;">Orange light</div>
+        </case>
+      </switch>
+        
+      <br>
+      <button on-click(onSetColor, 'green')>Orange</button>
+      <button on-click(onSetColor, 'orange')>Orange</button>
+      <button on-click(onSetColor, 'red')>Red</button>
+
+      <br><br>
+      <button on-click(onSetColor, 'cyan')>Cyan</button>
+      <button on-click(onSetColor, 'turquoise')>Turquoise</button>
+    </div>
+  `
+
+  lips
+  .render('DemoSwitch', { default: template, state, handler }, {})
+  .appendTo('body')
+}
+
 function DemoForloop(){
   type State = {
     numbers: number[]
@@ -1074,9 +1119,10 @@ function DemoI18n(){
 // DemoState()
 // DemoContext()
 // DemoIfElse()
+DemoSwitch()
 // DemoForloop()
 // DemoForIfElse()
-DemoSpreadOperator()
+// DemoSpreadOperator()
 // DemoMacro()
 // DemoComponent()
 // DemoAsyncAwait()
