@@ -1097,16 +1097,22 @@ export default class Component<MT extends Metavars> extends Events {
            * Extract node syntax component declaration tag nodes
            */
           if( template.declaration.tags ){
+            let $lastNext: Cash
+
             Object
             .entries( template.declaration?.tags )
-            .forEach( ([ tagname, { type, many, orderby }]) => {
+            .forEach( ([ tagname, { type, many, alts }]) => {
               switch( type ){
                 case 'nexted': {
                   let $next = $node.next( tagname ) // Default
-                  // Incline nexted to set `orderby`
-                  if( !$next.length && Array.isArray( orderby ) )
-                    $next = $node.siblings( orderby.join(',') ).next( tagname )
+                  // Fish nexted only by defined `alts` (alternatives)
+                  if( !$next.length
+                      && Array.isArray( alts ) 
+                      && $lastNext?.length
+                      && $lastNext.is( alts.join(',') ) )
+                    $next = $lastNext.next( tagname )
                   
+                  // Nothing to do
                   if( !$next.length ) return
 
                   if( many ){
@@ -1118,7 +1124,7 @@ export default class Component<MT extends Metavars> extends Events {
                     
                     // Continue until we reach the end of the chain
                     while( !reachedEndOfChain ){
-                      input[ tagname ].push( self.__meshwire__({ 
+                      input[ tagname ].push( self.__meshwire__({
                         $node: $next,
                         meshPath: `${tagname}[${index}]`,
                         fragmentPath: componentPath,
@@ -1137,7 +1143,8 @@ export default class Component<MT extends Metavars> extends Events {
                       }
                       
                       // Move to the next siblings
-                      $next = $next.next( tagname )
+                      $next = 
+                      $lastNext = $next.next( tagname )
                       index++
                     }
                   }
@@ -1831,28 +1838,27 @@ export default class Component<MT extends Metavars> extends Events {
 
             // Convert object style attribute to string
             case 'style': {
-              const updateStyle = ( memo: VariableSet ) => {
-                const style = self.__evaluate__( value as string, memo )
-                
-                // Defined in object format
-                if( typeof style === 'object' ){
-                  let str = ''
-
-                  Object
-                  .entries( style )
-                  .forEach( ([ k, v ]) => str += `${k}:${v};` )
-                  
-                  str.length && $fragment.attr('style', str )
-                }
-                // Defined in string format
-                else $fragment.attr('style', style )
-              }
-
-              updateStyle( contextScope )
-              
               if( track && self.__isReactive__( value, contextScope ) ){
-                const deps = self.__extractExpressionDeps__( value, contextScope )
+                const updateStyle = ( memo: VariableSet ) => {
+                  const style = self.__evaluate__( value as string, memo )
+                  
+                  // Defined in object format
+                  if( typeof style === 'object' ){
+                    let str = ''
 
+                    Object
+                    .entries( style )
+                    .forEach( ([ k, v ]) => str += `${k}:${v};` )
+                    
+                    str.length && $fragment.attr('style', str )
+                  }
+                  // Defined in string format
+                  else $fragment.attr('style', style )
+                }
+
+                updateStyle( contextScope )
+                
+                const deps = self.__extractExpressionDeps__( value, contextScope )
                 deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
                   nodetype: 'element',
                   nodepath: elementPath,
@@ -1862,6 +1868,7 @@ export default class Component<MT extends Metavars> extends Events {
                   update: updateStyle
                 }) )
               }
+              else $fragment.attr('style', value )
             } break
 
             // Inject the evaluation result of any other attributes
@@ -2304,6 +2311,8 @@ export default class Component<MT extends Metavars> extends Events {
         
         // Add partial dependency
         dependents.forEach( ( dependent, path ) => {
+          if( dependent.garbage ) return
+
           dependent.partial?.length
                   ? dependent.partial.push( partialPath )
                   : dependent.partial = [ partialPath ]
@@ -2353,16 +2362,15 @@ export default class Component<MT extends Metavars> extends Events {
           // Process only dependents of this partial and its subpartials
           const partialPath = targetedPaths.find( p => {
             return dependent.partial?.find( pp => p == pp || self.__hasSamePathParent__( pp, p ) )
-          } )
+          })
           if( !dependent.partial || !partialPath ) return
           
           const
           deppath = dependent.deppath || dependent.nodepath,
           memoslot = this.FGUDMemory.get( dependent.nodepath )
 
-          if( fragmentBoundaries?.start && !document.contains( fragmentBoundaries.start ) ){
-            console.warn(`${partialPath} -- partial boundaries missing in the DOM`)
-
+          if( dependent.garbage || fragmentBoundaries?.start && !document.contains( fragmentBoundaries.start ) ){
+            // console.warn(`${partialPath} -- partial boundaries missing in the DOM`)
             dependents.delete( deppath )
             self.__unbindMemo__( dependent )
             return
@@ -2762,7 +2770,7 @@ export default class Component<MT extends Metavars> extends Events {
         }
 
         let expression = `return ${each};`
-
+        
         if( scope ){
           let
           __scope__: Record<string, any> = {},
@@ -3230,7 +3238,8 @@ export default class Component<MT extends Metavars> extends Events {
            * or node no longer in DOM
            */
           const deppath = dependent.deppath || dependent.nodepath
-          if( (dependent.boundaries?.start && !document.contains( dependent.boundaries.start ))
+          if( dependent.garbage
+              || (dependent.boundaries?.start && !document.contains( dependent.boundaries.start ))
               || (dependent.$fragment !== null && !dependent.$fragment.closest('body').length) ){
             dependents.delete( deppath )
             this.__unbindMemo__( dependent )

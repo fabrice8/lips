@@ -41,7 +41,7 @@ export type DeclarationTagType = 'nexted' | 'child'
 export type DeclarationTag = {
   type: DeclarationTagType
   many?: boolean
-  orderby?: string[]
+  alts?: string[] // Alternative nexted
   optional?: boolean
 }
 export type Declaration = {

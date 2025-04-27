@@ -22,7 +22,7 @@ export const declaration: Declaration = {
     },
     'else': { 
       type: 'nexted',
-      orderby: ['*', 'else-if'],
+      alts: ['else-if'],
       optional: true
     }
   }

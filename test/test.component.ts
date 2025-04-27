@@ -332,9 +332,9 @@ function DemoSpreadOperator(){
     onBlacklist( index: number ){
       delete this.state.books[ index ].actions
 
-      this.state.blacklisted.includes( index )
+      !this.state.blacklisted.includes( index )
                       ? this.state.blacklisted.push( index )
-                      : this.state.blacklisted.splice( index, 1 )
+                      : this.state.blacklisted = this.state.blacklisted.filter( idx => idx != index )
     },
     onWhitelist( index: number ){
       this.state.books[ index ].actions = {
@@ -343,8 +343,8 @@ function DemoSpreadOperator(){
         bookmark: true
       }
 
-      this.state.blacklisted.includes( index )
-      && this.state.blacklisted.splice( index, 1 )
+      if( this.state.blacklisted.includes( index ) )
+        this.state.blacklisted = this.state.blacklisted.filter( idx => idx != index )
     }
   },
   template = `
@@ -353,7 +353,7 @@ function DemoSpreadOperator(){
 
       <for [each, index] in=state.books>
         <div class="card"
-              style="padding: 15px;cursor:pointer; border: 1px solid {state.blacklisted.includes(index) ? '#000' : '#fff'}"
+              style="padding: 15px;cursor:pointer; border: 1px solid {state.blacklisted.includes( index ) ? '#000' : '#fff'}"
               ...each.actions>
           <p>{each.name} <span style="color: gray">{each.bestseller ? '(Bestseller)' : ''}</span></p>
           <ul style="list-style: none; list-type: inline;">
@@ -369,8 +369,12 @@ function DemoSpreadOperator(){
             <if( actions.bookmark )><button>Bookmark</button></if>
           </if>
           
-          <button style="background:#000;color:#fff;margin-left:40px" on-click(onBlacklist, index)>Blacklist</button>
-          <button style="background:#fff;color:#000" on-click(onWhitelist, index)>Whitelist</button>
+          <if( !state.blacklisted.includes( index ) )>
+            <button style="background:#000;color:#fff;margin-left:40px" on-click(onBlacklist, index)>Blacklist</button>
+          </if>
+          <else>
+            <button style="background:#fff;color:#000" on-click(onWhitelist, index)>Whitelist</button>
+          </else>
         </div>
       </for>
     </div>
@@ -416,7 +420,6 @@ function DemoMacro(){
   },
   macros = `
     <macro [name, source, active] name="card">
-      <log( name, source, active, arguments )/>
       <div class="card"
             style="cursor:pointer; border: 1px solid {active ? '#000' : '#fff'}"
             on-click(onShowDetails, arguments )>
@@ -478,12 +481,6 @@ function DemoComponent(){
   }
 
   const
-  template = `<div>
-    <span @text=state.count></span>
-    <br>
-    <button on-click="handleClick">Count</button>
-    <button on-click="() => self.destroy()">Destroy</button>
-  </div>`,
   state: State = {
     count: 0
   },
@@ -501,6 +498,14 @@ function DemoComponent(){
       this.state.count++
     }
   },
+  template = `
+    <div>
+      <span @text=state.count></span>
+      <br>
+      <button on-click="handleClick">Count</button>
+      <button on-click="() => self.destroy()">Destroy</button>
+    </div>
+  `,
   stylesheet = `
     span, button { font: 14px arial; color: rgba(50, 50, 70); }
   `
@@ -1119,7 +1124,7 @@ function DemoI18n(){
 // DemoState()
 // DemoContext()
 // DemoIfElse()
-DemoSwitch()
+// DemoSwitch()
 // DemoForloop()
 // DemoForIfElse()
 // DemoSpreadOperator()
@@ -1366,7 +1371,7 @@ function DemoManyComponent(){
   },
   handler: Handler<Metavars<any, State>> = {
     onMount(){
-      this.node.css({ color: 'green' })
+      this.node?.css({ color: 'green' })
       
       console.log('State: ', this.state.initial )
     },
@@ -1443,7 +1448,7 @@ function DemoShoppingCart(){
           : item
       )
 
-      console.log('inc --', itemId, this.state.items.toJSON() )
+      // console.log('inc --', itemId, this.state.items.toJSON() )
     },
 
     onDecrementQuantity(itemId: number) {
