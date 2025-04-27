@@ -28,17 +28,19 @@ export const _static: Static = {
 }
 
 export const handler: Handler<Metavars<Input, State, Static>> = {
-  onInput(){
+  onInput(){ this.processor( this.input ) },
+
+  processor( options: Input ){
     /**
      * Skip processing when there's an ongoing 
      * processing batch to avoid duplicate work
      */
     if( this.static.processingBatch ) return
-
-    if( !this.input.renderer )
+    
+    if( !options.renderer )
       throw new Error('Undefined mesh renderer')
 
-    let { in: _in, from: _from, to: _to } = this.input
+    let { in: _in, from: _from, to: _to } = options
     if( _in === undefined && _from === undefined )
       throw new Error('Invalid <for> arguments')
     
@@ -64,7 +66,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         if( this.state.argvlist 
             && Array.isArray( this.state.argvlist ) 
             && this.state.argvlist.length === expectedLength ){
-          const [ ivar ] = this.input.renderer.argv
+          const [ ivar ] = options.renderer.argv
           
           if( ivar ){
             let
@@ -101,7 +103,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         for( let i = _from; isAscending ? i <= _to : i >= _to; isAscending ? i++ : i-- ){
           const
           argvalues: VariableSet = {},
-          [ ivar ] = this.input.renderer.argv
+          [ ivar ] = options.renderer.argv
 
           if( ivar ) argvalues[ ivar ] = { value: i, type: 'arg' }
 
@@ -118,7 +120,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
          */
         if( this.state.argvlist
             && this.static.lastIn
-            && this.input.in === this.static.lastIn )
+            && options.in === this.static.lastIn )
           return
     
         if( !_in.length ){
@@ -140,7 +142,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         if( this.state.argvlist 
             && Array.isArray( this.state.argvlist ) 
             && this.state.argvlist.length === _in.length ){
-          const [ evar, ivar ] = this.input.renderer.argv
+          const [ evar, ivar ] = options.renderer.argv
           
           for( let index = 0; index < _in.length; index++ ){
             const argvalues = this.state.argvlist[ index ]
@@ -160,7 +162,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         for( const each of _in ){
           const 
           argvalues: VariableSet = {},
-          [ evar, ivar ] = this.input.renderer.argv
+          [ evar, ivar ] = options.renderer.argv
 
           if( evar ) argvalues[ evar ] = { value: each, type: 'arg' }
           if( ivar ) argvalues[ ivar ] = { value: index, type: 'arg' }
@@ -179,7 +181,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
          */
         if( this.state.argvlist
             && this.static.lastIn
-            && this.input.in === this.static.lastIn )
+            && options.in === this.static.lastIn )
           return
 
         if( !_in.size ){
@@ -202,7 +204,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
             && Array.isArray( this.state.argvlist ) 
             && this.state.argvlist.length === _in.size ){
           
-          const [ kvar, vvar, ivar ] = this.input.renderer.argv
+          const [ kvar, vvar, ivar ] = options.renderer.argv
           let index = 0
           
           for( const [ key, value ] of _in ){
@@ -233,7 +235,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         for( const [ key, value ] of _in ){
           const 
           argvalues: VariableSet = {},
-          [ kvar, vvar, ivar ] = this.input.renderer.argv
+          [ kvar, vvar, ivar ] = options.renderer.argv
 
           if( kvar ) argvalues[ kvar ] = { value: key, type: 'arg' } // key
           if( vvar ) argvalues[ vvar ] = { value: value, type: 'arg' } // value
@@ -253,7 +255,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
          */
         if( this.state.argvlist
             && this.static.lastIn
-            && this.input.in === this.static.lastIn )
+            && options.in === this.static.lastIn )
           return
 
         if( !Object.keys( _in ).length ){
@@ -276,7 +278,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         if( this.state.argvlist 
             && Array.isArray( this.state.argvlist ) 
             && this.state.argvlist.length === objectKeys.length ){
-          const [ kvar, vvar, ivar ] = this.input.renderer.argv
+          const [ kvar, vvar, ivar ] = options.renderer.argv
           
           // Check if we have the same keys and update values if needed
           for( let index = 0; index < objectKeys.length; index++ ){
@@ -307,7 +309,7 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         for( const key in _in ){
           const 
           argvalues: VariableSet = {},
-          [ kvar, vvar, ivar ] = this.input.renderer.argv
+          [ kvar, vvar, ivar ] = options.renderer.argv
 
           if( kvar ) argvalues[ kvar ] = { value: key, type: 'arg' } // key
           if( vvar ) argvalues[ vvar ] = { value: _in[ key ], type: 'arg' } // value
@@ -318,58 +320,6 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
         }
 
         this.state.argvlist = argvlist
-      }
-    }
-    finally { this.static.processingBatch = false }
-  },
-  
-  /**
-   * Custom update handler to optimize batch operations
-   * for high-frequency updates.
-   */
-  updateItems( items ){
-    if( !this.input.renderer )
-      throw new Error('Undefined mesh renderer')
-
-    if( !Array.isArray( items ) || !this.state.argvlist ) return
-    
-    // Prevent recursive updates
-    this.static.processingBatch = true
-    try {
-      const [ evar ] = this.input.renderer?.argv
-      if( !evar ) return
-      
-      // Process each update in the batch
-      for( const { index, value } of items )
-        if( index >= 0 && index < this.state.argvlist.length )
-          this.state.argvlist[ index ][ evar ].value = value
-    }
-    finally { this.static.processingBatch = false }
-  },
-  
-  /**
-   * Update a single property across all items
-   * without regenerating the entire list
-   */
-  updateProperty( propName, getter ){
-    if( !this.input.renderer )
-      throw new Error('Undefined mesh renderer')
-
-    if( !this.state.argvlist ) return
-    
-    this.static.processingBatch = true
-    try {
-      for( let i = 0; i < this.state.argvlist.length; i++ ){
-        const argvalues = this.state.argvlist[ i ]
-        
-        if( argvalues[ propName ] )
-          argvalues[ propName ].value = typeof getter === 'function' 
-                /**
-                 * Use a function to compute the new 
-                 * value if provided
-                 */
-                ? getter( argvalues[ propName ].value, i )
-                : getter
       }
     }
     finally { this.static.processingBatch = false }

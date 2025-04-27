@@ -27,35 +27,37 @@ export const state: State = {
 }
 
 export const handler: Handler<Metavars<Input, State>> = {
-  onInput(){
+  onInput(){ this.processor( this.input ) },
+
+  processor( options: Input ){
     // console.log('async await --', this.input )
-    if( !this.input.await )
+    if( !options.await )
       throw new Error('Undefined async <await> attribute')
 
-    if( !(this.input.await instanceof Promise) )
+    if( !(options.await instanceof Promise) )
       throw new Error('Expected async <await> attribute value to be a function')
     
     // Show loading content
-    if( this.input.loading ){
-      this.state.renderer = this.input.loading.renderer
+    if( options.loading ){
+      this.state.renderer = options.loading.renderer
       this.state.props = {}
     }
 
-    this.input.await
+    options.await
     .then( ( response: any ) => {
-      if( !this.input.then ) return
-      this.state.renderer = this.input.then.renderer
+      if( !options.then ) return
+      this.state.renderer = options.then.renderer
 
-      const [ rvar ] = this.input.then.renderer.argv
+      const [ rvar ] = options.then.renderer.argv
       this.state.props = {
         [rvar]: { value: response, type: 'arg' } 
       }
     })
     .catch( ( error: unknown ) => {
-      if( !this.input.catch ) return
-      this.state.renderer = this.input.catch.renderer
+      if( !options.catch ) return
+      this.state.renderer = options.catch.renderer
       
-      const [ evar ] = this.input.then.renderer.argv
+      const [ evar ] = options.then.renderer.argv
       this.state.props = { 
         [evar]: { value: error, type: 'arg' }
       }

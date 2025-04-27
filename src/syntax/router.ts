@@ -64,14 +64,16 @@ declare global {
 }
 
 export const handler: Handler<Metavars<Input<any>, State, Static, Context>> = {
-  onInput(){
-    if( !this.input.routes )
+  onInput(){ this.processor( this.input ) },
+
+  processor( options: Input<any> ){
+    if( !options.routes )
       return
 
-    if( this.input.global )
-      this.static.global = this.input.global
+    if( options.global )
+      this.static.global = options.global
 
-    this.static.routes = this.input.routes.map( ({ path, template, default: _default }) => {
+    this.static.routes = options.routes.map( ({ path, template, default: _default }) => {
       if( _default )
         this.static.defaultPath = path
 
@@ -91,7 +93,7 @@ export const handler: Handler<Metavars<Input<any>, State, Static, Context>> = {
       }
     } )
 
-    if( this.input.global ){
+    if( options.global ){
       const cpathname = window.location.pathname
       this.static.defaultPath = this.static.defaultPath
                                 && cpathname == '/' 
