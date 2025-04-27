@@ -22,6 +22,14 @@ export type VariableSet = Record<string, Variable> & {
   __arguments__?: VariableArguments
 }
 
+export interface SpreadOpeartor {
+  each( key: string, value: any ): void
+  nullify?: ( attrs: string[] ) => void
+  get keystore(): string[]
+  set keystore( __: string[] )
+  memo: VariableSet
+}
+
 export type I18nVariant = Record<string, string>
 export type I18nFormat = {
   type: string
@@ -33,6 +41,7 @@ export type DeclarationTagType = 'nexted' | 'child'
 export type DeclarationTag = {
   type: DeclarationTagType
   many?: boolean
+  orderby?: string[]
   optional?: boolean
 }
 export type Declaration = {
@@ -54,7 +63,7 @@ export type LifeCycleEventTypes = 'onCreate'
                                   | 'onDestroy'
 export interface LifecycleEvents<MT extends Metavars> {
   onCreate: ( this: Component<MT> ) => void
-  onInput: ( this: Component<MT>, input: MT['Input'] ) => void
+  onInput: ( this: Component<MT>, memo?: VariableSet ) => void
   onMount: ( this: Component<MT> ) => void
   onRender: ( this: Component<MT> ) => void
   onUpdate: ( this: Component<MT> ) => void
@@ -98,6 +107,7 @@ export type ComponentOptions<Context extends Object> = {
   lips: Lips<Context>
   debug?: boolean
   prepath?: string
+  boundaries?: FragmentBoundaries
 }
 export type LipsConfig<Context extends Object> = {
   debug?: boolean
@@ -171,16 +181,18 @@ export interface FGUDependency {
   $fragment: Cash | null
   boundaries?: FragmentBoundaries
   haslet?: boolean
-  batch?: boolean
   syntax?: boolean
   partial?: string[]
   priority?: number
+  level?: number
+  garbage?: boolean
   update: ( memo: VariableSet, by?: string ) => FGUSync | void
 }
 export type FGUDependencies = Map<string, Map<string, FGUDependency>>
 export type FGUDBatchEntry = {
   dep: string
-  dependent: FGUDependency
+  deppath: string
+  priority?: number
 }
 export type FGUDMemorySlot = { 
   tracks: Map<string, number>
