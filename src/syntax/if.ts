@@ -84,8 +84,8 @@ export const handler: Handler<Metavars<Input, {}, Static>> = {
           elseifMatch = true
           break
         }
-      
-      // Render -- else or Null fallback
+        
+      // Render -- else fallback
       if( !elseifMatch && options.else ){
         // Render else content
         const $content = options.else.renderer.mesh({}, memo )
@@ -96,8 +96,6 @@ export const handler: Handler<Metavars<Input, {}, Static>> = {
         
         options.else.renderer.fill( $content )
       }
-      // Clear renderer
-      else this.static.prevRenderer = null
     }
   }
 }
