@@ -31,7 +31,7 @@ import Metrics from './metrics'
 import $, { Cash } from 'cash-dom'
 import Stylesheet from './stylesheet'
 import { preprocessor } from './preprocess'
-import { effect, EffectControl, signal } from './signal'
+import { effect, EffectControl, memo, signal } from './signal'
 import { 
   isDiff,
   isEqual,
@@ -50,7 +50,8 @@ import {
   NODE_PREFIX,
   COMPONENT_PREFIX,
   SYNTAX_COMPONENT_PREFIX,
-  MACRO_PREFIX
+  MACRO_PREFIX,
+  sterilize
 } from './utils'
 
 export default class Component<MT extends Metavars> extends Events {
@@ -602,20 +603,17 @@ export default class Component<MT extends Metavars> extends Events {
              */
             if( attrs.map.beforeSpreadAttrs.includes( key ) ) return
 
-            const newvar: Variable = {
-              value: self.__evaluate__( assign as string, memo ),
-              type: 'let'
-            }
-            
-            if( isEqual( memo[ key ], newvar ) ) return
-            memo[ key ] = newvar
+            const value = self.__evaluate__( assign as string, memo )
+            if( isEqual( memo[ key ].value, value ) ) return
+
+            memo[ key ] = { value, type: 'let' }
             
             /**
              * Apply update to related dependencies
              */
             self.__updateVarDepNodes__( key, varPath, memo )
 
-            return { memo }
+            return sterilize({ memo })
           }
 
           deps.forEach( dep => self.__trackDep__( dependencies, dep, useScope(), {
@@ -1298,37 +1296,37 @@ export default class Component<MT extends Metavars> extends Events {
         }
 
         if( SPREAD_VAR_PATTERN.test( key ) ){
-          const spreadvalues = ( memo: VariableSet ) => {
-            const extracted: Record<string, any> = {}
-
-            self.__evaluateSpreadAttr__( key, {
-              memo,
-              get keystore(){ return SPREAD_KEYSTORES[ key ] },
-              set keystore( __ ){
-                if( !SPREAD_KEYSTORES[ key ] )
-                  SPREAD_KEYSTORES[ key ] = []
-                
-                SPREAD_KEYSTORES[ key ] = __ 
-              },
-              each: ( _key, _value ) => {
-                /**
-                 * Attributes positioning: Shun to overriding
-                 * spread attributes key that is explicitly
-                 * defined after spread key. 
-                 */
-                if( attrs.map.afterSpreadAttrs.includes( _key ) ) return
-                
-                extracted[ _key ] = _value
-              },
-              nullify: pattrs => pattrs.forEach( _key => extracted[ _key ] = undefined )
-            })
-            
-            component?.subInput( extracted, memo )
-          }
-          
           if( self.__isReactive__( key, contextScope ) ){
-            const deps = self.__extractExpressionDeps__( key, contextScope )
-            
+            const
+            spreadvalues = ( memo: VariableSet ) => {
+              const extracted: Record<string, any> = {}
+
+              self.__evaluateSpreadAttr__( key, {
+                memo,
+                get keystore(){ return SPREAD_KEYSTORES[ key ] },
+                set keystore( __ ){
+                  if( !SPREAD_KEYSTORES[ key ] )
+                    SPREAD_KEYSTORES[ key ] = []
+                  
+                  SPREAD_KEYSTORES[ key ] = __ 
+                },
+                each: ( _key, _value ) => {
+                  /**
+                   * Attributes positioning: Shun to overriding
+                   * spread attributes key that is explicitly
+                   * defined after spread key. 
+                   */
+                  if( attrs.map.afterSpreadAttrs.includes( _key ) ) return
+                  
+                  extracted[ _key ] = _value
+                },
+                nullify: pattrs => pattrs.forEach( _key => extracted[ _key ] = undefined )
+              })
+              
+              component?.subInput( extracted, memo )
+            },
+            deps = self.__extractExpressionDeps__( key, contextScope )
+
             deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
               nodetype: 'component',
               nodepath: componentPath,
@@ -1341,8 +1339,9 @@ export default class Component<MT extends Metavars> extends Events {
             }) )
           }
         }
-        else {
-          const evalue = ( memo: VariableSet ) => {
+        else if( self.__isReactive__( value, contextScope ) ){
+          const
+          evalue = ( memo: VariableSet ) => {
             /**
              * Attributes positioning: Shun to overriding
              * spread attributes key=value that is assigned
@@ -1355,22 +1354,19 @@ export default class Component<MT extends Metavars> extends Events {
                           : value ? self.__evaluate__( value, memo ) : true
             
             component?.subInput({ [ key ]: _value }, memo )
-          }
+          },
+          deps = self.__extractExpressionDeps__( value, contextScope )
           
-          if( self.__isReactive__( value, contextScope ) ){
-            const deps = self.__extractExpressionDeps__( value, contextScope )
-            
-            deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
-              nodetype: 'component',
-              nodepath: componentPath,
-              deppath: `${componentPath}.${key}`,
-              target: 'attr',
-              $fragment: null,
-              boundaries,
-              update: evalue,
-              syntax: isSyntax
-            }) )
-          }
+          deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
+            nodetype: 'component',
+            nodepath: componentPath,
+            deppath: `${componentPath}.${key}`,
+            target: 'attr',
+            $fragment: null,
+            boundaries,
+            update: evalue,
+            syntax: isSyntax
+          }) )
         }
       })
 
@@ -1882,7 +1878,7 @@ export default class Component<MT extends Metavars> extends Events {
               const 
               canTranslate = $node.is(`[${I18N_ATTR_FLAG}]`) && ['title', 'placeholder'].includes( attr ),
               updateAttrs = ( memo: VariableSet ) => {
-                const res = value
+                const res = value && self.__isReactive__( value, contextScope )
                             ? self.__evaluate__( value as string, memo, { translate: canTranslate } )
                             /**
                              * IMPORTANT: An attribute without a value is
@@ -2735,15 +2731,11 @@ export default class Component<MT extends Metavars> extends Events {
     return __.join('/')
   }
   private __hasSamePathParent__( path: string, parentPath: string ){
-    return path.startsWith( parentPath )
+    return (path.startsWith( parentPath ) && !path.replace( parentPath, '' ).startsWith('.'))
             /**
              * When parent is a mesh partial root element
              */
             || path.startsWith(`${parentPath + ROOT_PREFIX}`)
-            /**
-             * Only child path: Path with fo
-             */
-            || (path.startsWith( parentPath ) && !path.replace( parentPath, '' ).startsWith('.'))
   }
 
   private __evaluate__( expr: string, scope?: VariableSet, options?: { translate?: boolean, mute?: boolean }){
@@ -2882,7 +2874,6 @@ export default class Component<MT extends Metavars> extends Events {
   }
   private __evaluateSpreadAttr__( expr: string, operator: SpreadOpeartor ){
     const spreads = this.__evaluate__( expr.replace( SPREAD_VAR_PATTERN, '' ) as string, operator.memo )
-    
     if( !spreads ){
       if( !operator.keystore.length )
         throw new Error(`Undefined spread operator ${expr}`)
@@ -3033,11 +3024,14 @@ export default class Component<MT extends Metavars> extends Events {
      * Extract scope interpolation expressions
      */
     if( scope && Object.keys( scope ).length ){
-      const scopeRegex = new RegExp(`\\b(?<!\\.)(${Object.keys( scope ).join('|')})`, 'g')
+      const
+      scopeRegex = new RegExp(`\\b(?<!\\.)(${Object.keys( scope ).join('|')})`, 'g'),
+      spreadScopeRegex = new RegExp(`(?:(?<=\\.\\.\\.))(${Object.keys(scope).join('|')})\\b`, 'g')
       
       matches = [
         ...matches,
-        ...Array.from( expr.matchAll( scopeRegex ) )
+        ...Array.from( expr.matchAll( scopeRegex ) ),
+        ...Array.from( expr.matchAll( spreadScopeRegex ) )
       ]
     }
     
@@ -3274,6 +3268,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.metrics.startRender()
     
     this.FGUD.get( dep )?.forEach( ( dependent, path ) => {
+      // console.debug( path, varPath, this.__hasSamePathParent__( path, this.__getPathParent__( varPath ) ) )
       if( !dependent.haslet
           || !this.__hasSamePathParent__( path, this.__getPathParent__( varPath ) ) ) return
 

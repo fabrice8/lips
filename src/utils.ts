@@ -531,3 +531,7 @@ export function deepAssign<T>( original: T, toSet: Record<string, any> ): T {
 
   return modified
 }
+
+export function sterilize( obj: Record<string, any> ){
+  return JSON.parse( JSON.stringify( obj ) )
+}

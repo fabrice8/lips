@@ -59,7 +59,7 @@ function createSpec(){
     count: number
   }
 
-  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
+  const Spec: Template<Metavars<TemplateInput, TemplateState>> = {
     state: {
       count: 0
     },
@@ -90,7 +90,7 @@ function createSpec(){
     `
   }
 
-  return easyCount
+  return Spec
 }
 
 /**
@@ -599,7 +599,7 @@ function DemoInterpolation(){
     </div>`
 
   lips
-  .render('Demo4', { default: template })
+  .render('DemoInterpolation', { default: template })
   .appendTo('body')
 }
 
@@ -988,8 +988,6 @@ function DemoAttrsPositioning(){
     onUninstall( index, version ){
       this.state.specs[ index ].installed = false
       this.state.version = null
-
-      console.log( this.state.specs )
     },
     onUpgrade( index, partial = false ){
       this.state.version = this.state.specs[ index ].latest
@@ -1135,7 +1133,7 @@ function DemoI18n(){
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
-// DemoAttrsPositioning()
+DemoAttrsPositioning()
 // DemoI18n()
 
 /**
