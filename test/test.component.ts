@@ -1133,7 +1133,7 @@ function DemoI18n(){
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
-DemoAttrsPositioning()
+// DemoAttrsPositioning()
 // DemoI18n()
 
 /**
@@ -1157,7 +1157,8 @@ function DemoDeepNexted(){
   }
 
   const
-  template = `<div component="Greet" style="!state.online && 'color: red'">
+  template = `
+    <div component="Greet" style="!state.online && 'color: red'">
       <span @text=input.person>me</span>:
       (<span @text="state.online ? 'Online' : 'Offline'"></span>)
       <span @text=static.verb>...</span>
@@ -1208,7 +1209,8 @@ function DemoDeepNexted(){
           </li>
         </for>
       </ul>
-    </div>`,
+    </div>
+  `,
   state: State = {
     time: 'morning',
     speech: 'hi',
@@ -1279,11 +1281,11 @@ function DemoSubcomponent(){
     <div>
       <easycount ...self.initcount()></easycount>
 
-      <const ...static.vars></const>
+      <const data=static.vars></const>
       <ul>
-        <li>Type: {type}</li>
-        <li>Name: {name}</li>
-        <li>Version: {version}</li>
+        <li>Type: {data.type}</li>
+        <li>Name: {data.name}</li>
+        <li>Version: {data.version}</li>
       </ul>
     </div>
   `
@@ -1378,6 +1380,9 @@ function DemoManyComponent(){
     },
     onContext(){
       console.log('on-context --', this.context )
+    },
+    reinit( value ){
+      this.state.initial = value
     }
   },
   template = `
@@ -1394,10 +1399,9 @@ function DemoManyComponent(){
         <p>I'm <span @text="{context.online ? 'Online' : 'Offline'}"/></p>
         
         <br><br>
-        <button on-click(() => state.initial = 10)>Reinitialize ({state.countUpdate})</button>
+        <button on-click(() => self.reinit(10))>Reinitialize ({state.countUpdate})</button>
         <button i18n style="background: black;color: white"
                 on-click(() => self.destroy())>Destroy</button>
-
         <caption/>
       </section>
     </main>
@@ -2069,8 +2073,8 @@ function AnimationDemo() {
           }
           
           // Force a log to verify updates are happening
-          console.log("Circle position:", this.state.x);
-        }, 100); // Update every 100ms
+          // console.log("Circle position:", this.state.x);
+        }, 16.7 ); // Update every 100ms
       },
       
       stopAnimation() {
@@ -2245,10 +2249,10 @@ function AnimationDemo() {
         <p>Testing different animation approaches with Lips</p>
         
         <!-- Test 1: HTML Count -->
-        <!-- <html-counter/> -->
+        <html-counter/>
 
         <!-- Test 2: SVG with color changes -->
-        <!-- <color-rects/> -->
+        <color-rects/>
         
         <!-- Test 3: SVG with position animation -->
         <animated-circle/>
@@ -3072,7 +3076,7 @@ function ParticleSystemDemo() {
         <div style="display: flex; flex-direction: column; gap: 30px;">
           <!-- High-performance particle system -->
           <particle-system 
-            title="High-Performance System (500 particles)" 
+            title="High-Performance System - 500 particles" 
             width="600" 
             height="400"
             particleCount="500"
@@ -3111,7 +3115,7 @@ function ParticleSystemDemo() {
           
           <!-- Small particle system for comparison -->
           <particle-system
-            title="Low-Performance System (50 particles)"
+            title="Low-Performance System - 50 particles"
             width="300"
             height="200"
             particleCount="50" 
