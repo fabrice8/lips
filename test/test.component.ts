@@ -1128,7 +1128,7 @@ function DemoI18n(){
 // DemoSpreadOperator()
 // DemoMacro()
 // DemoComponent()
-// DemoAsyncAwait()
+DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
