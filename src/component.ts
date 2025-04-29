@@ -1579,6 +1579,8 @@ export default class Component<MT extends Metavars> extends Events {
               // Update partial deps
               macrowire.renderer.update( changedDeps, extracted, memo )
             }
+
+            return sterilize({ memo: { ...memo, ...extracted } })
           }
 
           deps.forEach( dep => self.__trackDep__( dependencies, dep, { ...contextScope, ...argvalues }, {
@@ -1613,6 +1615,8 @@ export default class Component<MT extends Metavars> extends Events {
 
             // Update the whole partial
             macrowire.renderer.update( [ key ], { [ key ]: { value: newvalue, type: 'arg' } }, memo )
+
+            return sterilize({ memo })
           }
         
           deps.forEach( dep => self.__trackDep__( dependencies, dep, { ...contextScope, ...argvalues }, {
