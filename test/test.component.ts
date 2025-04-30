@@ -732,28 +732,101 @@ function DemoSwitch(){
 function DemoForloop(){
   type State = {
     numbers: number[]
+    fields: Record<string, any>
   }
 
   const
   state: State = {
-    numbers: [1,2,4,6,8,10,12]
+    numbers: [1,2,4,6,8,10,12],
+    fields: {
+      name: 'Macbook Pro',
+      maker: 'Apple, inc.',
+      model: 'M2',
+      year: 2022,
+      price: 999,
+      location: 'China'
+    }
   },
   handler: Handler<Metavars<any, State>> = {
     onMount(){
       setTimeout( () => this.state.numbers[2] = 11, 2000 )
       setTimeout( () => this.state.numbers[4] = 21, 4000 )
       setTimeout( () => this.state.numbers[0] = 0, 6000 )
-      setTimeout( () => this.state.numbers[0] = 0, 8000 )
-      setTimeout( () => { console.log('late mutation None --'); this.state.numbers[0] = 0 }, 10000 )
-      setTimeout( () => { console.log('late mutation Change --'); this.state.numbers[0] = 9 }, 15000 )
+      setTimeout( () => this.state.numbers = [8, 10, 12], 8000 )
+      setTimeout( () => this.state.numbers = [61, 71, 81, 91, 101, 201, 301, 401, 501, 601], 10000 )
+      setTimeout( () => { console.log('late mutation None --'); this.state.numbers[0] = 61 }, 12000 )
+      setTimeout( () => { console.log('late mutation Change --'); this.state.numbers[0] = 200 }, 14000 )
+
+      setTimeout( () => {
+        this.state.fields = {
+          name: 'Macbook Air',
+          maker: 'Apple, inc.',
+          model: 'M3',
+          year: 2020,
+          price: 699,
+          location: 'USA'
+        }
+      }, 2000 )
+      setTimeout( () => {
+        this.state.fields = {
+          name: 'Macbook Air',
+          maker: 'Apple, inc.',
+          model: 'M3'
+        }
+      }, 4000 )
+      setTimeout( () => {
+        this.state.fields = {
+          name: 'Macbook Air',
+          maker: 'Apple, inc.',
+          model: 'M3',
+          price: 699,
+          location: 'USA'
+        }
+      }, 6000 )
+      setTimeout( () => {
+        this.state.fields = {}
+      }, 8000 )
+      setTimeout( () => {
+        this.state.fields = {
+          name: 'Iphone 16',
+          maker: 'Apple, inc.',
+          model: 'M1',
+          year: 2021,
+          price: 1299,
+          location: 'India'
+        }
+      }, 10000 )
     }
   },
   template = `
-    <log('numbers --', state.numbers )/>
-    <for [n, idx] in=state.numbers>
-      <let square="n * 4"/>
-      #<span>[{idx}]-{n}({square})</span>.
-    </for>
+    <div>
+      <h3>From 0 to {state.numbers.length - 1}</h3>
+
+      <for [index] from=0 to=(state.numbers.length - 1)>
+        <div>[{index}] - {state.numbers[ index ]}</div>
+      </for>
+    </div>
+    <br>
+
+    <div>
+      <h3>Array List</h3>
+
+      <log('numbers --', state.numbers )/>
+      <for [n, idx] in=state.numbers>
+        <let square="n * 4"/>
+        #<span>[{idx}]-{n}({square})</span>.
+      </for>
+    </div>
+    <br>
+
+    <div>
+      <h3>Object List</h3>
+
+      <log('fields --', state.fields )/>
+      <for [key, value] in=state.fields>
+        <div>- <b>{key}</b>: {value}</div>
+      </for>
+    </div>
   `
   
   lips
@@ -1128,7 +1201,7 @@ function DemoI18n(){
 // DemoSpreadOperator()
 // DemoMacro()
 // DemoComponent()
-DemoAsyncAwait()
+// DemoAsyncAwait()
 // DemoInterpolation()
 // DemoSyntaxInteract()
 // DemoLetConstVariable()
@@ -3135,7 +3208,7 @@ function ParticleSystemDemo() {
 
 // WaveGraphDemo()
 // AnimationDemo()
-// ParticleSystemDemo()
+ParticleSystemDemo()
 
 /**
  * ------------------------------------------------------------------------- 
