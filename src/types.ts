@@ -223,10 +223,11 @@ export type FragmentBoundaries = {
 export interface MeshRenderer {
   path: string | null
   argv: string[]
-  mesh( argvalues?: VariableSet, scope?: VariableSet ): Cash | null
-  update( deps: string[], argvalues: VariableSet, scope: VariableSet, boundaries?: FragmentBoundaries ): void
+  mesh( argvalues?: VariableSet, scope?: VariableSet, suffix?: string ): Cash | null
+  update( deps: string[], argvalues: VariableSet, scope: VariableSet, boundaries?: FragmentBoundaries, suffix?: string ): void
+  cleanup( boundaries?: FragmentBoundaries, suffix?: string | true ): void
+  demarcate( $log: Cash, sufix: string ): { $partial: Cash, boundaries: FragmentBoundaries }
   fill( $log: Cash, boundaries?: FragmentBoundaries ): void
-  cleanup( boundaries?: FragmentBoundaries ): void
 }
 export type MeshTemplate = Record<string, any> & {
   renderer: MeshRenderer

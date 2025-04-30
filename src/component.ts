@@ -46,12 +46,13 @@ import {
   EVENT_LISTENER_FLAG,
   LAYOUT_AFFECTING_ATTRS,
   MAX_PRIORITY_TYPES,
-  ROOT_PREFIX,
   NODE_PREFIX,
   COMPONENT_PREFIX,
+  PARTIAL_ROOT_PREFIX,
   SYNTAX_COMPONENT_PREFIX,
   MACRO_PREFIX,
-  sterilize
+  sterilize,
+  DEFAULT_PARTIAL_PATH_SLOT
 } from './utils'
 
 export default class Component<MT extends Metavars> extends Events {
@@ -714,7 +715,7 @@ export default class Component<MT extends Metavars> extends Events {
                 __arguments__[ _key ] = _value
 
                 // Only consume declared arguments' value
-                if( _key !== '#' && !activeRenderer?.argv.includes( _key ) ) return
+                if( !activeRenderer?.argv.includes( _key ) ) return
 
                 argvalues[ _key ] = {
                   type: 'arg',
@@ -728,7 +729,7 @@ export default class Component<MT extends Metavars> extends Events {
             __arguments__[ key ] = evalue
 
             // Only consume declared arguments' value
-            if( key !== '#' && !activeRenderer.argv.includes( key ) ) return
+            if( !activeRenderer.argv.includes( key ) ) return
 
             argvalues[ key ] = {
               type: 'arg',
@@ -786,7 +787,7 @@ export default class Component<MT extends Metavars> extends Events {
                    */
                   if( attrs.map.afterSpreadAttrs.includes( _key ) ) return
                   // Only update declared arguments' value
-                  if( _key !== '#' && !activeRenderer?.argv.includes( _key ) ) return
+                  if( !activeRenderer?.argv.includes( _key ) ) return
                   // Ignore unchanged values
                   if( isEqual( _value, memo[ _key ]?.value ) ) return
 
@@ -834,7 +835,7 @@ export default class Component<MT extends Metavars> extends Events {
               update: spreadPartialUpdate
             }) )
           }
-          else if( ( key === '#' || activeRenderer.argv.includes( key ) )
+          else if( ( activeRenderer.argv.includes( key ) )
                     && self.__isReactive__( value, contextScope ) ){
             const
             deps = self.__extractExpressionDeps__( value, contextScope ),
@@ -903,16 +904,13 @@ export default class Component<MT extends Metavars> extends Events {
            * The mesh renderer changed
            */
           else if( isMesh( result ) ){
-            // Update the mesh argvalues with new values
-            if( '#' in argvalues ) argvalues = argvalues['#'].value
-            else {
-              Object
-              .entries( argvalues )
-              .forEach( ([ key, content ]) => {
-                if( typeof content === 'function' ) return
-                __arguments__[ key ] = content.value
-              } )
-            }
+            // Record new mesh argvalues into `arguments`
+            Object
+            .entries( argvalues )
+            .forEach( ([ key, content ]) => {
+              if( typeof content === 'function' ) return
+              __arguments__[ key ] = content.value
+            } )
 
             /**
              * IMPORTANT: Clean up previously renderer 
@@ -2281,23 +2279,34 @@ export default class Component<MT extends Metavars> extends Events {
       useAttributes
     } = setup
 
-    let
-    PARTIAL_CONTENT: Cash | undefined,
-    ITERATOR_REGISTRY: Array<{ boundaries: FragmentBoundaries, argvalues?: VariableSet }> = []
-    
+    let PARTIAL_CONTENT: Cash | undefined
     const
-    PARTIAL_PATHS: string[] = [],
-    MESH_COMPOSITE_PATH = fragmentPath + ROOT_PREFIX,
-    partialRender = ( $contents: Cash, freshscope: VariableSet, argvalues?: VariableSet, index?: number ) => {
+    PARTIAL_PATHS: Map<string, Set<string>> = new Map(),
+    MESH_COMPOSITE_PATH = fragmentPath + PARTIAL_ROOT_PREFIX,
+    mesh = ( argvalues?: VariableSet, freshscope?: VariableSet, suffix?: string ) => {
+      PARTIAL_CONTENT = $node.contents()
+      if( !PARTIAL_CONTENT?.length ) return null
+
+      freshscope = freshscope || setup.scope
+      
       // Render the partial
       const
-      partialPath = `${MESH_COMPOSITE_PATH}${index !== undefined ? `[${index}]` : ''}`,
+      partialPath = MESH_COMPOSITE_PATH + (suffix || ''),
       { $log, dependencies, events } = self.__withPath__( partialPath, () => {
-        return self.render( partialPath, $contents, { ...freshscope, ...argvalues }, undefined, xmlns )
+        return self.render( partialPath, PARTIAL_CONTENT, { ...freshscope, ...argvalues }, undefined, xmlns )
       })
-
-      PARTIAL_PATHS.push( partialPath )
-
+      
+      /**
+       * Index the path by slot for fast lookups
+       * 
+       * NOTE: (*) is default slot for standard
+       * mesh partial.
+       */
+      const pathSlot = suffix || DEFAULT_PARTIAL_PATH_SLOT
+      // Create new slot
+      !PARTIAL_PATHS.has( pathSlot ) && PARTIAL_PATHS.set( pathSlot, new Set() )
+      PARTIAL_PATHS.get( pathSlot )?.add( partialPath )
+  
       /**
        * Share partial FGU dependenies with main component thread
        * for parallel updates (main & partial) on the meshed node.
@@ -2306,9 +2315,7 @@ export default class Component<MT extends Metavars> extends Events {
        * 2. From mesh rendering track
        */
       dependencies?.forEach( ( dependents, dep ) => {
-        if( !self.FGUD?.has( dep ) )
-          self.FGUD.set( dep, new Map() )
-        
+        !self.FGUD?.has( dep ) && self.FGUD.set( dep, new Map() )
         // Add partial dependency
         dependents.forEach( ( dependent, path ) => {
           if( dependent.garbage ) return
@@ -2322,37 +2329,23 @@ export default class Component<MT extends Metavars> extends Events {
       } )
       
       self.metrics.inc('partialCount')
-
-      /**
-       * Create a dedicated boundaries for each iteration item
-       */
-      if( index !== undefined ){
-        const boundaries = self.__getBoundaries__( partialPath )
-
-        ITERATOR_REGISTRY[ index ] = { argvalues, boundaries }
-
-        let $partial = $(boundaries.start)
-        $partial = $partial.add($log)
-        $partial = $partial.add(boundaries.end)
-        
-        return $partial
-      }
-
       return $log
     },
-    partialUpdate = ( deps: string[], freshscope: VariableSet, argvalues: VariableSet, index?: number ) => {
+    update = ( deps: string[], argvalues: VariableSet, freshscope: VariableSet, boundaries: FragmentBoundaries, suffix?: string ) => {
+      if( !PARTIAL_PATHS.get( suffix || DEFAULT_PARTIAL_PATH_SLOT )?.size ) return
+      
+      freshscope = freshscope || setup.scope
+      boundaries = boundaries || fragmentBoundaries
+      
       // Start measuring
       self.metrics.startRender()
       
       /**
-       * IMPORTANT: Targeted item paths only within
-       * iterator context to avoid unecessary dependency
+       * IMPORTANT: Target item paths slot by 
+       * context to avoid unecessary dependency
        * checks or updates.
        */
-      const targetedPaths = index !== undefined 
-                                ? PARTIAL_PATHS.filter( p => p.endsWith(`${ROOT_PREFIX}[${index}]`) )
-                                : PARTIAL_PATHS
-
+      const targetedPaths = Array.from( PARTIAL_PATHS.get( suffix || DEFAULT_PARTIAL_PATH_SLOT ) || [] )
       // Execute partial mesh update
       deps.forEach( dep => {
         const dependents = self.FGUD.get( dep )
@@ -2368,8 +2361,8 @@ export default class Component<MT extends Metavars> extends Events {
           const
           deppath = dependent.deppath || dependent.nodepath,
           memoslot = this.FGUDMemory.get( dependent.nodepath )
-
-          if( dependent.garbage || fragmentBoundaries?.start && !document.contains( fragmentBoundaries.start ) ){
+          
+          if( dependent.garbage || boundaries?.start && !document.contains( boundaries.start ) ){
             // console.warn(`${partialPath} -- partial boundaries missing in the DOM`)
             dependents.delete( deppath )
             self.__unbindMemo__( dependent )
@@ -2394,165 +2387,77 @@ export default class Component<MT extends Metavars> extends Events {
          * Clean up if no more dependents
          */
         !dependents.size && self.FGUD.delete( dep )
-      } )
+      })
       
-      // Update registry
-      if( index !== undefined && ITERATOR_REGISTRY[ index ] )
-        ITERATOR_REGISTRY[ index ].argvalues = argvalues
-
       // Track update
       self.metrics.inc('partialUpdateCount')
       // Finish measuring
       self.metrics.endRender()
     },
-    partialRemove = ( index: number ) => {
-      if( !ITERATOR_REGISTRY[ index ] ) return
-      const boundaries = ITERATOR_REGISTRY[ index ].boundaries
+    cleanup = ( boundaries?: FragmentBoundaries, suffix?: string | boolean ) => {
+      /**
+       * Clean tracking mesh content dependencies
+       */
+      self.FGUD.forEach( ( dependents, dep ) => {
+        /**
+         * Find and remove dependents that match 
+         * the branch pattern.
+         */
+        dependents.forEach( ( dependent, path ) => {
+          // console.debug( path, MESH_COMPOSITE_PATH +(suffix || ''), self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH ) )
+          if( !self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH +(suffix || '') ) ) return
+          
+          // Unbind memo for this dependent
+          self.__unbindMemo__( dependent )
+          // Clear garbage dependent from the dependencies map
+          dependent.garbage = true
+        })
 
-      ITERATOR_REGISTRY.splice( index, 1 )
-
-      // Must have boundary markers in the DOM
-      if( !document.contains( boundaries.start ) || !document.contains( boundaries.end ) ){
-        console.warn(`Partial mesh item<${index}> boundaries missing`)
-        return
-      }
+        // Cleanup empty dependency maps
+        !dependents.size && self.FGUD.delete( dep )
+      })
       
-      // Collect all nodes between markers to remove
-      const nodesToRemove = []
-      let currentNode = boundaries.start.nextSibling
+      /**
+       * Clear all path attached to this suffix 
+       * or default slot.
+       */
+      PARTIAL_PATHS.delete( typeof suffix === 'string' && suffix || DEFAULT_PARTIAL_PATH_SLOT )
 
-      while( currentNode && currentNode !== boundaries.end ){
-        nodesToRemove.push( currentNode )
-        currentNode = currentNode.nextSibling
+      /**
+       * Clean rendered mesh content
+       */
+      boundaries = boundaries || fragmentBoundaries
+      self.__emptyBoundaries__( boundaries )
+
+      /**
+       * Partial Mesh self-removal: Clear mesh 
+       * boundaries as well.
+       */
+      if( suffix ){
+        boundaries.start.remove()
+        boundaries.end.remove()
       }
-
-      // Remove existing content + boundaries
-      $(nodesToRemove).remove()
-      boundaries.start.remove()
-      boundaries.end.remove()
     },
     wire: MeshTemplate = {
       renderer: {
         path: meshPath,
         argv,
-        mesh( argvalues, freshscope ){
-          PARTIAL_CONTENT = $node.contents()
-          if( !PARTIAL_CONTENT?.length ) return null
+        mesh,
+        update,
+        cleanup,
 
-          freshscope = freshscope || setup.scope
-
-          /**
-           * 
-           */
-          if( declaration?.iterator ){
-            const itemsValues: VariableSet[] = argvalues?.['#'].value
-            if( !Array.isArray( argvalues?.['#'].value ) )
-              throw new Error('Invalid iterator argvalues')
-            
-            if( !itemsValues.length ) return null
-            
-            /**
-             * Render many time subsequent content in of an iterator
-             * context using the same partial path to iterate 
-             * on a one time rendered $log of the same content.
-             */
-            let $partialLog = $()
-            itemsValues.forEach( ( values, index ) => {
-              if( !PARTIAL_CONTENT?.length ) return null
-              $partialLog = $partialLog.add( partialRender( PARTIAL_CONTENT, freshscope, values, index ) )
-            } )
-
-            return $partialLog
-          }
-          else return partialRender( PARTIAL_CONTENT, freshscope, argvalues )
-        },
-        update( deps, argvalues, freshscope, boundaries ){
-          if( !PARTIAL_PATHS.length ) return
-          
-          freshscope = freshscope || setup.scope
-          boundaries = boundaries || fragmentBoundaries
-
-          /**
-           * Granular rendering of iterator nodes
-           */
-          if( declaration?.iterator ){
-            const newArgs: VariableSet[] = argvalues?.['#'].value
-            if( !Array.isArray( newArgs ) ) return
-
-            if( Array.isArray( ITERATOR_REGISTRY ) ){
-              /**
-               * Perform granular updates when 
-               * length hasn't changed
-               */
-              if( ITERATOR_REGISTRY.length === newArgs.length ){
-                // Update item's dependency without re-rendering
-                for( let i = 0; i < newArgs.length; i++ )
-                  !isEqual( ITERATOR_REGISTRY[ i ].argvalues, newArgs[ i ] )
-                  && partialUpdate( Object.keys( newArgs[ i ] ), freshscope, newArgs[ i ], i )
-                
-                return
-              }
-
-              /**
-               * Update incrementally existing items when 
-               * length has changed
-               */
-              const existsLength = Math.min( ITERATOR_REGISTRY.length, newArgs.length )
-              for( let i = 0; i < existsLength; i++ )
-                partialUpdate( Object.keys( newArgs[ i ] ), freshscope, newArgs[ i ], i )
-              
-              // Add new items additions
-              if( newArgs.length > ITERATOR_REGISTRY.length ){
-                if( !PARTIAL_CONTENT?.length ) return
-
-                for( let i = ITERATOR_REGISTRY.length; i < newArgs.length; i++ ){
-                  const $partialLog = partialRender( PARTIAL_CONTENT, freshscope, newArgs[ i ], i )
-                  $(boundaries.end).before( $partialLog )
-                }
-              }
-              // Remove items
-              else if( newArgs.length < ITERATOR_REGISTRY.length ){
-                for( let i = ITERATOR_REGISTRY.length - 1; i >= newArgs.length; i-- )
-                  partialRemove( i )
-              }
-            }
-          }
-          // Update dependencies
-          else partialUpdate( deps, freshscope, argvalues )
-        },
         fill( $newcontent, boundaries ){
-          console.log('fill', boundaries || fragmentBoundaries )
           self.__fillBoundaries__( $newcontent, boundaries || fragmentBoundaries )
         },
-        cleanup( boundaries ){
-          console.log('cleanup')
-          
-          /**
-           * Clean tracking mesh content dependencies
-           */
-          self.FGUD.forEach( ( dependents, dep ) => {
-            /**
-             * Find and remove dependents that match 
-             * the branch pattern.
-             */
-            dependents.forEach( ( dependent, path ) => {
-              // console.debug( path, MESH_COMPOSITE_PATH, self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH ) )
-              if( !self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH ) ) return
-              
-              // Unbind memo for this dependent
-              self.__unbindMemo__( dependent )
-              // Clear garbage dependent from the dependencies map
-              dependent.garbage = true
-            })
+        demarcate( $newcontent, suffix ){
+          const boundaries = self.__getBoundaries__( MESH_COMPOSITE_PATH + (suffix || '') )
 
-            // Cleanup empty dependency maps
-            !dependents.size && self.FGUD.delete( dep )
-          })
+          // Attach boundaries
+          let $partial = $(boundaries.start)
+          $partial = $partial.add( $newcontent )
+          $partial = $partial.add( boundaries.end )
           
-          /**
-           * Clean rendered mesh content
-           */
-          self.__emptyBoundaries__( boundaries || fragmentBoundaries )
+          return { $partial, boundaries }
         }
       }
     }
@@ -2739,7 +2644,7 @@ export default class Component<MT extends Metavars> extends Events {
             /**
              * When parent is a mesh partial root element
              */
-            || path.startsWith(`${parentPath + ROOT_PREFIX}`)
+            || path.startsWith(`${parentPath + PARTIAL_ROOT_PREFIX}`)
   }
 
   private __evaluate__( expr: string, scope?: VariableSet, options?: { translate?: boolean, mute?: boolean }){
