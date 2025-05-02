@@ -1,6 +1,6 @@
 import Lips, { Template, Handler, Metavars } from '../src/lips'
-import english from '../languages/en.json'
-import french from '../languages/fr.json'
+import english from '../demos/languages/en.json'
+import french from '../demos/languages/fr.json'
 
 const lips = new Lips({ debug: true })
 
