@@ -172,9 +172,9 @@ const todoList = {
     <div>
       <!-- Filter buttons -->
       <div class="filters">
-        <button class=(state.filter === 'all' ? 'active' : '') on-click(() => state.filter = 'all')>All</button>
-        <button class=(state.filter === 'active' ? 'active' : '') on-click(() => state.filter = 'active')>Active</button>
-        <button class=(state.filter === 'completed' ? 'active' : '') on-click(() => state.filter = 'completed')>Completed</button>
+        <button class=(state.filter === 'all' && 'active') on-click(() => state.filter = 'all')>All</button>
+        <button class=(state.filter === 'active' && 'active') on-click(() => state.filter = 'active')>Active</button>
+        <button class=(state.filter === 'completed' && 'active') on-click(() => state.filter = 'completed')>Completed</button>
       </div>
       
       <!-- Todo list -->

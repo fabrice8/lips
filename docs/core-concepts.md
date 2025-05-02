@@ -211,7 +211,7 @@ Lips provides an intuitive and expressive template syntax that feels familiar to
 <!-- Range iteration -->
 <div class="pagination">
   <for [page] from=1 to=state.totalPages>
-    <button class=(page === state.currentPage ? 'active' : '')>{page}</button>
+    <button class=(page === state.currentPage && 'active')>{page}</button>
   </for>
 </div>
 ```

@@ -247,7 +247,7 @@ export default {
       
       <ul>
         <for [todo] in=state.todos>
-          <li class=(todo-item '+(todo.completed ? 'completed' : ''))">
+          <li class="todo-item {todo.completed ? 'completed' : ''}">
             <input type="checkbox" 
                     checked=todo.completed 
                     on-change(toggleTodo, todo.id)/>
@@ -343,7 +343,7 @@ export default `
     
     <ul>
       <for [todo] in=state.todos>
-        <li class=(todo-item '+(todo.completed ? 'completed' : ''))">
+        <li class="todo-item {todo.completed ? 'completed' : ''}">
           <input type="checkbox" 
                   checked=todo.completed 
                   on-change(toggleTodo, todo.id)/>

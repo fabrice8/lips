@@ -26,12 +26,19 @@ class Lips<Context = any> {
   // Context Management
   setContext(arg: Context | string, value?: any): void;
   getContext(): Context;
+  // For component to subscribe to context updates
   useContext<P extends Context>(fields: (keyof Context)[], fn: (context: P) => void): void;
+
   
   // Internationalization
-  language(lang: string): void;
+  setLanguage(lang: string): void;
+  getLanguage(): string;
+  // For component to subscribe to i18n global updates
+  useTranslator( support: string | string[], fn: ( lang: string ) => void ): void;
   
   // Properties
+  debug: boolean;
+  stylesheets: Stylesheet[];
   i18n: I18N;
   watcher: DWS<any>;
   IUC: IUC;
@@ -55,8 +62,11 @@ class Component<MT extends Metavars> {
   static: MT['Static'];
   context: MT['Context'];
   
-  // DOM Methods
+  // DOM getter Methods
   node: Cash;
+  boundaries: FragmentBoundaries;
+
+  // DOM operation methods
   find(selector: string): Cash;
   appendTo(arg: Cash | string): Component<MT>;
   prependTo(arg: Cash | string): Component<MT>;
@@ -92,7 +102,8 @@ Handles internationalization for multilingual applications.
 
 ```typescript
 class I18N {
-  setLang(lang: string): boolean;
+  get lang(): string;
+  set lang(lang: string): void;
   setDictionary(id: string, dico: LanguageDictionary): void;
   translate(text: string, lang?: string): { text: string, lang: string };
   format(text: string, params: Record<string, any>, lang?: string): string;
@@ -169,8 +180,8 @@ interface ComponentOptions {
   lips: Lips;
   debug?: boolean;
   prepath?: string;
+  boundaries?: FragmentBoundaries
   enableTemplateCache?: boolean;
-  enableSmartDiff?: boolean;
 }
 ```
 
@@ -194,7 +205,7 @@ Interface for component lifecycle and event handlers.
 ```typescript
 interface Handler<MT extends Metavars> {
   onCreate?: (this: Component<MT>) => void;
-  onInput?: (this: Component<MT>, input: MT['Input']) => void;
+  onInput?: (this: Component<MT>, memo: VariableSet) => void;
   onMount?: (this: Component<MT>) => void;
   onRender?: (this: Component<MT>) => void;
   onUpdate?: (this: Component<MT>) => void;
@@ -327,7 +338,7 @@ export default `
   <div class="user-profile">
     <h2>{state.name}</h2>
     <p>{state.email}</p>
-    <span class="{state.isActive ? 'active' : 'inactive'}">
+    <span class=(state.isActive ? 'active' : 'inactive')>
       {state.isActive ? 'Active' : 'Inactive'}
     </span>
     

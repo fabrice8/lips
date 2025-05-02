@@ -390,6 +390,14 @@ lips.setContext({ user: { id: 2, name: 'John' } });
 ```javascript
 const component = {
   handler: {
+    onSeflRender() {
+      /**
+       * Self-handle initial component instance creation,
+       * mostly use by syntax components that require
+       * more control over the rendering.
+       */
+    },
+
     onCreate() {
       // Component instance created
     },

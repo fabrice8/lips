@@ -248,9 +248,6 @@ The `let` and `const` components allow you to declare variables in your template
 <p>Tax: ${tax}</p>
 <p>Total: ${total}</p>
 
-<!-- Spread operator -->
-<let ...self.calculateTotals()/>
-
 <!-- Constant variables (cannot be reassigned) -->
 <const TAX_RATE=0.07 
         SHIPPING=10/>

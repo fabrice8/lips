@@ -311,30 +311,6 @@ The `async` component handles asynchronous operations elegantly:
 </async>
 ```
 
-### Template Fragments
-
-Fragments allow you to group elements without adding extra DOM nodes:
-
-```html
-<!-- Fragment shorthand -->
-<>
-  <h1>Title</h1>
-  <p>Paragraph 1</p>
-  <p>Paragraph 2</p>
-</>
-
-<!-- Conditionally rendering multiple elements -->
-<if(state.showHeader)>
-  <>
-    <header>
-      <h1>My App</h1>
-      <nav>...</nav>
-    </header>
-    <hr>
-  </>
-</if>
-```
-
 ### Debugging Templates
 
 Lips provides a `log` component to help debug template rendering:
