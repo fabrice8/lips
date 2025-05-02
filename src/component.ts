@@ -987,6 +987,7 @@ export default class Component<MT extends Metavars> extends Events {
 
       const
       componentPath = generatePath('component', template.declaration?.syntax ),
+      componentCacheId = `${componentPath}#${name}`,
       boundaries = self.__getBoundaries__( componentPath ),
       { argv, functions, attrs, events } = self.__getAttributes__( $node ),
       TRACKABLE_ATTRS: Record<string, string> = {},
@@ -1004,7 +1005,7 @@ export default class Component<MT extends Metavars> extends Events {
       input: any = {},
       $fragment = $(boundaries.start),
       // Get cached component with same path if exists
-      component = self.PCC.get( componentPath ),
+      component = self.PCC.get( componentCacheId ),
       contextScope = useScope()
 
       /**
@@ -1254,7 +1255,7 @@ export default class Component<MT extends Metavars> extends Events {
          * for post-rendering reusability purpose.
          */
         !template.declaration?.syntax
-        && self.PCC.set( componentPath, component )
+        && self.PCC.set( componentCacheId, component )
       }
 
       // Close boundaries to the initial fragment when it's added to DOM
