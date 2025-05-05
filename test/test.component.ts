@@ -419,7 +419,7 @@ function DemoMacro(){
     }
   },
   macros = `
-    <macro [name, source, active] name="card">
+    <macro [name, source, active] name="Card">
       <div class="card"
             style="cursor:pointer; border: 1px solid {active ? '#000' : '#fff'}"
             on-click(onShowDetails, arguments )>
@@ -449,9 +449,9 @@ function DemoMacro(){
 
         <for [each, index] in=state.items>
           <if( each.active )>
-            <card id=index ...each active=(each.active ?? false)/>
+            <Card id=index ...each active=(each.active ?? false)/>
           </if>
-          <else><card id=index ...each/></else>
+          <else><Card id=index ...each/></else>
         </for>
       </div>
 
@@ -1205,7 +1205,7 @@ function DemoI18n(){
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
-DemoSyntaxInteract()
+// DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
 // DemoAttrsPositioning()
@@ -1368,7 +1368,7 @@ function DemoSubcomponent(){
   lips.root({ default: template, _static, handler }, 'body')
 }
 
-function DemoManyComponent(){
+function DemoManyComponents(){
   type TemplateInput = {
     initial: number
   }
@@ -1714,7 +1714,7 @@ function DemoShoppingCart(){
 
 // DemoDeepNexted()
 // DemoSubcomponent()
-// DemoManyComponent()
+// DemoManyComponents()
 // DemoShoppingCart()
 
 /**

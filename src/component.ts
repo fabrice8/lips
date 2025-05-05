@@ -34,11 +34,16 @@ import { effect, EffectControl, memo, signal } from './signal'
 import { 
   isDiff,
   isEqual,
+  sterilize,
   deepClone,
-  deepAssign,
+  deepAssign
+} from './utils'
+
+import {
   SPREAD_VAR_PATTERN,
   ARGUMENT_VAR_PATTERN,
   INTERPOLATE_PATTERN,
+  GENERIC_TAGNAME_ATTR,
   I18N_ATTR_FLAG,
   SYNCTAX_VAR_FLAG,
   FUNCTION_ATTR_FLAG,
@@ -50,11 +55,10 @@ import {
   PARTIAL_ROOT_PREFIX,
   SYNTAX_COMPONENT_PREFIX,
   MACRO_PREFIX,
-  sterilize,
   DEFAULT_PARTIAL_PATH_SLOT,
   NATIVE_SYNTAX_TAGS,
-  COMPONENT_TAGNAME_ATTR
-} from './utils'
+  DYNAMIC_TAGNAME_ATTR
+} from './constants'
 
 export default class Component<MT extends Metavars> extends Events {
   private declaration: Declaration
@@ -123,7 +127,6 @@ export default class Component<MT extends Metavars> extends Events {
     this.__lang__ = this.lips.i18n.lang
     this.__path__ = 
     this.__inpath__ = `${this.prepath}:${this.__name__}`
-    this.__template__ = this.lips.preprocessor.parse( template )
     this.__boundaries__ = options.boundaries
     
     this.declaration = declaration || { name }
@@ -131,15 +134,21 @@ export default class Component<MT extends Metavars> extends Events {
     this.input = input || {}
     this.static = _static || {}
     this.context = {}
-    
-    /**
-     * Detect all state mutations, including deep mutations
-     */
+    // Detect all state mutations, including deep mutations
     this.state = this.lips.IUC.proxyState<MT['State']>( this.__path__, state || {} )
-    
+
     macros && this.setMacros( macros )
     handler && this.setHandler( handler )
     stylesheet && this.setStylesheet( stylesheet )
+
+    /**
+     * IMPORTANT:
+     * 
+     * Parse component's template only after
+     * parsing macros templates for alternative macro
+     * reference check during preprocessing.
+     */
+    this.__template__ = this.lips.preprocessor.parse( template, this.__macros )
 
     /**
      * Track rendering cycle metrics to evaluate
@@ -403,7 +412,7 @@ export default class Component<MT extends Metavars> extends Events {
   }
   setMacros( template: string ){
     const
-    prepo = this.lips.preprocessor.parse( template, this.__macros ),
+    prepo = this.lips.preprocessor.parse( template ),
     $nodes = $(prepo)
     if( !$nodes.length ) return
 
@@ -994,15 +1003,12 @@ export default class Component<MT extends Metavars> extends Events {
         template = dynamic.template
         name = generateComponentName('component', template.declaration?.syntax )
       }
-      
       // Lookup component by its name
       else {
         name = dynamic?.name
-                || $node.attr( COMPONENT_TAGNAME_ATTR ) as string
+                || $node.attr( GENERIC_TAGNAME_ATTR ) as string
                 || $node.prop('tagName')?.toLowerCase() as string
 
-        $node.removeAttr( COMPONENT_TAGNAME_ATTR )
-        
         if( !name ) throw new Error('Invalid component')
         if( name === self.__name__ ) throw new Error('Render component within itself is forbidden')
 
@@ -1403,10 +1409,10 @@ export default class Component<MT extends Metavars> extends Events {
       return $fragment
     }
     function execMacro( $node: Cash, name?: string, scope?: VariableSet ): Cash {
-      name = name || $node.attr( COMPONENT_TAGNAME_ATTR ) as string
+      name = name || $node.attr( GENERIC_TAGNAME_ATTR ) as string
       if( !name )
         throw new Error('Invalid macro rendering call')
-
+      
       const macro = self.__macros.get( name )
       if( !macro )
         throw new Error('Macro component not found')
@@ -2110,11 +2116,11 @@ export default class Component<MT extends Metavars> extends Events {
     }
 
     function dynamicRoute( $node: Cash ){
-      if( !$node.attr(':dtag') || $node.prop('tagName') !== 'LIPS' )
+      if( !$node.attr( DYNAMIC_TAGNAME_ATTR ) || $node.prop('tagName') !== 'LIPS' )
         throw new Error('Invalid dynamic tag name')
       
       const
-      dtag = $node.attr(':dtag') as string,
+      dtag = $node.attr( DYNAMIC_TAGNAME_ATTR ) as string,
       result = self.__evaluate__( dtag, scope )
 
       /**
@@ -2156,7 +2162,7 @@ export default class Component<MT extends Metavars> extends Events {
        * - component
        * - dynamic-tag
        */
-      else if( $node.is('lips') && $node.attr(':dtag') )
+      else if( $node.is('lips') && $node.attr( DYNAMIC_TAGNAME_ATTR ) )
         return dynamicRoute( $node )
       
       /**
@@ -2172,14 +2178,14 @@ export default class Component<MT extends Metavars> extends Events {
        * macros list before in the registered components
        * list.
        */
-      else if( self.__macros.has( $node.attr( COMPONENT_TAGNAME_ATTR ) as string ) )
+      else if( self.__macros.has( $node.attr( GENERIC_TAGNAME_ATTR ) as string ) )
         return execMacro( $node )
       
       /**
        * Lips in-build syntax component
        * or identify and render custom components
        */
-      else if( $node.is( NATIVE_SYNTAX_TAGS.join(',') ) || self.lips.has( $node.attr( COMPONENT_TAGNAME_ATTR ) as string ) )
+      else if( $node.is( NATIVE_SYNTAX_TAGS.join(',') ) || self.lips.has( $node.attr( GENERIC_TAGNAME_ATTR ) as string ) )
         return execComponent( $node )
       
       /**
@@ -2624,7 +2630,7 @@ export default class Component<MT extends Metavars> extends Events {
     extracted && Object
     .entries( extracted )
     .forEach( ([ key, value ]) => {
-      if( key == ':dtag' ) return
+      if( [ GENERIC_TAGNAME_ATTR, DYNAMIC_TAGNAME_ATTR ].includes( key ) ) return
       
       if( key.startsWith(':')
           || key.startsWith( FUNCTION_ATTR_FLAG )
