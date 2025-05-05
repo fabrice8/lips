@@ -60,8 +60,6 @@ export default class TPS {
      * Cache processed template
      */
     TEMPLATE_CACHE.set( str, result )
-
-    console.log( result )
     
     return result
   }

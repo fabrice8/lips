@@ -496,7 +496,6 @@ export default class Component<MT extends Metavars> extends Events {
     }
     function isMesh( arg: any ){
       return arg === null // Null renderer
-              || typeof arg === 'string' // standard HTML tag
               || (typeof arg === 'object' // Valid Renderer
                   && typeof arg.mesh === 'function'
                   && typeof arg.fill === 'function'
@@ -643,12 +642,11 @@ export default class Component<MT extends Metavars> extends Events {
        */
       self.metrics.inc('elementCount')
     }
-    function execDynamicElement( $node: Cash, dtag: string, renderer: MeshRenderer | null ): Cash {
+    function execDynamicElement( $node: Cash, dtag: string, verb: MeshRenderer | string | null ): Cash {
       const
       { attrs } = self.__getAttributes__( $node ),
       elementPath = generatePath('element'),
       boundaries = self.__getBoundaries__( elementPath ),
-      __arguments__: VariableArguments = {},
       /**
        * Temporary store spread operators
        * content keys during evaluation.
@@ -658,11 +656,14 @@ export default class Component<MT extends Metavars> extends Events {
       let
       contextScope = useScope(),
       $fragment = $(boundaries.start),
-      // Keep track of the latest mesh scope
-      argvalues: VariableSet = {},
-      activeRenderer = renderer
+      renderer: MeshRenderer | null
 
-      if( activeRenderer ){
+      const handleMeshRendererAttributes = ( scope: VariableSet ) => {
+        const 
+        // Keep track of the latest mesh scope
+        argvalues: VariableSet = {},
+        __arguments__: VariableArguments = {}
+
         attrs.literals && Object
         .entries( attrs.literals )
         .forEach( ([ key, value ]) => {
@@ -673,11 +674,11 @@ export default class Component<MT extends Metavars> extends Events {
         attrs.expressions && Object
         .entries( attrs.expressions )
         .forEach( ([ key, value ]) => {
-          if( !activeRenderer ) return
+          if( !renderer ) return
           
           if( SPREAD_VAR_PATTERN.test( key ) )
             self.__evaluateSpreadAttr__( key, {
-              memo: contextScope,
+              memo: scope,
               get keystore(){ return SPREAD_KEYSTORES[ key ] },
               set keystore( __ ){
                 if( !SPREAD_KEYSTORES[ key ] )
@@ -689,7 +690,7 @@ export default class Component<MT extends Metavars> extends Events {
                 __arguments__[ _key ] = _value
 
                 // Only consume declared arguments' value
-                if( !activeRenderer?.argv.includes( _key ) ) return
+                if( !renderer?.argv.includes( _key ) ) return
 
                 argvalues[ _key ] = {
                   type: 'arg',
@@ -699,11 +700,11 @@ export default class Component<MT extends Metavars> extends Events {
             })
           
           else {
-            const evalue = value ? self.__evaluate__( value, contextScope ) : true
+            const evalue = value ? self.__evaluate__( value, scope ) : true
             __arguments__[ key ] = evalue
 
             // Only consume declared arguments' value
-            if( !activeRenderer.argv.includes( key ) ) return
+            if( !renderer.argv.includes( key ) ) return
 
             argvalues[ key ] = {
               type: 'arg',
@@ -712,34 +713,16 @@ export default class Component<MT extends Metavars> extends Events {
           }
         })
 
-        /**
-         * Return all possible arguments passed to the
-         * dynamic element in a single object variable 
-         * form that can be accessible in macro template 
-         * as `arguments`.
-         */
-        contextScope.__arguments__ = __arguments__
-
-        const $log = activeRenderer.mesh( argvalues )
-        if( $log && $log.length )
-          $fragment = $fragment.add( $log )
-        
-        /**
-         * IMPORTANT:
-         * 
-         * Set update dependency track only after $fragment 
-         * contain rendered content
-         */
         attrs.expressions && Object
         .entries( attrs.expressions )
         .forEach( ([ key, value ]) => {
-          if( !activeRenderer ) return
+          if( !renderer ) return
           
-          if( SPREAD_VAR_PATTERN.test( key ) && self.__isReactive__( key, contextScope ) ){
+          if( SPREAD_VAR_PATTERN.test( key ) && self.__isReactive__( key, scope ) ){
             const
-            deps = self.__extractExpressionDeps__( key, contextScope ),
+            deps = self.__extractExpressionDeps__( key, scope ),
             spreadPartialUpdate = ( memo: VariableSet, by?: string ) => {
-              if( !activeRenderer ) return
+              if( !renderer ) return
 
               const extracted: VariableSet = {}
               let changedDeps: string[] = []
@@ -761,7 +744,7 @@ export default class Component<MT extends Metavars> extends Events {
                    */
                   if( attrs.map.afterSpreadAttrs.includes( _key ) ) return
                   // Only update declared arguments' value
-                  if( !activeRenderer?.argv.includes( _key ) ) return
+                  if( !renderer?.argv.includes( _key ) ) return
                   // Ignore unchanged values
                   if( isEqual( _value, memo[ _key ]?.value ) ) return
 
@@ -791,15 +774,15 @@ export default class Component<MT extends Metavars> extends Events {
               
               if( changedDeps.length ){
                 // Update arguments dep nodes
-                activeRenderer.argv.length
+                renderer.argv.length
                 && self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
 
                 // Update partial deps
-                activeRenderer.update( changedDeps, extracted, memo, boundaries )
+                renderer.update( changedDeps, extracted, memo, boundaries )
               }
             }
 
-            deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
+            deps.forEach( dep => self.__trackDep__( dependencies, dep, scope, {
               nodetype: 'dynamic',
               nodepath: elementPath,
               deppath: `${elementPath}.${key}`,
@@ -809,12 +792,12 @@ export default class Component<MT extends Metavars> extends Events {
               update: spreadPartialUpdate
             }) )
           }
-          else if( ( activeRenderer.argv.includes( key ) )
-                    && self.__isReactive__( value, contextScope ) ){
+          else if( ( renderer.argv.includes( key ) )
+                    && self.__isReactive__( value, scope ) ){
             const
-            deps = self.__extractExpressionDeps__( value, contextScope ),
+            deps = self.__extractExpressionDeps__( value, scope ),
             partialUpdate = ( memo: VariableSet, by?: string ) => {
-              if( !activeRenderer ) return
+              if( !renderer ) return
 
               /**
                * Attributes positioning: Shun to overriding
@@ -831,15 +814,15 @@ export default class Component<MT extends Metavars> extends Events {
               /**
                * Update arguments dep nodes
                */
-              if( activeRenderer.argv.length ){
+              if( renderer.argv.length ){
                 __arguments__[ key ] = _value
                 self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
               }
               
-              activeRenderer.update( [ key ], { [ key ]: newvalue }, memo, boundaries )
+              renderer.update( [ key ], { [ key ]: newvalue }, memo, boundaries )
             }
             
-            deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
+            deps.forEach( dep => self.__trackDep__( dependencies, dep, scope, {
               nodetype: 'dynamic',
               nodepath: elementPath,
               deppath: `${elementPath}.${key}`,
@@ -850,8 +833,58 @@ export default class Component<MT extends Metavars> extends Events {
             }) )
           }
         } )
+
+        return { argvalues, __arguments__ }
       }
-      
+
+      /**
+       * Dynamic mesh rendering
+       */
+      if( isMesh( verb ) ){
+        renderer = verb as MeshRenderer
+
+        // Process argvalues and dependencies track
+        const { argvalues, __arguments__ } = handleMeshRendererAttributes( contextScope )
+
+        /**
+         * Return all possible arguments passed to the
+         * dynamic element in a single object variable 
+         * form that can be accessible in macro template 
+         * as `arguments`.
+         */
+        contextScope.__arguments__ = __arguments__
+
+        const $log = renderer.mesh( argvalues )
+        if( $log && $log.length )
+          $fragment = $fragment.add( $log )
+      }
+      /**
+       * Dynamic component, macro or element
+       * rendering.
+       */
+      else if( typeof verb === 'string' ){
+        /**
+        * Process dynamic macro set by:
+        * 
+        * Syntax `<{[dynamic-name]}/>`
+        * processed to `<lips :dtag="[dynamic-name]"></lips>`
+        */
+        if( self.__macros.has( verb ) )
+          $fragment = $fragment.add( execMacro( $node, verb ) )
+
+        /**
+        * Process dynamic component tag set by:
+        * 
+        * Syntax `<{[dynamic-name]}/>`
+        * processed to `<lips :dtag="[dynamic-name]"></lips>`
+        */
+        else if( self.lips.has( verb ) )
+          $fragment = $fragment.add( execComponent( $node, { name: verb } ) )
+
+        // Render standard HTML element
+        else $fragment = $fragment.add( execElement( $node, verb ) )
+      }
+
       // Track FGU dependency update on the dynamic tag
       if( self.__isReactive__( dtag as string, contextScope ) ){
         const
@@ -860,66 +893,83 @@ export default class Component<MT extends Metavars> extends Events {
            * Re-evaluate dynamic tag expression before 
            * re-rendering the element
            */
-          const result = self.__evaluate__( dtag, memo )
-
+          const verb = self.__evaluate__( dtag, memo )
           let $newContent
+
+          /**
+           * IMPORTANT: Clean up previously rendered
+           * content and its dependencies and nullify
+           * the active mesh renderer if exist.
+           */
+          if( renderer ){
+            renderer.cleanup( boundaries )
+            renderer = null
+          }
+          else self.__emptyBoundaries__( boundaries, elementPath )
+          
+          /**
+           * The mesh renderer changed
+           */
+          if( isMesh( verb ) ){
+            renderer = verb as MeshRenderer
+
+            // Reset attribute trackers
+            const { argvalues, __arguments__ } = handleMeshRendererAttributes( memo )
+
+            // Update arguments dep nodes
+            renderer.argv.length
+            && self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
+            
+            // Rerender mesh content.
+            $newContent = renderer.mesh( argvalues, memo )
+
+            $newContent?.length
+            && renderer.fill( $newContent, boundaries )
+          }
+
           /**
            * Render dynamic template only when first 
            * time renderer is `null` and the element's
            * dynamic update provide a component `template`
            * instead of a mesh `renderer`.
            */
-          if( isTemplate( result ) ){
-            $newContent = execComponent( $node, { template: result } )
+          else if( isTemplate( verb ) ){
+            $newContent = execComponent( $node, { template: verb }, memo )
             self.__fillBoundaries__( $newContent, boundaries )
           }
-          
+        
           /**
-           * The mesh renderer changed
-           */
-          else if( isMesh( result ) ){
-            // Record new mesh argvalues into `arguments`
-            Object
-            .entries( argvalues )
-            .forEach( ([ key, content ]) => {
-              if( typeof content === 'function' ) return
-              __arguments__[ key ] = content.value
-            } )
-
-            /**
-             * IMPORTANT: Clean up previously renderer 
-             * content and its dependencies.
-             */
-            activeRenderer?.cleanup( boundaries )
-
-            activeRenderer = result
-            if( activeRenderer ){
-              // Update arguments dep nodes
-              activeRenderer.argv.length
-              && self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
-              
-              // Rerender mesh content.
-              $newContent = activeRenderer.mesh( argvalues )
-
-              $newContent?.length 
-              && activeRenderer.fill( $newContent, boundaries )
-            }
+          * Process dynamic macro set by:
+          * 
+          * Syntax `<{[dynamic-name]}/>`
+          * processed to `<lips :dtag="[dynamic-name]"></lips>`
+          */
+          else if( typeof verb === 'string' && self.__macros.has( verb ) ){
+            $newContent = execMacro( $node, verb, memo )
+            self.__fillBoundaries__( $newContent, boundaries )
           }
 
           /**
-           * IMPORTANT: Clean up previously renderer 
-           * content and its dependencies and nullify
-           * the active renderer
-           */
-          else if( activeRenderer ){
-            activeRenderer.cleanup( boundaries )
-            activeRenderer = null
+          * Process dynamic tag set by:
+          * 
+          * Syntax `<{[dynamic-name]}/>`
+          * processed to `<lips :dtag="[dynamic-name]"></lips>`
+          */
+          else if( typeof verb === 'string' && self.lips.has( verb ) ){
+            $newContent = execComponent( $node, { name: verb }, memo )
+            self.__fillBoundaries__( $newContent, boundaries )
+          }
+
+          // Render standard HTML element
+          else if( typeof verb === 'string' ){
+            $newContent = execElement( $node, verb, memo )
+            self.__fillBoundaries__( $newContent, boundaries )
           }
         },
         deps = self.__extractExpressionDeps__( dtag, contextScope )
 
         // Share general scope alongside the argvalues
-        deps.forEach( dep => self.__trackDep__( dependencies, dep, { ...contextScope, ...argvalues }, {
+        deps.forEach( dep => self.__trackDep__( dependencies, dep, contextScope, {
           nodetype: 'dynamic',
           nodepath: elementPath,
           deppath: `${elementPath}.dtag`,
@@ -934,7 +984,7 @@ export default class Component<MT extends Metavars> extends Events {
 
       return $fragment
     }
-    function execComponent( $node: Cash, dynamic?: DynamicTemplate<any> ): Cash {
+    function execComponent( $node: Cash, dynamic?: DynamicTemplate<any>, scope?: VariableSet ): Cash {
       let
       template,
       name
@@ -951,7 +1001,6 @@ export default class Component<MT extends Metavars> extends Events {
                 || $node.attr( COMPONENT_TAGNAME_ATTR ) as string
                 || $node.prop('tagName')?.toLowerCase() as string
 
-        console.log('component name --', name )
         $node.removeAttr( COMPONENT_TAGNAME_ATTR )
         
         if( !name ) throw new Error('Invalid component')
@@ -985,7 +1034,7 @@ export default class Component<MT extends Metavars> extends Events {
       $fragment = $(boundaries.start),
       // Get cached component with same path if exists
       component = self.PCC.get( componentCacheId ),
-      contextScope = useScope()
+      contextScope = scope || useScope()
 
       /**
        * Cast attributes to compnent inputs
@@ -1353,7 +1402,7 @@ export default class Component<MT extends Metavars> extends Events {
 
       return $fragment
     }
-    function execMacro( $node: Cash, name?: string ): Cash {
+    function execMacro( $node: Cash, name?: string, scope?: VariableSet ): Cash {
       name = name || $node.attr( COMPONENT_TAGNAME_ATTR ) as string
       if( !name )
         throw new Error('Invalid macro rendering call')
@@ -1367,7 +1416,7 @@ export default class Component<MT extends Metavars> extends Events {
       boundaries = self.__getBoundaries__( macroPath ),
       { attrs } = self.__getAttributes__( $node ),
       TRACKABLE_ATTRS: Record<string, string> = {},
-      contextScope = useScope()
+      contextScope = scope || useScope()
       
       /**
        * Parse assigned attributes to be injected into
@@ -1619,7 +1668,7 @@ export default class Component<MT extends Metavars> extends Events {
       
       return $fragment
     }
-    function execElement( $node: Cash, tagname?: string ): Cash {
+    function execElement( $node: Cash, tagname?: string, scope?: VariableSet ): Cash {
       if( !$node.length || !$node.prop('tagName') && !tagname )
         return $node
 
@@ -1646,7 +1695,7 @@ export default class Component<MT extends Metavars> extends Events {
                     : $(`<${tagname}/>`),
       $contents = $node.contents(),
       elementPath = generatePath('element'),
-      contextScope = useScope()
+      contextScope = scope || useScope()
       
       // Process contents recursively if they exist
       $contents.length
@@ -2078,24 +2127,6 @@ export default class Component<MT extends Metavars> extends Events {
         return execComponent( $node, { template: result } )
 
       /**
-      * Process dynamic macro set by:
-      * 
-      * Syntax `<{[dynamic-name]}/>`
-      * processed to `<lips :dtag="[dynamic-name]"></lips>`
-      */
-      else if( typeof result === 'string' && self.__macros.has( result ) )
-        return execMacro( $node, result )
-
-      /**
-      * Process dynamic tag set by:
-      * 
-      * Syntax `<{[dynamic-name]}/>`
-      * processed to `<lips :dtag="[dynamic-name]"></lips>`
-      */
-      else if( typeof result === 'string' && self.lips.has( result ) )
-        return execComponent( $node, { name: result } )
-
-      /**
        * Process dynamic content rendering tag set by:
        * 
        * Syntax `<{input.render}/>`
@@ -2427,28 +2458,6 @@ export default class Component<MT extends Metavars> extends Events {
     },
     cleanup = ( boundaries?: FragmentBoundaries, suffix?: string | boolean ) => {
       /**
-       * Clean tracking mesh content dependencies
-       */
-      self.FGUD.forEach( ( dependents, dep ) => {
-        /**
-         * Find and remove dependents that match 
-         * the branch pattern.
-         */
-        dependents.forEach( ( dependent, path ) => {
-          // console.debug( path, MESH_COMPOSITE_PATH +(suffix || ''), self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH ) )
-          if( !self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH +(suffix || '') ) ) return
-          
-          // Unbind memo for this dependent
-          self.__unbindMemo__( dependent )
-          // Clear garbage dependent from the dependencies map
-          dependent.garbage = true
-        })
-
-        // Cleanup empty dependency maps
-        !dependents.size && self.FGUD.delete( dep )
-      })
-      
-      /**
        * Clear all path attached to this suffix 
        * or default slot.
        */
@@ -2458,7 +2467,7 @@ export default class Component<MT extends Metavars> extends Events {
        * Clean rendered mesh content
        */
       boundaries = boundaries || fragmentBoundaries
-      self.__emptyBoundaries__( boundaries )
+      self.__emptyBoundaries__( boundaries, MESH_COMPOSITE_PATH +(suffix || '') )
 
       /**
        * Partial Mesh self-removal: Clear mesh 
@@ -2538,7 +2547,29 @@ export default class Component<MT extends Metavars> extends Events {
       end: document.createComment(`e:${path}`)
     }
   }
-  private __emptyBoundaries__( boundaries: FragmentBoundaries ){
+  private __emptyBoundaries__( boundaries: FragmentBoundaries, parentPath: string ){
+    /**
+     * Clean tracking mesh content dependencies
+     */
+    this.FGUD.forEach( ( dependents, dep ) => {
+      /**
+       * Find and remove dependents that match 
+       * the branch pattern.
+       */
+      dependents.forEach( ( dependent, path ) => {
+        // console.debug( path, MESH_COMPOSITE_PATH +(suffix || ''), self.__hasSamePathParent__( path, MESH_COMPOSITE_PATH ) )
+        if( !this.__hasSamePathParent__( path, parentPath ) ) return
+        
+        // Unbind memo for this dependent
+        this.__unbindMemo__( dependent )
+        // Clear garbage dependent from the dependencies map
+        dependent.garbage = true
+      })
+
+      // Cleanup empty dependency maps
+      !dependents.size && this.FGUD.delete( dep )
+    })
+      
     const
     nodesToRemove = [] // Nodes between boundaries
     let currentNode = boundaries.start.nextSibling
@@ -2558,7 +2589,7 @@ export default class Component<MT extends Metavars> extends Events {
       return
     }
 
-    this.__emptyBoundaries__( boundaries )
+    // this.__emptyBoundaries__( boundaries )
     // Render new content
     $content.length && $(boundaries.start).after( $content )
   }

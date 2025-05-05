@@ -884,7 +884,7 @@ function DemoSyntaxInteract(){
       count: 0
     },
     handler: {
-      onInput(){ 
+      onInput(){
         this.state.count = Number( this.input.initial )
       
         // const end = setInterval( () => this.state.count++, 5 )
@@ -925,7 +925,7 @@ function DemoSyntaxInteract(){
 
   const
   state: State = {
-    value: 'logge',
+    value: 'logger',
     initial: 5,
     attrs: {
       hidden: true,
@@ -980,7 +980,9 @@ function DemoSyntaxInteract(){
       </Easycount>
 
       <p><small>Dynamic here</small></p>
-      <{state.value === 'logger' ? 'Easycount' : 'div'}>I'M IN HERE</>
+      <{state.value === 'logger' ? 'Easycount' : 'div'} initial=80>
+        I'M IN HERE
+      </>
       
       <button on-click(() => self.state.initial = 2 )>Change initial</button>
 
