@@ -1,5 +1,4 @@
 import type { Dictionary } from '../types'
-
 import Formatters from './formatters'
 
 export default class I18N {

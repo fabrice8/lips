@@ -1,4 +1,4 @@
-import type { FGUDBatchEntry, FGUDependency, Metavars } from './types'
+import type { FGUDBatchEntry, Metavars } from './types'
 import type Component from './component'
 
 /**

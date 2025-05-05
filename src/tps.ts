@@ -4,8 +4,10 @@ import {
   META_ATTRIBUTES,
   I18N_ATTR_FLAG,
   FUNCTION_ATTR_FLAG,
-  EVENT_LISTENER_FLAG
-} from './utils'
+  EVENT_LISTENER_FLAG,
+  GENERIC_TAGNAME_ATTR,
+  DYNAMIC_TAGNAME_ATTR
+} from './constants'
 
 const TEMPLATE_CACHE = new Map()
 
@@ -16,7 +18,7 @@ export default class TPS {
     this.templateStore = lipstore
   }
 
-  parse( str: string, templateStore?: Map<string, Template<any> | Macro> ){
+  parse( str: string, altStore?: Map<string, Template<any> | Macro> ){
     // Use cache
     if( TEMPLATE_CACHE.has( str ) )
       return TEMPLATE_CACHE.get( str )
@@ -30,11 +32,10 @@ export default class TPS {
                 .replace(/[\r\n\t]/g, '')
                 // Apply Lips-specific transformations after marking expressions
                 .replace(/<([a-zA-Z0-9_-]+)([^>]*?)\s*\/>/g, '<$1$2></$1>')
-                // .replace(/<\{([^}]+)\}\s*(.*?)\/>/g, '<lips dtag="$1" $2></lips>')
                 .replace(/<\{([^}]+)\}\s*(.*?)(\/)>/g, ( _, dtag, attrs ) => {
                   return attrs.endsWith('<')
-                                ? `<lips dtag="${dtag}" ${attrs}/lips>` // Tag with content case
-                                : `<lips dtag="${dtag}" ${attrs}></lips>`; // Self-closing tag case
+                                ? `<lips ${DYNAMIC_TAGNAME_ATTR}="${dtag}" ${attrs}/lips>` // Tag with content case
+                                : `<lips ${DYNAMIC_TAGNAME_ATTR}="${dtag}" ${attrs}></lips>`; // Self-closing tag case
                 })
                 .replace(/(<>)([\s\S]*?)(<\/>)/g, '<lips fragment="true">$2</lips>')
                 .replace(/<if\(\s*(.*?)\s*\)>/g, '<if @by="$1">')
@@ -54,7 +55,7 @@ export default class TPS {
      * 
      * Use Lips's store by default
      */
-    result = this.markExpressionAttributes( result, templateStore || this.templateStore )
+    result = this.markExpressionAttributes( result, altStore )
 
     /**
      * Cache processed template
@@ -119,17 +120,19 @@ export default class TPS {
     
     return result
   }
-  private markExpressionAttributes( html: string, templateStore: Map<string, Template<any> | Macro> ): string {
+  private markExpressionAttributes( html: string, altStore?: Map<string, Template<any> | Macro> ): string {
     // Use a temporary placeholder to preserve content inside tags
     const 
     tagContents: string[] = [],
     preservedHtml = html.replace(/<([a-zA-Z][a-zA-Z0-9_-]*)((?:[^>'"]*|'[^']*'|"[^"]*")*?)(?:\/?>)/g, ( match, tagName, attrs ) => {
       /**
        * Record original tagName into attribute
-       * if it's a Lips' component.
+       * if it's a Lips' component or alternative
+       * stored template like `Macros`
        */
-      if( !NATIVE_SYNTAX_TAGS.includes( tagName ) && templateStore.has( tagName ) )
-        attrs += ` @ltag="${tagName}"`
+      if( !NATIVE_SYNTAX_TAGS.includes( tagName ) 
+          && (this.templateStore.has( tagName ) || altStore?.has( tagName ) ) )
+        attrs += ` ${GENERIC_TAGNAME_ATTR}="${tagName}"`
       
       tagContents.push( attrs )
 
@@ -249,7 +252,8 @@ export default class TPS {
      * - Method functions
      * - Event handlers
      */
-    if( name.startsWith( FUNCTION_ATTR_FLAG ) 
+    if( name.startsWith(':') 
+        || name.startsWith( FUNCTION_ATTR_FLAG ) 
         || name.startsWith( EVENT_LISTENER_FLAG ) )
       return attr
     
