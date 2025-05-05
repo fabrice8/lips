@@ -879,7 +879,7 @@ function DemoSyntaxInteract(){
     count: number
   }
 
-  const easyCount: Template<Metavars<TemplateInput, TemplateState>> = {
+  const EasyCount: Template<Metavars<TemplateInput, TemplateState>> = {
     state: {
       count: 0
     },
@@ -909,7 +909,7 @@ function DemoSyntaxInteract(){
     `
   }
 
-  lips.register('easycount', easyCount )
+  lips.register('Easycount', EasyCount )
 
   type State = {
     value: string
@@ -925,7 +925,7 @@ function DemoSyntaxInteract(){
 
   const
   state: State = {
-    value: 'logger',
+    value: 'logge',
     initial: 5,
     attrs: {
       hidden: true,
@@ -975,12 +975,12 @@ function DemoSyntaxInteract(){
         <small>Initial count: {state.initial}</small>
       </p>
 
-      <easycount [count] initial=state.initial>
+      <Easycount [count] initial=state.initial>
         <span>{state.value}: {count}</span>
-      </easycount>
+      </Easycount>
 
       <p><small>Dynamic here</small></p>
-      <{state.value === 'logger' ? 'easycount' : 'div'}/>
+      <{state.value === 'logger' ? 'Easycount' : 'div'}>I'M IN HERE</>
       
       <button on-click(() => self.state.initial = 2 )>Change initial</button>
 
@@ -1203,7 +1203,7 @@ function DemoI18n(){
 // DemoComponent()
 // DemoAsyncAwait()
 // DemoInterpolation()
-// DemoSyntaxInteract()
+DemoSyntaxInteract()
 // DemoLetConstVariable()
 // DemoDynamicComponent()
 // DemoAttrsPositioning()
@@ -3208,7 +3208,7 @@ function ParticleSystemDemo() {
 
 // WaveGraphDemo()
 // AnimationDemo()
-ParticleSystemDemo()
+// ParticleSystemDemo()
 
 /**
  * ------------------------------------------------------------------------- 

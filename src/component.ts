@@ -30,7 +30,6 @@ import Events from './events'
 import Metrics from './metrics'
 import $, { Cash } from 'cash-dom'
 import Stylesheet from './stylesheet'
-import { preprocessor } from './preprocess'
 import { effect, EffectControl, memo, signal } from './signal'
 import { 
   isDiff,
@@ -52,7 +51,9 @@ import {
   SYNTAX_COMPONENT_PREFIX,
   MACRO_PREFIX,
   sterilize,
-  DEFAULT_PARTIAL_PATH_SLOT
+  DEFAULT_PARTIAL_PATH_SLOT,
+  NATIVE_SYNTAX_TAGS,
+  COMPONENT_TAGNAME_ATTR
 } from './utils'
 
 export default class Component<MT extends Metavars> extends Events {
@@ -122,7 +123,7 @@ export default class Component<MT extends Metavars> extends Events {
     this.__lang__ = this.lips.i18n.lang
     this.__path__ = 
     this.__inpath__ = `${this.prepath}:${this.__name__}`
-    this.__template__ = preprocessor( template )
+    this.__template__ = this.lips.preprocessor.parse( template )
     this.__boundaries__ = options.boundaries
     
     this.declaration = declaration || { name }
@@ -401,8 +402,8 @@ export default class Component<MT extends Metavars> extends Events {
     return this
   }
   setMacros( template: string ){
-    const 
-    prepo = preprocessor( template ),
+    const
+    prepo = this.lips.preprocessor.parse( template, this.__macros ),
     $nodes = $(prepo)
     if( !$nodes.length ) return
 
@@ -494,50 +495,23 @@ export default class Component<MT extends Metavars> extends Events {
       return prefix + self.__inpathCounter__
     }
     function isMesh( arg: any ){
-      return arg !== null
-              && typeof arg === 'object'
-              && typeof arg.mesh === 'function'
-              && typeof arg.update === 'function'
+      return arg === null // Null renderer
+              || typeof arg === 'string' // standard HTML tag
+              || (typeof arg === 'object' // Valid Renderer
+                  && typeof arg.mesh === 'function'
+                  && typeof arg.fill === 'function'
+                  && typeof arg.update === 'function'
+                  && typeof arg.cleanup === 'function')
     }
     function isTemplate( arg: any ){
+      /**
+       * DO NOT SUPPORT self-rendered components
+       * because the don't provide `default`.
+       */
       return arg !== null
               && typeof arg === 'object'
               && typeof arg.default
               && typeof arg.default === 'string'
-    }
-    function handleDynamic( $node: Cash ){
-      if( !$node.attr(':dtag') || $node.prop('tagName') !== 'LIPS' )
-        throw new Error('Invalid dynamic tag name')
-      
-      const
-      dtag = $node.attr(':dtag') as string,
-      result = self.__evaluate__( dtag, scope )
-      
-      /**
-       * Process dynamic content rendering tag set by:
-       * 
-       * Syntax `<{input.render}/>`
-       * processed to `<lips :dtag=input.render></lips>`
-       */
-      if( isMesh( result ) || result === null )
-        return execDynamicElement( $node, dtag, result )
-
-      /**
-       * Process dynamic component rendering tag set by:
-       * 
-       * Syntax `<{[template-object]}/>`
-       * processed to `<lips :dtag="[template-object]"></lips>`
-       */
-      else if( isTemplate( result ) )
-        return execComponent( $node, { template: result } )
-
-      /**
-      * Process dynamic tag set by:
-      * 
-      * Syntax `<{[dynamic-name]}/>`
-      * processed to `<lips :dtag="[dynamic-name]"></lips>`
-      */
-      else return execComponent( $node, { name: result } )
     }
 
     function execLog( $node: Cash ){
@@ -973,7 +947,12 @@ export default class Component<MT extends Metavars> extends Events {
       
       // Lookup component by its name
       else {
-        name = dynamic?.name || $node.prop('tagName')?.toLowerCase() as string
+        name = dynamic?.name
+                || $node.attr( COMPONENT_TAGNAME_ATTR ) as string
+                || $node.prop('tagName')?.toLowerCase() as string
+
+        console.log('component name --', name )
+        $node.removeAttr( COMPONENT_TAGNAME_ATTR )
         
         if( !name ) throw new Error('Invalid component')
         if( name === self.__name__ ) throw new Error('Render component within itself is forbidden')
@@ -1374,8 +1353,8 @@ export default class Component<MT extends Metavars> extends Events {
 
       return $fragment
     }
-    function execMacro( $node: Cash ): Cash {
-      const name = $node.prop('tagName')?.toLowerCase() as string
+    function execMacro( $node: Cash, name?: string ): Cash {
+      name = name || $node.attr( COMPONENT_TAGNAME_ATTR ) as string
       if( !name )
         throw new Error('Invalid macro rendering call')
 
@@ -1640,8 +1619,11 @@ export default class Component<MT extends Metavars> extends Events {
       
       return $fragment
     }
-    function execElement( $node: Cash ): Cash {
-      if( !$node.length || !$node.prop('tagName') ) return $node
+    function execElement( $node: Cash, tagname?: string ): Cash {
+      if( !$node.length || !$node.prop('tagName') && !tagname )
+        return $node
+
+      tagname = tagname || $node.prop('tagName').toLowerCase() as string
 
       /**
        * Special treatement for SVG xml tags
@@ -1659,9 +1641,9 @@ export default class Component<MT extends Metavars> extends Events {
       const
       isXMLNS = $node.is('svg') || xmlns,
       $fragment = isXMLNS
-                    ? $(document.createElementNS('http://www.w3.org/2000/svg', $node.prop('tagName').toLowerCase() ))
+                    ? $(document.createElementNS('http://www.w3.org/2000/svg', tagname ))
                     // Standard HTML element
-                    : $(`<${$node.prop('tagName').toLowerCase()}/>`),
+                    : $(`<${tagname}/>`),
       $contents = $node.contents(),
       elementPath = generatePath('element'),
       contextScope = useScope()
@@ -2078,6 +2060,54 @@ export default class Component<MT extends Metavars> extends Events {
       return $fragment
     }
 
+    function dynamicRoute( $node: Cash ){
+      if( !$node.attr(':dtag') || $node.prop('tagName') !== 'LIPS' )
+        throw new Error('Invalid dynamic tag name')
+      
+      const
+      dtag = $node.attr(':dtag') as string,
+      result = self.__evaluate__( dtag, scope )
+
+      /**
+       * Process dynamic component rendering tag set by:
+       * 
+       * Syntax `<{[template-object]}/>`
+       * processed to `<lips :dtag="[template-object]"></lips>`
+       */
+      if( isTemplate( result ) )
+        return execComponent( $node, { template: result } )
+
+      /**
+      * Process dynamic macro set by:
+      * 
+      * Syntax `<{[dynamic-name]}/>`
+      * processed to `<lips :dtag="[dynamic-name]"></lips>`
+      */
+      else if( typeof result === 'string' && self.__macros.has( result ) )
+        return execMacro( $node, result )
+
+      /**
+      * Process dynamic tag set by:
+      * 
+      * Syntax `<{[dynamic-name]}/>`
+      * processed to `<lips :dtag="[dynamic-name]"></lips>`
+      */
+      else if( typeof result === 'string' && self.lips.has( result ) )
+        return execComponent( $node, { name: result } )
+
+      /**
+       * Process dynamic content rendering tag set by:
+       * 
+       * Syntax `<{input.render}/>`
+       * processed to `<lips :dtag=input.render></lips>`
+       * 
+       * or
+       * 
+       * Syntax `<{standard-tagname}/>`
+       * processed to `<lips :dtag="[standard-tagname]"></lips>`
+       */
+      else return execDynamicElement( $node, dtag, result )
+    }
     function parse( $node: Cash ){
       if( $node.get(0)?.nodeType === Node.COMMENT_NODE )
         return $node
@@ -2096,7 +2126,7 @@ export default class Component<MT extends Metavars> extends Events {
        * - dynamic-tag
        */
       else if( $node.is('lips') && $node.attr(':dtag') )
-        return handleDynamic( $node )
+        return dynamicRoute( $node )
       
       /**
        * Convenient `console.log` wired into 
@@ -2111,14 +2141,14 @@ export default class Component<MT extends Metavars> extends Events {
        * macros list before in the registered components
        * list.
        */
-      else if( self.__macros.has( $node.prop('tagName')?.toLowerCase() ) )
+      else if( self.__macros.has( $node.attr( COMPONENT_TAGNAME_ATTR ) as string ) )
         return execMacro( $node )
       
       /**
        * Lips in-build syntax component
        * or identify and render custom components
        */
-      else if( $node.is('if, for, switch, async') || self.lips.has( $node.prop('tagName')?.toLowerCase() ) )
+      else if( $node.is( NATIVE_SYNTAX_TAGS.join(',') ) || self.lips.has( $node.attr( COMPONENT_TAGNAME_ATTR ) as string ) )
         return execComponent( $node )
       
       /**

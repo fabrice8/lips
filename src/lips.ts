@@ -1,5 +1,6 @@
 import type { LipsConfig, Template, ComponentOptions, Metavars } from './types'
 
+import TPS from './tps'
 import IUC from './iuc'
 import DWS from './dws'
 import I18N from './i18n'
@@ -20,9 +21,10 @@ export default class Lips<Context extends Object = {}> {
   public debug = false
   public stylesheets: Stylesheet[] = []
   private config?: LipsConfig<Context> = {}
-  private store: Record<string, Template<any>> = {}
+  private store: Map<string, Template<any>> = new Map()
 
   private __root?: ComponentClass<any>
+  public preprocessor: TPS
   public i18n = new I18N()
   public watcher: DWS<any>
   public IUC: IUC
@@ -38,6 +40,7 @@ export default class Lips<Context extends Object = {}> {
     if( this.config?.debug ) 
       this.debug = this.config.debug
 
+    this.preprocessor = new TPS( this.store )
     this.watcher = new DWS
     this.IUC = new IUC
     
@@ -73,18 +76,18 @@ export default class Lips<Context extends Object = {}> {
     //   return
     // }
 
-    this.store[ name ] = template
+    this.store.set( name, template )
 
     return this
   }
   unregister( name: string ){
-    delete this.store[ name ]
+    this.store.delete( name )
 
     return this
   }
 
   has( name: string ){
-    return name in this.store
+    return this.store.has( name )
   }
   import<MT extends Metavars>( pathname: string ): Template<MT> {
     // Fetch from registered component
@@ -95,10 +98,11 @@ export default class Lips<Context extends Object = {}> {
      * Only syntactic component are allowed to 
      * no have template's `default` export.
      */
-    if( !this.store[ pathname ].declaration?.syntax && !this.store[ pathname ].default )
+    const component = this.store.get( pathname )
+    if( !component?.declaration?.syntax && !component?.default )
       throw new Error(`Invalid <${pathname}> component`)
     
-    return this.store[ pathname ]
+    return component
   
     /**
      * TODO: Import component directly from a file

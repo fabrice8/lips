@@ -9,12 +9,14 @@ export const SPREAD_VAR_PATTERN = /^\.\.\./
 export const ARGUMENT_VAR_PATTERN = /^\[(.*?)\]$/
 export const INTERPOLATE_PATTERN = /{\s*([^{}]+)\s*}/g
 export const META_ATTRIBUTES = ['@html', '@text', '@format']
+export const NATIVE_SYNTAX_TAGS = ['if', 'for', 'switch', 'async', 'router']
 export const LAYOUT_AFFECTING_ATTRS = [ 'display', 'visibility', 'position', 'width', 'height' ]
 
 export const NODE_PREFIX = ':n'
 export const PARTIAL_ROOT_PREFIX = ':pr'
 export const MACRO_PREFIX = 'm'
 export const COMPONENT_PREFIX = 'c'
+export const COMPONENT_TAGNAME_ATTR = ':ltag'
 export const SYNTAX_COMPONENT_PREFIX = 'x'
 export const DEFAULT_PARTIAL_PATH_SLOT = '*'
 
