@@ -17,13 +17,23 @@
       "types": "./dist/types/lips.d.ts",
       "import": "./dist/lips.js",
       "default": "./dist/lips.js"
+    },
+    "./runtime": {
+      "types": "./dist/types/runtime.d.ts",
+      "import": "./dist/runtime.min.js",
+      "default": "./dist/runtime.min.js"
+    },
+    "./precompile": {
+      "types": "./dist/types/precompile.d.ts",
+      "import": "./dist/precompile.min.js",
+      "default": "./dist/precompile.min.js"
     }
   },
   "author": "Fabrice K.E.M",
   "private": false,
   "scripts": {
     "dev": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external --watch",
-    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external",
+    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/runtime.ts --entry-naming runtime.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/precompile.ts --entry-naming precompile.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external",
     "build:declaration": "tsc --project tsconfig.types.json",
     "compile": "bun run build",
     "typecheck": "tsc --noEmit",

@@ -24,6 +24,17 @@ Phase 0/1 foundation work that made it verifiable.
   falsy/attribute-removing behavior, but they render as `''` in text.
 
 ### Added
+- **Precompilation & CSP-safe mode**: `precompile( template )` produces
+  IR ahead of time (macros inlined, template source dropped);
+  `lipsPlugin()` is a Vite/Rollup transform for `.lips` single-file
+  components that embeds the IR and fails the build on template errors
+  with `file:line:col`. Paired with `mode: 'interpreted'`, a precompiled
+  app never constructs a `Function` and runs under `script-src` without
+  `unsafe-eval`.
+- **Subpath entries**: `@lipsjs/lips` (full, 20.7 KB gzip),
+  `@lipsjs/lips/runtime` (precompiled-only — parser and compiler
+  tree-shaken out, 14.5 KB gzip), `@lipsjs/lips/precompile` (build-time,
+  9.1 KB gzip), `@lipsjs/lips/dev` (unminified).
 - **IR engine** (`src/ir/`): own tokenizer + template parser with
   positioned diagnostics that never throw, expression parser with
   AST-derived dependencies, IR compiler emitting a serializable

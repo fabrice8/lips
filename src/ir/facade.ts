@@ -11,8 +11,17 @@
  * declaration-driven syntax components.
  */
 
-import type { TemplateIR } from './compiler'
-import { compileTemplate } from './compiler'
+import type { TemplateIR, CompileResult, CompileOptions } from './compiler'
+
+/**
+ * The template compiler is INJECTED, not imported, so a
+ * precompiled-only build can tree-shake the parser and compiler out
+ * entirely (see src/runtime.ts vs src/lips.ts).
+ */
+type CompilerFn = ( src: string, options?: CompileOptions ) => CompileResult
+let COMPILER: CompilerFn | null = null
+
+export function setCompiler( fn: CompilerFn ){ COMPILER = fn }
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import { renderIR } from './runtime'
 import { reactive, effect, signal } from './signal'
@@ -23,6 +32,8 @@ import { routerTemplate } from './router'
 
 interface FacadeTemplate {
   default?: string
+  /** Precompiled IR — skips parsing entirely (see src/precompile.ts) */
+  ir?: TemplateIR
   macros?: string
   state?: Record<string, any>
   handler?: Record<string, ( this: any, ...args: any[] ) => any>
@@ -162,8 +173,8 @@ export class IRLips {
     this.getLang = getLang
     this.setLang = setLang
 
-    // Built-in components
-    this.register('router', routerTemplate as FacadeTemplate )
+    // Built-in components (router's template is source — needs the compiler)
+    COMPILER && this.register('router', routerTemplate as FacadeTemplate )
 
     const self = this
     this.componentsProxy = new Proxy( {} as Record<string, IRComponentDef>, {
@@ -187,9 +198,17 @@ export class IRLips {
   has( name: string ){ return this.store.has( name ) }
 
   private compile( template: FacadeTemplate ): TemplateIR {
+    // Precompiled: nothing to parse
+    if( template.ir ) return template.ir
+
     let ir = this.irCache.get( template )
     if( !ir ){
-      const result = compileTemplate( template.default || '', { macros: template.macros })
+      if( !COMPILER )
+        throw new Error(
+          'This build has no template compiler — templates must be precompiled to `ir` '
+          + '(import from "@lipsjs/lips" instead of "@lipsjs/lips/runtime")' )
+
+      const result = COMPILER( template.default || '', { macros: template.macros })
       result.diagnostics.length
         && console.warn('[lips:ir] template diagnostics —', result.diagnostics )
 
@@ -225,7 +244,7 @@ export class IRLips {
        * template objects — compile + cache them on demand.
        */
       resolveTemplate: ( value: any ) =>
-        value && typeof value.default === 'string'
+        value && ( typeof value.default === 'string' || value.ir )
           ? this.defFor( value.name || 'dynamic', value as FacadeTemplate )
           : undefined,
       expose: {

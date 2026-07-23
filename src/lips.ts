@@ -10,7 +10,11 @@
  * time (see `compileTemplate`) for CSP-safe, parse-free startup.
  */
 
-import { IRLips, IRFacadeComponent } from './ir/facade'
+import { IRLips, IRFacadeComponent, setCompiler } from './ir/facade'
+import { compileTemplate } from './ir/compiler'
+
+// Full build: runtime template compilation available
+setCompiler( compileTemplate )
 
 export * from './types'
 
