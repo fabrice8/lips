@@ -1,20 +1,40 @@
-name: Lips library
+name: Publish package
+
+# Publishes @lipsjs/lips to npmjs (the registry README + jsDelivr point at).
+# Requires the NPM_TOKEN repository secret (npm automation token).
+#
+# Fixes over the previous version of this workflow:
+#   - job had no `runs-on` (workflow was invalid and never ran)
+#   - it published to GitHub Packages (npm.pkg.github.com) whose owner scope
+#     (@fabrice8) does not match the package scope (@lipsjs) — guaranteed 404
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
-  publish-gpr:
+  publish-npm:
+    runs-on: ubuntu-latest
     permissions:
-      packages: write
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://npm.pkg.github.com/
-      - run: npm publish
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test
+
+      # npm runs `prepack` (build + type declarations) before packing
+      - name: Publish to npm
+        run: npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
