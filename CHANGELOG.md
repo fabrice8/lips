@@ -71,6 +71,9 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - `__hasSamePathParent__` matches by raw string prefix, so sibling paths like
   `…/2` and `…/25` can collide in partial-update targeting (disposal uses a
   strict separator-aware check; Phase 2 revisits path encoding)
+- Keyed `<for>` full-replace grows slower across consecutive replaces
+  (1.5s → 2.7s over 3 runs at 1k rows, `bench/baseline/2026-07-23-1k.json`) —
+  the drop-all/add-all path appears to accumulate dependency-tracking garbage
 - `<for>` over `Map`/plain-object inputs is still index-based — should
   default to keyed reconciliation by the natural entry key
 - `<for>` cannot render inside `<table>`/`<tbody>` (innerHTML parsing hoists

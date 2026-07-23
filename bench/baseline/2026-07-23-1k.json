@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "date": "2026-07-23T11:02:49.474Z",
+    "rows": 1000,
+    "engineVersion": "0.1.2 + phase-0/foundations (keyed <for by>, dynamic-tag fixes)",
+    "environment": "Chromium 148 (Electron), macOS, embedded pane",
+    "method": "script + DOM-settle timings, paint excluded; medians of 3-5 runs (1 for append/clear)",
+    "harness": "bench/index.html"
+  },
+  "medians_ms": {
+    "vanilla": { "create": 4.4, "replace": 2.8, "update": 0.1, "select": 0.1, "swap": 0.0, "remove": 0.1, "append": 1.4, "clear": 1.1 },
+    "ir":      { "create": 4.2, "replace": 6.9, "update": 0.2, "select": 0.4, "swap": 0.0, "remove": 0.1, "append": 2.5, "clear": 1.8 },
+    "lips":    { "create": 490.7, "replace": 2108.3, "update": 109.0, "select": 104.2, "swap": 4.4, "remove": 5.4, "append": 653.7, "clear": 22.2 }
+  },
+  "runs_ms": {
+    "vanilla": {
+      "create": [4.4, 4.0, 12.3],
+      "replace": [3.0, 2.8, 1.8],
+      "update": [0.3, 0.1, 0.1, 0.0, 0.1],
+      "select": [0.2, 0.1, 0.1, 0.1, 0.0],
+      "swap": [0.1, 0.0, 0.0, 0.0, 0.0],
+      "remove": [0.1, 0.1, 0.0, 0.1, 0.0],
+      "append": [1.4],
+      "clear": [1.1]
+    },
+    "ir": {
+      "create": [3.9, 4.2, 4.4],
+      "replace": [6.9, 6.2, 13.0],
+      "update": [0.2, 0.2, 0.1, 0.2, 0.0],
+      "select": [0.4, 0.4, 0.4, 0.4, 0.2],
+      "swap": [0.2, 0.0, 0.0, 0.1, 0.0],
+      "remove": [0.1, 0.0, 0.1, 0.0, 0.1],
+      "append": [2.5],
+      "clear": [1.8]
+    },
+    "lips": {
+      "create": [513.6, 490.7, 484.2],
+      "replace": [1522.3, 2108.3, 2730.4],
+      "update": [116.7, 112.1, 109.0, 108.0, 108.1],
+      "select": [104.4, 103.4, 104.2, 104.8, 102.3],
+      "swap": [4.5, 4.6, 4.3, 4.1, 4.4],
+      "remove": [5.9, 5.6, 5.2, 5.0, 5.4],
+      "append": [653.7],
+      "clear": [22.2]
+    }
+  },
+  "observations": [
+    "Keyed swap (4.4ms) and remove (5.4ms) confirm the by= reconciliation moves DOM ranges with near-minimal work — two orders of magnitude better than update/select, which remain digest-dominated (~105ms for a single class toggle).",
+    "replace grows across consecutive runs (1522 -> 2108 -> 2730ms): the keyed reconcile-replace path (drop all 1k keys, add 1k new) appears to accumulate dependency-tracking garbage. Filed as a known issue.",
+    "IR prototype tracks vanilla within ~2x on every op; its replace (6.9ms vs 2.8) pays per-row effect disposal.",
+    "All 8 ops completed error-free on all three engines — first full jsfb-style pass for current Lips (keyed <for by>, table-free rows)."
+  ]
+}
