@@ -38,12 +38,14 @@ export default class Lips<Context extends Object = {}> {
 
   constructor( config?: LipsConfig<Context> ){
     /**
-     * RFC-001 §9 — engine flag: `{ engine: 'ir' }` swaps in the
-     * Phase 2 IR engine behind the same public API. The facade
-     * implements the compatible subset; the parity spec suite is
-     * the contract (tests/engine-parity.spec.ts).
+     * RFC-001 §9 — the IR engine is the DEFAULT as of v0.2.
+     *
+     * `{ engine: 'runtime' }` opts back into the legacy digest
+     * engine for one deprecation release. Both engines are held to
+     * tests/engine-parity.spec.ts; the IR engine additionally fixes
+     * behaviors the legacy engine gets wrong (see that suite).
      */
-    if( config?.engine === 'ir' )
+    if( config?.engine !== 'runtime' )
       return new IRLips( config as any ) as any
 
     this.config = config

@@ -23,7 +23,7 @@ function settle( check: () => boolean, timeout = 3000 ){
 let lips: Lips
 beforeEach( () => {
   document.body.innerHTML = '<div id="app"></div>'
-  lips = new Lips()
+  lips = new Lips({ engine: 'runtime' })
 })
 
 describe('basic rendering', () => {

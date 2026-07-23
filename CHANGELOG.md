@@ -5,6 +5,41 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Changed — BREAKING
+- **The IR engine is now the default.** `new Lips()` runs the Phase 2
+  engine (parser → IR → clone+bind runtime, per-key signals). The legacy
+  digest engine remains available for one deprecation release via
+  `new Lips({ engine: 'runtime' })`.
+- Nullish interpolation renders `''` instead of the literal `"undefined"`
+  (RFC-001 decision #4).
+- Undeclared macro arguments are `undefined` rather than `false`: same
+  falsy/attribute-removing behavior, but they render as `''` in text.
+
+### Fixed by the new engine (legacy engine gets these wrong)
+- Inline arrow event instructions (`on-click( () => state.count++ )`) now
+  mutate state — the legacy evaluator passed a non-reactive `state.toJSON()`
+  copy, so the write landed on a throwaway object
+- Spread attributes remove keys that disappear from the object (legacy left
+  stale attributes behind)
+- `<async>` loading/then/catch arms render
+- `onAttach`/`onDetach` fire by ownership instead of a document-wide
+  MutationObserver
+- `onContext` fires only for the fields a component declared
+- `injectParams` no longer throws when a plural format lacks a `*` fallback
+  (affects both engines)
+
+### Added
+- Full IR engine surface: slots (`input.renderer`), component events
+  (`self.emit` → parent `on-*`), complete lifecycle (create/input/mount/
+  render/update/attach/detach/error/destroy), reactive context with
+  `watchContext`/`useContext`, macros (compile-time inlining), i18n
+  (`i18n` attribute, `@format`, `setLanguage`/`useTranslator`), `<router>`,
+  and dynamic template objects
+- `instance.swap( newIR )` hot-swap with `SwapReport`
+- Parity suite: 26 behaviors asserted against BOTH engines, plus 6
+  IR-only specs covering the legacy bugs above
+
+
 ### Added
 - **`onError` lifecycle boundary**: render and dependency-update failures route
   to a component's `onError( error )` handler when defined (console fallback

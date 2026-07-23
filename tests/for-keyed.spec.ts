@@ -20,7 +20,7 @@ const texts = () => lis().map( li => li.textContent )
 let lips: Lips
 beforeEach( () => {
   document.body.innerHTML = '<div id="app"></div>'
-  lips = new Lips()
+  lips = new Lips({ engine: 'runtime' })
 })
 
 function renderList( name: string, items: any[] ){

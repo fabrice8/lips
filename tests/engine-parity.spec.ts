@@ -199,6 +199,194 @@ function parity( engineName: string, createLips: () => any ){
       await settle( () => !document.head.querySelector('style[rel="p-style"]') )
     })
 
+    it('renders <switch>/<case>/<default>', async () => {
+      const c = lips.render('p-switch', {
+        state: { m: 'a' },
+        default: `
+          <div>
+            <switch( state.m )>
+              <case is="a"><i class="ca">A</i></case>
+              <case is=['b','c']><i class="cbc">BC</i></case>
+              <default><i class="cd">D</i></default>
+            </switch>
+          </div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => !!q('.ca') )
+      c.state.m = 'c'
+      await settle( () => !!q('.cbc') )
+      c.state.m = 'zzz'
+      await settle( () => !!q('.cd') )
+    })
+
+
+    it('scopes <let> variables to their block', async () => {
+      const c = lips.render('p-let', {
+        state: { n: 3 },
+        default: `<div><let doubled={ state.n * 2 }/><p class="d">{doubled}</p></div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => q('.d')?.textContent === '6' )
+      c.state.n = 5
+      await settle( () => q('.d')?.textContent === '10' )
+    })
+
+    it('renders numeric <for from/to> ranges reactively', async () => {
+      const c = lips.render('p-range', {
+        state: { max: 3 },
+        default: `<div><for [x] from="1" to=state.max><i class="r">{x}</i></for></div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => qa('.r').length === 3 )
+      c.state.max = 5
+      await settle( () => qa('.r').length === 5 )
+      c.state.max = 2
+      await settle( () => qa('.r').map( e => e.textContent ).join('') === '12' )
+    })
+
+    it('iterates objects with key/value args', async () => {
+      lips.render('p-obj', {
+        state: { notes: { fr: 12, en: 15 } },
+        default: `<dl><for [k, v] in=state.notes><dt class="e">{k}={v}</dt></for></dl>`
+      }).appendTo('#app')
+
+      await settle( () => qa('.e').length === 2 )
+      expect( qa('.e').map( e => e.textContent ) ).toEqual([ 'fr=12', 'en=15' ])
+    })
+
+    it('binds @html and @text', async () => {
+      const c = lips.render('p-meta', {
+        state: { raw: '<b>bold</b>', txt: 'plain' },
+        default: `<div><div class="h" @html=state.raw></div><p class="t" @text=state.txt></p></div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => !!q('.h b') )
+      expect( q('.t')?.textContent ).toBe('plain')
+
+      c.state.txt = 'updated'
+      await settle( () => q('.t')?.textContent === 'updated' )
+    })
+
+
+    it('expands macros with argv and arguments', async () => {
+      lips.render('p-macro', {
+        macros: `<macro [label, tone] name="chip"><em class="chip" data-tone={tone}>{label}|{arguments.extra}</em></macro>`,
+        state: { l: 'hot' },
+        default: `<div><chip label=state.l tone="warm" extra="x"/></div>`
+      }).appendTo('#app')
+
+      await settle( () => !!q('.chip') )
+      expect( q('.chip')?.textContent ).toBe('hot|x')
+      expect( q('.chip')?.getAttribute('data-tone') ).toBe('warm')
+    })
+
+    it('translates i18n-marked text on language change', async () => {
+      lips.i18n.setDictionary('fr', { 'Count': 'Compter' })
+      lips.setLanguage('en-US')
+
+      lips.render('p-i18n', { default: `<button i18n class="b">Count</button>` }).appendTo('#app')
+      await settle( () => q('.b')?.textContent === 'Count' )
+
+      lips.setLanguage('fr-FR')
+      await settle( () => q('.b')?.textContent === 'Compter' )
+    })
+
+    it('renders @format translations with params', async () => {
+      lips.i18n.setDictionary('en', { greet: { type: 'text', value: 'Hi {name}!' } })
+      lips.setLanguage('en-US')
+
+      const c = lips.render('p-format', {
+        state: { name: 'Ada' },
+        default: `<p class="g" @format="greet, { name: state.name }"></p>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => q('.g')?.textContent === 'Hi Ada!' )
+      c.state.name = 'Grace'
+      await settle( () => q('.g')?.textContent === 'Hi Grace!' )
+    })
+
+    it('routes with params, query and not-found', async () => {
+      const Home = { default: `<h1 class="home">Home</h1>` }
+      const Item = { default: `<h1 class="item">{input.params.id}/{input.query.q}</h1>` }
+      const missing: string[] = []
+
+      const c = lips.render('p-router', {
+        _static: { routes: [
+          { path: '/', template: Home, default: true },
+          { path: '/item/:id', template: Item }
+        ] },
+        handler: { onMissing( p: string ){ missing.push( p ) } },
+        default: `<main><router routes=static.routes on-not-found( onMissing )></router></main>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => !!q('.home') )
+
+      lips.getContext().navigate('/item/a%20b?q=1')
+      await settle( () => !!q('.item') )
+      expect( q('.item')?.textContent ).toBe('a b/1')
+
+      lips.getContext().navigate('/nope')
+      await settle( () => missing.length === 1 )
+    })
+
+    it('renders slotted component content in parent scope', async () => {
+      lips.register('p-panel', { default: `<section class="panel"><{input.renderer}/></section>` })
+
+      const c = lips.render('p-slot', {
+        state: { who: 'Ada' },
+        default: `<div><p-panel><b class="in">Hi {state.who}</b></p-panel></div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => !!q('.panel .in') )
+      expect( q('.in')?.textContent ).toBe('Hi Ada')
+
+      c.state.who = 'Grace'
+      await settle( () => q('.in')?.textContent === 'Hi Grace' )
+    })
+
+    it('delivers component events to parent handlers', async () => {
+      const got: any[] = []
+
+      lips.register('p-emitter', {
+        handler: { fire( this: any ){ this.emit('done', 42 ) } },
+        default: `<button class="fire" on-click( fire )>f</button>`
+      })
+
+      lips.render('p-events', {
+        handler: { onDone( ...args: any[] ){ got.push( args ) } },
+        default: `<div><p-emitter on-done( onDone, 'tag' )/></div>`
+      }).appendTo('#app')
+
+      await settle( () => !!q('.fire') )
+      ;( q('.fire') as HTMLButtonElement ).click()
+
+      expect( got ).toEqual([ [ 'tag', 42 ] ])
+    })
+
+
+    it('renders dynamic template objects', async () => {
+      const A = { default: `<i class="da">A</i>` }
+      const B = { default: `<i class="db">B</i>` }
+
+      const c = lips.render('p-dyn', {
+        state: { page: A },
+        default: `<div><{state.page}/></div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => !!q('.da') )
+      c.state.page = B
+      await settle( () => !!q('.db') )
+      expect( q('.da') ).toBeNull()
+    })
+
     it('destroys recursively — child onDestroy fires; destroy is idempotent', async () => {
       let leafDestroyed = false
       let branchDestroyed = false
@@ -225,5 +413,143 @@ function parity( engineName: string, createLips: () => any ){
   })
 }
 
-parity( 'current engine', () => new Lips() )
-parity( 'ir engine', () => new Lips({ engine: 'ir' } as any) )
+
+/**
+ * Behaviors where the IR engine is CORRECT and the current engine is
+ * not — verified by direct probe against the current engine:
+ *
+ *  - inline arrow instructions (`on-click( () => state.count++ )`) do
+ *    not mutate state: the old evaluator passes `state.toJSON()`, a
+ *    non-reactive copy, so the write lands on a throwaway object
+ *  - spread attributes never remove keys that disappear from the
+ *    object (stale attributes persist)
+ *  - <async> arms do not render (loading/then never appear)
+ *  - onAttach/onDetach ordering depends on a document-wide
+ *    MutationObserver rather than ownership
+ *  - onContext fires for ANY context write, not just the fields the
+ *    component declared
+ *
+ * These run against the IR engine only; matching the old behavior is
+ * not the goal. They move into the shared gate if the old engine is
+ * ever fixed.
+ */
+describe('ir engine: fixes over the current engine', () => {
+  let lips: any
+  beforeEach( () => {
+    document.body.innerHTML = '<div id="app"></div>'
+    lips = new Lips({ engine: 'ir' } as any)
+  })
+
+    it('renders <async> loading → then arms', async () => {
+      let resolve!: ( v: any ) => void
+      const promise = new Promise( r => resolve = r )
+
+      lips.render('p-async', {
+        state: { job: promise },
+        default: `
+          <div>
+            <async await( state.job )>
+              <loading><i class="load">…</i></loading>
+              <then [user]><p class="done">{user.name}</p></then>
+              <catch [e]><p class="err">{e}</p></catch>
+            </async>
+          </div>`
+      }).appendTo('#app')
+
+      await settle( () => !!q('.load') )
+
+      resolve({ name: 'Ada' })
+      await settle( () => q('.done')?.textContent === 'Ada' )
+      expect( q('.load') ).toBeNull()
+    })
+
+    it('renders <async> catch arm on rejection', async () => {
+      lips.render('p-async-err', {
+        state: { job: Promise.reject('boom') },
+        default: `
+          <div>
+            <async await( state.job )>
+              <then [v]><p class="done">{v}</p></then>
+              <catch [e]><p class="err">{e}</p></catch>
+            </async>
+          </div>`
+      }).appendTo('#app')
+
+      await settle( () => q('.err')?.textContent === 'boom' )
+    })
+
+    it('applies and diffs spread attributes', async () => {
+      const c = lips.render('p-spread', {
+        state: { attrs: { 'data-a': '1', 'data-b': '2' } },
+        default: `<div class="sp" ...state.attrs>x</div>`
+      })
+      c.appendTo('#app')
+
+      await settle( () => q('.sp')?.getAttribute('data-a') === '1' )
+
+      c.state.attrs = { 'data-b': '3' }
+      await settle( () => q('.sp')?.getAttribute('data-b') === '3' )
+      expect( q('.sp')?.hasAttribute('data-a') ).toBe( false )
+    })
+
+    it('supports inline arrow event instructions', async () => {
+      const c = lips.render('p-arrow', {
+        state: { count: 0 },
+        default: `<div><output>{state.count}</output><button on-click( () => state.count++ )>+</button></div>`
+      })
+      c.appendTo('#app')
+
+      ;( q('button') as HTMLButtonElement ).click()
+      ;( q('button') as HTMLButtonElement ).click()
+      await settle( () => q('output')?.textContent === '2' )
+    })
+
+    it('fires the full lifecycle in order', async () => {
+      const order: string[] = []
+
+      lips.register('p-lc', {
+        handler: {
+          onCreate(){ order.push('create') },
+          onInput(){ order.push('input') },
+          onMount(){ order.push('mount') },
+          onAttach(){ order.push('attach') },
+          onDetach(){ order.push('detach') },
+          onDestroy(){ order.push('destroy') }
+        },
+        default: `<i class="lc">{input.v}</i>`
+      })
+
+      const c = lips.render('p-lc-host', { default: `<div><p-lc v="1"/></div>` })
+      c.appendTo('#app')
+      await settle( () => order.includes('attach') )
+
+      c.destroy()
+      expect( order ).toEqual([ 'create', 'input', 'mount', 'attach', 'detach', 'destroy' ])
+    })
+
+    it('fires onContext for declared fields only', async () => {
+      const hits: string[] = []
+      lips.setContext({ theme: 'dark', other: 1 })
+
+      lips.register('p-ctx', {
+        context: [ 'theme' ],
+        handler: { onContext( this: any ){ hits.push( this.context.theme ) } },
+        default: `<i class="ctx">{context.theme}</i>`
+      })
+
+      lips.render('p-ctx-host', { default: `<div><p-ctx/></div>` }).appendTo('#app')
+      await settle( () => !!q('.ctx') )
+
+      lips.setContext('other', 2 )
+      await new Promise( r => setTimeout( r, 20 ) )
+      expect( hits ).toEqual( [] )
+
+      lips.setContext('theme', 'light')
+      await settle( () => hits.length === 1 )
+      expect( hits ).toEqual([ 'light' ])
+      await settle( () => q('.ctx')?.textContent === 'light' )
+    })
+})
+
+parity( 'legacy engine', () => new Lips({ engine: 'runtime' } as any) )
+parity( 'ir engine (default)', () => new Lips() )
