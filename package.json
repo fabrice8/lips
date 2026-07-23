@@ -9,19 +9,28 @@
   ],
   "exports": {
     ".": {
+      "types": "./dist/types/lips.d.ts",
       "import": "./dist/lips.min.js",
-      "require": "./dist/lips.min.js",
-      "types": "./dist/types/lips.d.ts"
+      "default": "./dist/lips.min.js"
+    },
+    "./dev": {
+      "types": "./dist/types/lips.d.ts",
+      "import": "./dist/lips.js",
+      "default": "./dist/lips.js"
     }
   },
   "author": "Fabrice K.E.M",
   "private": false,
   "scripts": {
-    "dev": "bun compile --watch",
-    "compile": "bun build --entrypoints ./test/* ./src/lips.ts --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external",
+    "dev": "bun build --entrypoints ./test/* ./src/lips.ts --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external --watch",
+    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external",
+    "build:demos": "bun build --entrypoints ./test/* --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external",
     "build:declaration": "tsc --project tsconfig.types.json",
-    "prepack": "bun compile && bun run build:declaration",
-    "test": "Echo 'Error: No test specified' && exit 1"
+    "compile": "bun run build && bun run build:demos",
+    "typecheck": "tsc --noEmit",
+    "prepack": "bun run build && bun run build:declaration",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "cash-dom": "^8.1.5",
@@ -29,8 +38,10 @@
   },
   "devDependencies": {
     "@types/stylis": "^4.2.7",
-    "tsc": "^2.0.4",
-    "typescript": "^5.7.3"
+    "happy-dom": "^20.11.1",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.10"
   },
   "directories": {
     "dist": "dist/",
