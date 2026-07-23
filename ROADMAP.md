@@ -92,7 +92,8 @@ Consequences that re-rank the phases:
 > **Design doc:** [design/template-ir.md](design/template-ir.md) (RFC-001) — IR format,
 > expression subsystem with dual execution, diagnostics contract, hot-swap, migration gates.
 
-- [ ] Tokenizer/parser → AST → IR; template errors with line/column
+- [x] Template parser (`src/ir/parser.ts`, 2026-07-23): recursive-descent, owns the syntax (no innerHTML/regex), error-recovering with line/col diagnostics, `.lips` SFC splitting, `<for>`-in-`<table>` proven — 32 specs
+- [ ] IR compiler: TemplateAST → TemplateIR (skeleton extraction, bind table, block nodes)
 - [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** sandboxed AST interpreter (CSP mode) — 31 parity specs
 - [ ] Per-key signal state; delete Proxy layer, deep-clone snapshots, and the digest loop
 - [ ] `historySignal()` opt-in wrapper; base `signal()` is value-only
