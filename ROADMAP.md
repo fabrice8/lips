@@ -93,7 +93,8 @@ Consequences that re-rank the phases:
 > expression subsystem with dual execution, diagnostics contract, hot-swap, migration gates.
 
 - [x] Template parser (`src/ir/parser.ts`, 2026-07-23): recursive-descent, owns the syntax (no innerHTML/regex), error-recovering with line/col diagnostics, `.lips` SFC splitting, `<for>`-in-`<table>` proven — 32 specs
-- [ ] IR compiler: TemplateAST → TemplateIR (skeleton extraction, bind table, block nodes)
+- [x] IR compiler (`src/ir/compiler.ts`, 2026-07-23): AST → serializable TemplateIR — static skeletons with coalescing-aware integer paths, bind table (text/attr/prop/event/spread), block nodes (if-chains, keyed for, switch, async arms, let/const scope, log, comp/dynamic with inputs+events+spreads+contents), deduped expression table with compile-time validation re-anchored to template line/col; JSON round-trip + determinism proven — 31 specs
+- [ ] IR runtime: instantiate (clone + bind walk), per-key signals, keyed block reconciler
 - [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** sandboxed AST interpreter (CSP mode) — 31 parity specs
 - [ ] Per-key signal state; delete Proxy layer, deep-clone snapshots, and the digest loop
 - [ ] `historySignal()` opt-in wrapper; base `signal()` is value-only
