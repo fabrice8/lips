@@ -2288,13 +2288,16 @@ export default class Component<MT extends Metavars> extends Events {
 
     /**
      * Destroy nexted components as well
+     *
+     * NOTE: PCC is a Map — `for…in` over a Map iterates
+     * nothing, which left every child component alive
+     * (undisposed effects, IUC registrations, watchers).
+     * Entries are cleared wholesale in the cleanup below.
      */
-    for( const each in this.PCC ){
-      const component = this.PCC.get( each )
-
-      component?.destroy()
-      component?.delete( each )
-    }
+    this.PCC.forEach( component => {
+      try { component.destroy() }
+      catch( error ){ console.error('failed to destroy child component --', error ) }
+    })
 
     /**
      * Cleanup

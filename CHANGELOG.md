@@ -22,11 +22,16 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   with a mismatched owner scope — now publishes to npmjs on release
   (requires `NPM_TOKEN` secret)
 - `src/dws.ts` referenced Node-only `NodeJS.Timeout` type in browser code
+- `destroy()` now destroys nested child components recursively — it iterated
+  the PCC `Map` with `for…in` (which yields nothing), leaving every child's
+  effects, IUC registrations and watchers alive
 - Removed the bogus `tsc` npm package from devDependencies (it shadowed the
   real TypeScript compiler binary)
 
 ### Known issues (tracked for Phase 1 — see ROADMAP.md)
-- `destroy()` never destroys nested child components (`for…in` over a `Map`)
+- Syntax-component instances (`<if>`, `<for>`, …) are excluded from the PCC
+  cache and are still never destroyed with their parent — needs instance
+  tracking
 - `<for>` has no keyed reconciliation — list updates are index-based
 - `<for>` cannot render inside `<table>`/`<tbody>` (innerHTML parsing hoists
   unknown elements out of table context)

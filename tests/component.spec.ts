@@ -203,7 +203,33 @@ describe('teardown', () => {
     await settle( () => document.querySelector('section') === null )
   })
 
-  // Known bug (ROADMAP Phase 1): destroy() iterates PCC (a Map) with for…in,
-  // so nested child components are never destroyed — src/component.ts:2292
-  it.todo('destroys nested child components on parent destroy()')
+  it('destroys nested child components recursively on parent destroy()', async () => {
+    let leafDestroyed = false
+    let branchDestroyed = false
+
+    lips.register('leaf', {
+      default: `<em class="leaf">leaf</em>`,
+      handler: { onDestroy(){ leafDestroyed = true } }
+    })
+    lips.register('branch', {
+      default: `<b class="branch"><leaf/></b>`,
+      handler: { onDestroy(){ branchDestroyed = true } }
+    })
+
+    const c = lips.render('t-nested-destroy', {
+      default: `<div><branch/></div>`
+    })
+    c.appendTo('#app')
+
+    await settle( () => !!document.querySelector('.branch .leaf') )
+
+    c.destroy()
+    await settle( () => branchDestroyed && leafDestroyed )
+    expect( document.querySelector('.leaf') ).toBeNull()
+  })
+
+  // Remaining Phase 1 gap: syntax components (<if>, <for>, …) are
+  // intentionally excluded from the PCC cache, so their instances are
+  // still never destroyed with the parent — needs instance tracking.
+  it.todo('destroys syntax-component instances on parent destroy()')
 })
