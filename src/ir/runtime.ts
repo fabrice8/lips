@@ -50,6 +50,14 @@ export interface RuntimeOptions {
   components?: Record<string, IRComponentDef>
   /** Host-provided context subscription (returns an unsubscribe) */
   watchContext?( fields: string[], fn: () => void ): () => void
+  /**
+   * i18n plugin hook (RFC §6): both calls must READ a language
+   * signal so translated binds re-run on language change.
+   */
+  i18n?: {
+    translate( text: string ): string
+    format( reference: string, params: any ): string
+  }
 }
 
 export interface RenderSetup {
@@ -386,19 +394,37 @@ class IRRenderer {
         const textNode = reuseText ?? document.createTextNode('')
         !reuseText && insertAfter( node, [ textNode ] )
         const run = this.runner( bind.e, scopeNames )
+        const i18n = bind.i18n ? this.options.i18n : undefined
         const h = this.guarded( () => {
           const v = run( benv )
-          textNode.data = v == null ? '' : String( v )
+          const text = v == null ? '' : String( v )
+          textNode.data = i18n ? i18n.translate( text ) : text
         })
         return { bind, node, textNode, dispose: h.dispose }
       }
       case 'attr': {
         const run = this.runner( bind.e, scopeNames )
-        const h = this.guarded( () => applyAttr( node as Element, bind.name, run( benv ) ) )
+        const i18n = bind.i18n ? this.options.i18n : undefined
+        const h = this.guarded( () => {
+          const v = run( benv )
+          applyAttr( node as Element, bind.name,
+            i18n && v != null ? i18n.translate( String( v ) ) : v )
+        })
         return { bind, node, dispose: h.dispose }
       }
       case 'prop': {
         const run = this.runner( bind.e, scopeNames )
+
+        if( bind.name === 'format' ){
+          const ref = bind.ref || ''
+          const h = this.guarded( () => {
+            const params = run( benv )
+            const text = this.options.i18n?.format( ref, params )
+            ;( node as Element ).textContent = text == null ? '' : String( text )
+          })
+          return { bind, node, dispose: h.dispose }
+        }
+
         const h = this.guarded( () => {
           const v = run( benv )
           bind.name === 'html'

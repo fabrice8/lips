@@ -1,6 +1,8 @@
 import type { I18nVariant, I18nFormat } from '../types'
 
 function injectParams( text: string, params?: Record<string, any> ){
+  // A missing/!string form (e.g. no '*' fallback defined) must not throw
+  if( typeof text !== 'string' ) return ''
   if( !params ) return text
 
   return text.replace(/{(\w+)}/g, ( _, key ) => {

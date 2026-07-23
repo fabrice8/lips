@@ -15,9 +15,10 @@ import type { TemplateIR } from './compiler'
 import { compileTemplate } from './compiler'
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import { renderIR } from './runtime'
-import { reactive, effect } from './signal'
+import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
+import I18N from '../i18n'
 
 interface FacadeTemplate {
   default?: string
@@ -141,6 +142,11 @@ export class IRLips {
   private context: Record<string, any>
   private __root?: IRFacadeComponent
 
+  public i18n = new I18N()
+  /** Language signal — translated binds subscribe through it */
+  private getLang: () => string
+  private setLang: ( v: string ) => void
+
   /**
    * Registered components resolved lazily — the runtime looks
    * names up per render, so registration order doesn't matter.
@@ -150,6 +156,10 @@ export class IRLips {
   constructor( private config?: FacadeConfig ){
     this.debug = !!config?.debug
     this.context = reactive( { ...( config?.context || {} ) }, true )
+
+    const [ getLang, setLang ] = signal( this.i18n.lang )
+    this.getLang = getLang
+    this.setLang = setLang
 
     const self = this
     this.componentsProxy = new Proxy( {} as Record<string, IRComponentDef>, {
@@ -205,13 +215,43 @@ export class IRLips {
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), {
       mode: this.config?.mode,
       components: this.componentsProxy,
-      watchContext: ( fields, fn ) => this.watchContext( fields, fn )
+      watchContext: ( fields, fn ) => this.watchContext( fields, fn ),
+      i18n: {
+        /**
+         * Reading the language signal inside the bind effect is
+         * what makes setLanguage() re-translate every marked node.
+         */
+        translate: ( text: string ) => {
+          this.getLang() // track — passing the lang would short-circuit translate()
+          return this.i18n.translate( text ).text
+        },
+        format: ( reference: string, params: any ) => {
+          this.getLang()
+          return this.i18n.format( reference, params ) ?? ''
+        }
+      }
     })
   }
   root( template: FacadeTemplate, selector: string ){
     this.__root = this.render( '__ROOT__', template )
     this.__root.appendTo( selector )
     return this.__root
+  }
+
+  // ---- i18n
+  setLanguage( lang: string ){
+    this.i18n.lang = lang
+    this.setLang( lang )
+  }
+  getLanguage(){ return this.getLang() }
+  useTranslator( support: string | string[], fn: ( lang: string ) => void ){
+    let first = true
+    const { dispose } = effect( () => {
+      const lang = this.getLang()
+      if( first ){ first = false; return }
+      ;( support === '*' || ( Array.isArray( support ) && support.includes( lang ) ) ) && fn( lang )
+    })
+    return dispose
   }
 
   // ---- context
