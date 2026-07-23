@@ -15,7 +15,7 @@ import type { TemplateIR } from './compiler'
 import { compileTemplate } from './compiler'
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import { renderIR } from './runtime'
-import { reactive } from './signal'
+import { reactive, effect } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 
@@ -59,7 +59,7 @@ export class IRFacadeComponent extends Events {
   readonly state: Record<string, any>
   private instance: IRInstance
   private stylesheet?: Stylesheet
-  private lifecycleSelf: Record<string, any>
+  private contextWatcher?: () => void
   private destroyed = false
 
   constructor(
@@ -77,19 +77,10 @@ export class IRFacadeComponent extends Events {
     const inputR = input ? reactive( { ...input }, true ) : undefined
 
     /**
-     * Pre-render lifecycle runs against a self that shares the
-     * reactive stores with the rendered instance.
+     * The runtime owns the whole lifecycle (create → input →
+     * render → mount → attach → destroy) for root and nested
+     * components alike — the facade only supplies wiring.
      */
-    this.lifecycleSelf = {
-      state: this.state,
-      input: inputR,
-      static: template._static,
-      context: lips.getContext(),
-      emit: ( event: string, ...args: any[] ) => this.emit( event, ...args )
-    }
-    handlers?.onCreate?.call( this.lifecycleSelf )
-    input && Object.keys( input ).length && handlers?.onInput?.call( this.lifecycleSelf )
-
     this.instance = renderIR( ir, {
       state: this.state,
       input: inputR,
@@ -97,12 +88,24 @@ export class IRFacadeComponent extends Events {
       static: template._static,
       handlers,
       deep: true,
-      expose: { emit: this.lifecycleSelf.emit, context: lips.getContext() }
+      expose: {
+        emit: ( event: string, ...args: any[] ) => this.emit( event, ...args ),
+        context: lips.getContext()
+      }
     }, options )
 
     template.stylesheet && ( this.stylesheet = new Stylesheet( name, { sheet: template.stylesheet } ) )
 
-    handlers?.onMount?.call( this.instance.self )
+    /**
+     * Context subscription: components declaring `context: [...]`
+     * get onContext whenever a declared field changes.
+     */
+    if( template.context?.length && typeof handlers?.onContext === 'function' )
+      this.contextWatcher = lips.watchContext( template.context, () => {
+        try { handlers.onContext!.call( this.instance.self ) }
+        catch( error ){ console.error('[lips:ir]', error ) }
+      })
+
     this.emit('component:mount')
   }
 
@@ -120,9 +123,10 @@ export class IRFacadeComponent extends Events {
     if( this.destroyed ) return
     this.destroyed = true
 
+    this.contextWatcher?.()
+    // dispose() runs onDetach/onDestroy — the runtime owns lifecycle
     this.instance.dispose()
     this.stylesheet?.clear()
-    this.template.handler?.onDestroy?.call( this.instance.self )
     this.emit('component:destroy')
   }
 }
@@ -186,6 +190,7 @@ export class IRLips {
         ir: this.compile( template ),
         state: template.state,
         statics: template._static,
+        context: template.context,
         handlers: guardHandlers( template.handler ),
         deep: true
       }
@@ -198,7 +203,8 @@ export class IRLips {
   render( name: string, template: FacadeTemplate, input?: Record<string, any> ){
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), {
       mode: this.config?.mode,
-      components: this.componentsProxy
+      components: this.componentsProxy,
+      watchContext: ( fields, fn ) => this.watchContext( fields, fn )
     })
   }
   root( template: FacadeTemplate, selector: string ){
@@ -213,6 +219,23 @@ export class IRLips {
     typeof arg === 'string'
       ? this.context[ arg ] = value
       : Object.entries( arg ).forEach( ( [ k, v ] ) => this.context[ k ] = v )
+  }
+  /**
+   * Subscribe to a subset of context fields — the effect tracks
+   * exactly those keys, so unrelated context writes don't fire it.
+   * Returns an unsubscribe function.
+   */
+  watchContext( fields: string[], fn: () => void ){
+    let first = true
+    const { dispose } = effect( () => {
+      fields.forEach( f => this.context[ f ] ) // track
+      first ? first = false : fn()
+    })
+    return dispose
+  }
+  useContext( fields: string[], fn: ( ctx: Record<string, any> ) => void ){
+    return this.watchContext( fields, () =>
+      fn( Object.fromEntries( fields.map( f => [ f, this.context[ f ] ] ) ) ) )
   }
 
   dispose(){

@@ -21,7 +21,7 @@
  * State lives outside the IR, so it survives by construction.
  */
 
-import type { TemplateIR, BlockIR, BindIR, ChildIR, CompInput, E, Path } from './compiler'
+import type { TemplateIR, BlockIR, BindIR, ChildIR, ArmIR, CompInput, E, Path } from './compiler'
 import type { ExprEnv, Expr } from './expression'
 import { parseExpression, compileExpression, interpretExpression } from './expression'
 import { signal, effect, untrack, reactive } from './signal'
@@ -33,6 +33,8 @@ export interface IRComponentDef {
   ir: TemplateIR
   state?: Record<string, any>
   statics?: Record<string, any>
+  /** Context fields this component subscribes to (fires onContext) */
+  context?: string[]
   /** Deep-reactive component state (old-engine parity) */
   deep?: boolean
   /**
@@ -46,6 +48,8 @@ export interface IRComponentDef {
 export interface RuntimeOptions {
   mode?: 'compiled' | 'interpreted'
   components?: Record<string, IRComponentDef>
+  /** Host-provided context subscription (returns an unsubscribe) */
+  watchContext?( fields: string[], fn: () => void ): () => void
 }
 
 export interface RenderSetup {
@@ -98,6 +102,76 @@ interface BlockInstance {
 }
 
 // ----------------------------------------------------------------- helpers
+/** Marks a slot renderer handed to a child as `input.renderer` */
+const SLOT = Symbol('lips.slot')
+
+interface SlotRenderer {
+  [ SLOT ]: true
+  args: string[]
+  render( argvalues?: Record<string, any> ): BlockInstance
+}
+const isSlot = ( v: any ): v is SlotRenderer => !!v && typeof v === 'object' && v[ SLOT ] === true
+
+/**
+ * Component lifecycle plumbing (RFC §6: ownership events, not
+ * document-wide observation). One hooks object per component
+ * instance; nested components get their own.
+ */
+interface ComponentHooks {
+  notifyUpdate(): void
+  onError( error: unknown ): void
+  /** Called once the component's first render completes */
+  ready(): void
+}
+
+function makeHooks( self: any ): ComponentHooks {
+  let scheduled = false
+  let isReady = false
+
+  const onError = ( error: unknown ) =>
+    typeof self.onError === 'function'
+      ? self.onError( error )
+      : console.error('[lips:ir]', error )
+
+  return {
+    onError,
+    ready(){ isReady = true },
+    notifyUpdate(){
+      // Suppress during the initial render pass
+      if( !isReady || scheduled ) return
+      scheduled = true
+
+      queueMicrotask( () => {
+        scheduled = false
+        try {
+          typeof self.onUpdate === 'function' && self.onUpdate()
+          typeof self.onRender === 'function' && self.onRender()
+        }
+        catch( error ){ onError( error ) }
+      })
+    }
+  }
+}
+
+/**
+ * Attach callbacks queued during render, flushed once the nodes
+ * are actually in the document (root mount, or immediate when the
+ * insertion point is already live).
+ */
+const PENDING_ATTACH: { node: () => Node | undefined, fn: () => void }[] = []
+
+function flushAttach(){
+  for( let i = PENDING_ATTACH.length - 1; i >= 0; i-- ){
+    const entry = PENDING_ATTACH[ i ]
+    const node = entry.node()
+
+    if( node && node.isConnected ){
+      PENDING_ATTACH.splice( i, 1 )
+      entry.fn()
+    }
+  }
+}
+
 const AST_CACHE = new Map<string, Expr>()
 function astOf( src: string ): Expr {
   let ast = AST_CACHE.get( src )
@@ -193,7 +267,22 @@ const defineGetter = ( scope: any, name: string, get: () => any ) =>
 
 // ---------------------------------------------------------------- renderer
 class IRRenderer {
-  constructor( readonly ir: TemplateIR, private options: RuntimeOptions ){}
+  constructor( readonly ir: TemplateIR, private options: RuntimeOptions, private hooks?: ComponentHooks ){}
+
+  /**
+   * Bind effects run inside the component's error boundary and
+   * report post-initial re-runs as component updates.
+   */
+  private guarded( fn: () => void ){
+    let first = true
+    return effect( () => {
+      try { fn() }
+      catch( error ){
+        this.hooks ? this.hooks.onError( error ) : console.error('[lips:ir]', error )
+      }
+      first ? first = false : this.hooks?.notifyUpdate()
+    })
+  }
 
   /** Expression runner for a table entry, honoring the execution mode */
   private runner( e: E, scopeNames: string[] ): ( env: RunEnv ) => any {
@@ -297,7 +386,7 @@ class IRRenderer {
         const textNode = reuseText ?? document.createTextNode('')
         !reuseText && insertAfter( node, [ textNode ] )
         const run = this.runner( bind.e, scopeNames )
-        const h = effect( () => {
+        const h = this.guarded( () => {
           const v = run( benv )
           textNode.data = v == null ? '' : String( v )
         })
@@ -305,12 +394,12 @@ class IRRenderer {
       }
       case 'attr': {
         const run = this.runner( bind.e, scopeNames )
-        const h = effect( () => applyAttr( node as Element, bind.name, run( benv ) ) )
+        const h = this.guarded( () => applyAttr( node as Element, bind.name, run( benv ) ) )
         return { bind, node, dispose: h.dispose }
       }
       case 'prop': {
         const run = this.runner( bind.e, scopeNames )
-        const h = effect( () => {
+        const h = this.guarded( () => {
           const v = run( benv )
           bind.name === 'html'
             ? ( node as Element ).innerHTML = v == null ? '' : String( v )
@@ -327,7 +416,7 @@ class IRRenderer {
       case 'spread': {
         const run = this.runner( bind.e, scopeNames )
         let prev = new Set<string>()
-        const h = effect( () => {
+        const h = this.guarded( () => {
           const obj = run( benv ) || {}
           const next = new Set<string>( Object.keys( obj ) )
           for( const k of prev ) !next.has( k ) && ( node as Element ).removeAttribute( k )
@@ -556,6 +645,22 @@ class IRRenderer {
 
             if( verb == null ) return
 
+            /**
+             * Slot placement: `<{input.renderer} …/>` renders the
+             * parent's slotted body here; this tag's inputs become
+             * the slot's argument values.
+             */
+            if( isSlot( verb ) ){
+              const argvalues: Record<string, any> = {}
+              for( const [ name, ci ] of Object.entries( child.inputs ) )
+                argvalues[ name ] = 'lit' in ci ? ci.lit : this.runner( ci.e, scopeNames )( benv )
+
+              const slotInst = verb.render( argvalues )
+              insertAfter( anchor, nodesOf( slotInst ) )
+              inner.push( () => destroy( slotInst ) )
+              return
+            }
+
             // Component name or definition object
             const def = typeof verb === 'string'
               ? this.options.components?.[ verb ]
@@ -703,10 +808,10 @@ class IRRenderer {
     })
   }
 
-  /** Registered component: reactive inputs, own state/handlers/env */
+  /** Registered component: reactive inputs, slots, events, own env */
   private execComponent(
     def: IRComponentDef,
-    child: { inputs: Record<string, CompInput>, spreads: E[] },
+    child: { inputs: Record<string, CompInput>, spreads: E[], events?: { name: string, e: E }[], contents?: ArmIR },
     anchor: Comment,
     benv: RunEnv,
     scopeNames: string[],
@@ -729,26 +834,118 @@ class IRRenderer {
       }).dispose )
     }
 
+    /**
+     * Slotted body → `input.renderer` (old-engine convention):
+     * the child template places it with `<{input.renderer}/>`.
+     * Content renders in the PARENT scope — a slot closes over
+     * where it was written, not where it is placed.
+     */
+    if( child.contents ){
+      const
+      parent = this,
+      contents = child.contents,
+      penv = benv
+
+      input.renderer = {
+        [ SLOT ]: true,
+        args: contents.args,
+        render( argvalues?: Record<string, any> ){
+          const scope = Object.create( penv.scope ?? null )
+
+          contents.args.forEach( name => {
+            const [ get ] = signal( argvalues?.[ name ] )
+            defineGetter( scope, name, get )
+          })
+
+          return parent.renderBlock( contents.block, { ...penv, scope } )
+        }
+      }
+    }
+
     const state = reactive( { ...( def.state || {} ) }, def.deep ?? false )
-    const self: any = { state, input, static: def.statics }
+
+    /**
+     * Component event bus: the child emits, the parent's
+     * `on-*( … )` instructions receive the emitted arguments.
+     */
+    const listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
+    const self: any = {
+      state, input, static: def.statics, context: benv.context,
+      emit( event: string, ...args: any[] ){
+        listeners.get( event )?.forEach( fn => fn( ...args ) )
+      },
+      on( event: string, fn: ( ...args: any[] ) => void ){
+        listeners.set( event, [ ...( listeners.get( event ) || [] ), fn ])
+        return self
+      },
+      off( event: string ){
+        listeners.delete( event )
+        return self
+      }
+    }
     def.handlers && Object.entries( def.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 
-    // Lifecycle: creation → (initial input) → render → mount
-    typeof self.onCreate === 'function' && self.onCreate()
-    Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput()
+    child.events?.forEach( ev => {
+      const dispatch = this.eventDispatcher( this.ir.exprs[ ev.e ], scopeNames, benv )
+      self.on( ev.name, dispatch )
+    })
+
+    const hooks = makeHooks( self )
+
+    // Lifecycle: creation → (initial input) → render → mount → attach
+    try { typeof self.onCreate === 'function' && self.onCreate() }
+    catch( error ){ hooks.onError( error ) }
+
+    try { Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput() }
+    catch( error ){ hooks.onError( error ) }
 
     const cenv: RunEnv = { state, input, context: benv.context, static: def.statics, self, scope: undefined }
-    const renderer = new IRRenderer( def.ir, this.options )
+    const renderer = new IRRenderer( def.ir, this.options, hooks )
     const inst = renderer.renderBlock( def.ir.root, cenv )
 
     insertAfter( anchor, nodesOf( inst ) )
-    typeof self.onMount === 'function' && self.onMount()
+    hooks.ready()
+
+    try {
+      typeof self.onMount === 'function' && self.onMount()
+      typeof self.onRender === 'function' && self.onRender()
+    }
+    catch( error ){ hooks.onError( error ) }
+
+    /**
+     * Declared context subscription — fires onContext only when
+     * one of the component's own fields changes.
+     */
+    let unwatchContext: ( () => void ) | undefined
+    if( def.context?.length && typeof self.onContext === 'function' && this.options.watchContext )
+      unwatchContext = this.options.watchContext( def.context, () => {
+        try { self.onContext() }
+        catch( error ){ hooks.onError( error ) }
+      })
+
+    let attached = false
+    if( typeof self.onAttach === 'function' || typeof self.onDetach === 'function' ){
+      PENDING_ATTACH.push({
+        node: () => inst.start,
+        fn: () => {
+          attached = true
+          try { typeof self.onAttach === 'function' && self.onAttach() }
+          catch( error ){ hooks.onError( error ) }
+        }
+      })
+      // Parent already live → attach now
+      inst.start.isConnected && flushAttach()
+    }
 
     disposers.push( () => {
+      unwatchContext?.()
       destroy( inst )
-      typeof self.onDestroy === 'function' && self.onDestroy()
+      try {
+        attached && typeof self.onDetach === 'function' && self.onDetach()
+        typeof self.onDestroy === 'function' && self.onDestroy()
+      }
+      catch( error ){ hooks.onError( error ) }
     })
-    // TODO(Phase 2 follow-up): slotted contents + component events
   }
 
   /** Unresolved component candidate → plain element with binds */
@@ -786,15 +983,19 @@ class IRRenderer {
 
   /**
    * Event instruction dispatch (lazy — evaluated per event):
-   *  - `on-click( expr )` → value must be a function, called with (event)
+   *  - `on-click( expr )` → value must be a function, called with (…params)
    *  - `on-click( name, ...args )` → resolves `name` (expression, then
-   *    self method fallback) and calls with (...args, event)
+   *    self method fallback) and calls with (...args, ...params)
+   *
+   * `params` are the DOM event for element listeners, or the emitted
+   * arguments for component events — same append-after-declared-args
+   * rule either way.
    * Scope getters read live values at dispatch — no stale memos.
    */
   private eventDispatcher( instruction: string, scopeNames: string[], benv: RunEnv ){
     const segs = splitTopLevel( instruction )
 
-    return ( event: Event ) => untrack( () => {
+    return ( ...params: any[] ) => untrack( () => {
       const resolveFn = ( src: string ) => {
         let v: any
         try { v = this.srcRunner( src, scopeNames )( benv ) }
@@ -810,7 +1011,7 @@ class IRRenderer {
       if( typeof fn !== 'function' ) return
 
       const args = segs.slice( 1 ).map( src => this.srcRunner( src, scopeNames )( benv ) )
-      fn( ...args, event )
+      fn( ...args, ...params )
     })
   }
 }
@@ -833,20 +1034,65 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
     scope: undefined
   }
 
-  let renderer = new IRRenderer( ir, options )
+  const hooks = makeHooks( self )
+
+  /**
+   * Root lifecycle mirrors the nested path exactly:
+   * create → (initial input) → render → mount/render → attach.
+   */
+  try { typeof self.onCreate === 'function' && self.onCreate() }
+  catch( error ){ hooks.onError( error ) }
+
+  try { input && Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput() }
+  catch( error ){ hooks.onError( error ) }
+
+  let renderer = new IRRenderer( ir, options, hooks )
   let current = renderer.renderBlock( ir.root, env )
+  hooks.ready()
+
+  try {
+    typeof self.onMount === 'function' && self.onMount()
+    typeof self.onRender === 'function' && self.onRender()
+  }
+  catch( error ){ hooks.onError( error ) }
+
+  let attached = false
+  const attachSelf = () => {
+    if( attached ) return
+    attached = true
+    try { typeof self.onAttach === 'function' && self.onAttach() }
+    catch( error ){ hooks.onError( error ) }
+  }
 
   return {
     state,
     self,
     get nodes(){ return nodesOf( current ) },
-    mount( container: Element ){ container.append( ...nodesOf( current ) ) },
+    mount( container: Element ){
+      container.append( ...nodesOf( current ) )
+      /**
+       * Ownership-based attach (RFC §6): mounting a live tree
+       * settles this component and every child queued during
+       * render — no document-wide MutationObserver.
+       */
+      if( current.start.isConnected ){
+        attachSelf()
+        flushAttach()
+      }
+    },
     swap( newIR: TemplateIR ): SwapReport {
       const changes: SwapChange[] = []
-      renderer = new IRRenderer( newIR, options )
+      renderer = new IRRenderer( newIR, options, hooks )
       current = renderer.swapBlock( current, newIR.root, changes, 'root' )
       return { changes }
     },
-    dispose(){ destroy( current ) }
+    dispose(){
+      destroy( current )
+      try {
+        attached && typeof self.onDetach === 'function' && self.onDetach()
+        typeof self.onDestroy === 'function' && self.onDestroy()
+      }
+      catch( error ){ hooks.onError( error ) }
+    }
   }
 }
