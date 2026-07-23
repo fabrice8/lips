@@ -14,5 +14,6 @@ export type { TemplateIR, BlockIR, BindIR, ChildIR, CompInput, CompileResult } f
 
 export { renderIR } from './runtime'
 export type { IRInstance, IRComponentDef, RuntimeOptions, RenderSetup } from './runtime'
+export type { SwapReport, SwapChange } from './swap'
 
 export { signal, effect, untrack, reactive } from './signal'

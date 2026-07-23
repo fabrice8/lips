@@ -1,5 +1,5 @@
 /**
- * Phase 2 — IR runtime (RFC-001 §6)
+ * Phase 2 — IR runtime (RFC-001 §6, §8)
  *
  * TemplateIR → live DOM:
  *  - skeletons parsed ONCE per block into <template>, instantiated
@@ -11,12 +11,22 @@
  *    control-flow content moves/disposes as a range
  *  - dual expression modes over the same IR: 'compiled' (Function,
  *    trusted) / 'interpreted' (sandboxed AST walker, CSP-safe)
+ *
+ * Hot-swap (§8): instances retain their structure (bind handles,
+ * child handles, resolved path nodes) so `instance.swap( newIR )`
+ * can diff old vs new by expression source and update surgically:
+ *  - identical subtrees   → kept wholesale (zero DOM work)
+ *  - bind-only changes    → effects rewired onto the SAME nodes
+ *  - skeleton changes     → that block re-rendered in place
+ * State lives outside the IR, so it survives by construction.
  */
 
-import type { TemplateIR, BlockIR, ChildIR, CompInput, E, Path } from './compiler'
+import type { TemplateIR, BlockIR, BindIR, ChildIR, CompInput, E, Path } from './compiler'
 import type { ExprEnv, Expr } from './expression'
 import { parseExpression, compileExpression, interpretExpression } from './expression'
 import { signal, effect, untrack, reactive } from './signal'
+import type { SwapChange, SwapReport } from './swap'
+import { sameBinds, sameChild, sameLets } from './swap'
 
 // ------------------------------------------------------------------- types
 export interface IRComponentDef {
@@ -42,16 +52,36 @@ export interface IRInstance {
   state: Record<string, any>
   nodes: Node[]
   mount( container: Element ): void
+  swap( newIR: TemplateIR ): SwapReport
   dispose(): void
 }
 
 type RunEnv = ExprEnv
 
-/** A rendered block: bracketed range + owned effect disposers */
+interface BindHandle {
+  bind: BindIR
+  node: Node
+  textNode?: Text
+  dispose: () => void
+}
+interface ChildHandle {
+  child: ChildIR
+  exprs: string[]
+  anchor: Comment
+  dispose: () => void
+}
+
+/** A rendered block: bracketed range + retained structure for swap */
 interface BlockInstance {
   start: Comment
   end: Comment
-  disposers: ( () => void )[]
+  block: BlockIR
+  exprs: string[]
+  penv: RunEnv                    // parent env (for full re-render)
+  benv: RunEnv                    // env with this block's scope layer
+  pathNodes: Map<string, Node>    // pathKey → resolved node (binds + anchors)
+  bindHandles: BindHandle[]
+  childHandles: ChildHandle[]
 }
 
 // ----------------------------------------------------------------- helpers
@@ -75,6 +105,8 @@ function skeleton( block: BlockIR ): HTMLTemplateElement {
   }
   return tpl
 }
+
+const pathKey = ( p: Path ) => p.join(',')
 
 function resolvePath( root: ParentNode, p: Path ): Node {
   let node: any = root
@@ -101,9 +133,13 @@ function insertAfter( ref: Node, nodes: Node[] ){
     anchor = n
   }
 }
+function disposeInstance( inst: BlockInstance ){
+  for( const h of inst.bindHandles ) h.dispose()
+  for( const h of inst.childHandles ) h.dispose()
+}
 function destroy( inst: BlockInstance | null ){
   if( !inst ) return
-  for( const d of inst.disposers ) d()
+  disposeInstance( inst )
   for( const n of nodesOf( inst ) ) ( n as ChildNode ).remove()
 }
 
@@ -144,12 +180,11 @@ const defineGetter = ( scope: any, name: string, get: () => any ) =>
 
 // ---------------------------------------------------------------- renderer
 class IRRenderer {
-  constructor( private ir: TemplateIR, private options: RuntimeOptions ){}
+  constructor( readonly ir: TemplateIR, private options: RuntimeOptions ){}
 
   /** Expression runner for a table entry, honoring the execution mode */
   private runner( e: E, scopeNames: string[] ): ( env: RunEnv ) => any {
-    const src = this.ir.exprs[ e ]
-    return this.srcRunner( src, scopeNames )
+    return this.srcRunner( this.ir.exprs[ e ], scopeNames )
   }
   private srcRunner( src: string, scopeNames: string[] ): ( env: RunEnv ) => any {
     if( this.options.mode === 'interpreted' ){
@@ -161,17 +196,24 @@ class IRRenderer {
   }
 
   renderBlock( block: BlockIR, env: RunEnv ): BlockInstance {
-    const
-    frag = skeleton( block ).content.cloneNode( true ) as DocumentFragment,
-    disposers: ( () => void )[] = []
+    const frag = skeleton( block ).content.cloneNode( true ) as DocumentFragment
 
     /**
      * Resolve every bind/anchor path BEFORE any mutation —
      * runtime insertions (text nodes, markers, arm content)
      * shift childNodes indices.
      */
-    const bindNodes = block.binds.map( b => resolvePath( frag, b.p ) )
-    const anchorNodes = block.blocks.map( b => resolvePath( frag, b.p ) as Comment )
+    const pathNodes = new Map<string, Node>()
+    const bindNodes = block.binds.map( b => {
+      const node = resolvePath( frag, b.p )
+      pathNodes.set( pathKey( b.p ), node )
+      return node
+    })
+    const anchorNodes = block.blocks.map( b => {
+      const node = resolvePath( frag, b.p ) as Comment
+      pathNodes.set( pathKey( b.p ), node )
+      return node
+    })
 
     // Bracket the block content as an owned range
     const start = document.createComment('^')
@@ -183,13 +225,23 @@ class IRRenderer {
     const scope = Object.create( env.scope ?? null )
     const benv: RunEnv = { ...env, scope }
 
+    const inst: BlockInstance = {
+      start, end, block,
+      exprs: this.ir.exprs,
+      penv: env, benv,
+      pathNodes,
+      bindHandles: [],
+      childHandles: []
+    }
+
     /**
      * <let>/<const> pass first — their names are visible to
      * every bind of this block (RFC decision #1)
      */
-    block.blocks.forEach( child => {
+    block.blocks.forEach( ( child, i ) => {
       if( child.t !== 'let' ) return
 
+      const letDisposers: ( () => void )[] = []
       for( const [ name, input ] of Object.entries( child.vars ) ){
         if( 'lit' in input ){
           const [ get ] = signal( input.lit )
@@ -199,74 +251,161 @@ class IRRenderer {
           const [ get, set ] = signal<any>( undefined )
           defineGetter( scope, name, get )
           const run = this.runner( input.e, block.scope )
-          disposers.push( effect( () => set( run( benv ) ) ).dispose )
+          letDisposers.push( effect( () => set( run( benv ) ) ).dispose )
         }
+      }
+
+      inst.childHandles[ i ] = {
+        child, exprs: this.ir.exprs, anchor: anchorNodes[ i ],
+        dispose: () => letDisposers.forEach( d => d() )
       }
     })
 
     // Binds — one effect each
-    block.binds.forEach( ( bind, i ) => {
-      const node = bindNodes[ i ]
-
-      switch( bind.t ){
-        case 'text': {
-          const textNode = document.createTextNode('')
-          insertAfter( node, [ textNode ] )
-          const run = this.runner( bind.e, block.scope )
-          disposers.push( effect( () => {
-            const v = run( benv )
-            textNode.data = v == null ? '' : String( v )
-          }).dispose )
-          break
-        }
-        case 'attr': {
-          const run = this.runner( bind.e, block.scope )
-          disposers.push( effect( () => applyAttr( node as Element, bind.name, run( benv ) ) ).dispose )
-          break
-        }
-        case 'prop': {
-          const run = this.runner( bind.e, block.scope )
-          disposers.push( effect( () => {
-            const v = run( benv )
-            bind.name === 'html'
-              ? ( node as Element ).innerHTML = v == null ? '' : String( v )
-              // 'text' | 'format' — format is the i18n plugin hook (Phase 3)
-              : ( node as Element ).textContent = v == null ? '' : String( v )
-          }).dispose )
-          break
-        }
-        case 'event': {
-          const handler = this.eventDispatcher( this.ir.exprs[ bind.e ], block.scope, benv )
-          ;( node as Element ).addEventListener( bind.name, handler )
-          disposers.push( () => ( node as Element ).removeEventListener( bind.name, handler ) )
-          break
-        }
-        case 'spread': {
-          const run = this.runner( bind.e, block.scope )
-          let prev = new Set<string>()
-          disposers.push( effect( () => {
-            const obj = run( benv ) || {}
-            const next = new Set<string>( Object.keys( obj ) )
-            for( const k of prev ) !next.has( k ) && ( node as Element ).removeAttribute( k )
-            for( const k of next ) applyAttr( node as Element, k, obj[ k ] )
-            prev = next
-          }).dispose )
-          break
-        }
-      }
-    })
+    inst.bindHandles = block.binds.map( ( bind, i ) =>
+      this.bindOne( bind, bindNodes[ i ], benv, block.scope ) )
 
     // Control-flow / component blocks
     block.blocks.forEach( ( child, i ) => {
       if( child.t === 'let' ) return
-      this.execBlock( child, anchorNodes[ i ], benv, block.scope, disposers )
+      inst.childHandles[ i ] = {
+        child, exprs: this.ir.exprs, anchor: anchorNodes[ i ],
+        dispose: this.execBlock( child, anchorNodes[ i ], benv, block.scope )
+      }
     })
 
-    return { start, end, disposers }
+    return inst
+  }
+
+  /** Wire one bind onto its node; returns a swap-capable handle */
+  private bindOne( bind: BindIR, node: Node, benv: RunEnv, scopeNames: string[], reuseText?: Text ): BindHandle {
+    switch( bind.t ){
+      case 'text': {
+        const textNode = reuseText ?? document.createTextNode('')
+        !reuseText && insertAfter( node, [ textNode ] )
+        const run = this.runner( bind.e, scopeNames )
+        const h = effect( () => {
+          const v = run( benv )
+          textNode.data = v == null ? '' : String( v )
+        })
+        return { bind, node, textNode, dispose: h.dispose }
+      }
+      case 'attr': {
+        const run = this.runner( bind.e, scopeNames )
+        const h = effect( () => applyAttr( node as Element, bind.name, run( benv ) ) )
+        return { bind, node, dispose: h.dispose }
+      }
+      case 'prop': {
+        const run = this.runner( bind.e, scopeNames )
+        const h = effect( () => {
+          const v = run( benv )
+          bind.name === 'html'
+            ? ( node as Element ).innerHTML = v == null ? '' : String( v )
+            // 'text' | 'format' — format is the i18n plugin hook (Phase 3)
+            : ( node as Element ).textContent = v == null ? '' : String( v )
+        })
+        return { bind, node, dispose: h.dispose }
+      }
+      case 'event': {
+        const handler = this.eventDispatcher( this.ir.exprs[ bind.e ], scopeNames, benv )
+        ;( node as Element ).addEventListener( bind.name, handler )
+        return { bind, node, dispose: () => ( node as Element ).removeEventListener( bind.name, handler ) }
+      }
+      case 'spread': {
+        const run = this.runner( bind.e, scopeNames )
+        let prev = new Set<string>()
+        const h = effect( () => {
+          const obj = run( benv ) || {}
+          const next = new Set<string>( Object.keys( obj ) )
+          for( const k of prev ) !next.has( k ) && ( node as Element ).removeAttribute( k )
+          for( const k of next ) applyAttr( node as Element, k, obj[ k ] )
+          prev = next
+        })
+        return { bind, node, dispose: h.dispose }
+      }
+    }
+  }
+
+  // ----------------------------------------------------------------- swap
+  /**
+   * Diff-and-patch a live block against a new BlockIR (whose E
+   * indices refer to THIS renderer's expression table). Returns
+   * the live instance — a fresh one when a rebuild was needed.
+   */
+  swapBlock( inst: BlockInstance, newBlock: BlockIR, report: SwapChange[], path: string ): BlockInstance {
+    /**
+     * Structural rebuild triggers: skeleton, scope shape, or
+     * let wiring changed — re-render this block in place.
+     * (Worst case equals a fresh render — never worse.)
+     */
+    if( inst.block.html !== newBlock.html
+        || JSON.stringify( inst.block.scope ) !== JSON.stringify( newBlock.scope )
+        || !sameLets( inst.block, inst.exprs, newBlock, this.ir.exprs ) )
+      return this.rebuild( inst, newBlock, report, path )
+
+    // Bind-only changes: rewire effects onto the SAME nodes
+    if( !sameBinds( inst.block.binds, inst.exprs, newBlock.binds, this.ir.exprs ) ){
+      const nodes = newBlock.binds.map( b => inst.pathNodes.get( pathKey( b.p ) ) )
+
+      // A bind on a path we never resolved → degrade to rebuild
+      if( nodes.some( n => !n ) )
+        return this.rebuild( inst, newBlock, report, path )
+
+      const oldTexts = new Map<string, Text>()
+      inst.bindHandles.forEach( h => h.textNode && oldTexts.set( pathKey( h.bind.p ), h.textNode ) )
+      inst.bindHandles.forEach( h => h.dispose() )
+
+      const reused = new Set<string>()
+      inst.bindHandles = newBlock.binds.map( ( b, i ) => {
+        const key = pathKey( b.p )
+        const reuse = b.t === 'text' ? oldTexts.get( key ) : undefined
+        reuse && reused.add( key )
+        return this.bindOne( b, nodes[ i ]!, inst.benv, newBlock.scope, reuse )
+      })
+      // Text nodes whose bind disappeared
+      oldTexts.forEach( ( tn, key ) => !reused.has( key ) && tn.remove() )
+
+      report.push({ kind: 'binds', path })
+    }
+
+    /**
+     * Children pairwise (equal html ⇒ equal anchor count):
+     * identical-by-source subtrees are kept wholesale; changed
+     * subtrees re-execute at their existing anchor.
+     */
+    for( let i = 0; i < newBlock.blocks.length; i++ ){
+      const newChild = newBlock.blocks[ i ]
+      const oldH = inst.childHandles[ i ]
+      if( newChild.t === 'let' ) continue // covered by sameLets above
+
+      if( oldH && sameChild( oldH.child, oldH.exprs, newChild, this.ir.exprs ) ) continue
+
+      oldH?.dispose()
+      inst.childHandles[ i ] = {
+        child: newChild, exprs: this.ir.exprs, anchor: oldH.anchor,
+        dispose: this.execBlock( newChild, oldH.anchor, inst.benv, newBlock.scope )
+      }
+      report.push({ kind: 'block', path: `${path}/${i}` })
+    }
+
+    inst.block = newBlock
+    inst.exprs = this.ir.exprs
+    return inst
+  }
+
+  private rebuild( inst: BlockInstance, newBlock: BlockIR, report: SwapChange[], path: string ): BlockInstance {
+    const fresh = this.renderBlock( newBlock, inst.penv )
+    insertAfter( inst.end, nodesOf( fresh ) )
+    destroy( inst )
+    report.push({ kind: 'skeleton', path })
+    return fresh
   }
 
   // -------------------------------------------------------------- executors
-  private execBlock( child: ChildIR, anchor: Comment, benv: RunEnv, scopeNames: string[], disposers: ( () => void )[] ){
+  /** Execute a control-flow/component block; returns its disposer */
+  private execBlock( child: ChildIR, anchor: Comment, benv: RunEnv, scopeNames: string[] ): () => void {
+    const disposers: ( () => void )[] = []
+
     switch( child.t ){
       case 'if': {
         const runs = child.branches.map( b => b.when != null ? this.runner( b.when, scopeNames ) : null )
@@ -419,6 +558,8 @@ class IRRenderer {
         break
       }
     }
+
+    return () => disposers.forEach( d => d() )
   }
 
   /** Keyed <for> — per-item scope signals, range moves, natural entry keys */
@@ -657,13 +798,19 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
     scope: undefined
   }
 
-  const renderer = new IRRenderer( ir, options )
-  const inst = renderer.renderBlock( ir.root, env )
+  let renderer = new IRRenderer( ir, options )
+  let current = renderer.renderBlock( ir.root, env )
 
   return {
     state,
-    get nodes(){ return nodesOf( inst ) },
-    mount( container: Element ){ container.append( ...nodesOf( inst ) ) },
-    dispose(){ destroy( inst ) }
+    get nodes(){ return nodesOf( current ) },
+    mount( container: Element ){ container.append( ...nodesOf( current ) ) },
+    swap( newIR: TemplateIR ): SwapReport {
+      const changes: SwapChange[] = []
+      renderer = new IRRenderer( newIR, options )
+      current = renderer.swapBlock( current, newIR.root, changes, 'root' )
+      return { changes }
+    },
+    dispose(){ destroy( current ) }
   }
 }
