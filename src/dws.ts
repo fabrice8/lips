@@ -2,7 +2,7 @@ import { Metavars } from './types'
 import type Component from './component'
 
 type WatchData = {
-  timeout: NodeJS.Timeout
+  timeout: ReturnType<typeof setTimeout>
   type: 'attach' | 'detach'
 }
 
