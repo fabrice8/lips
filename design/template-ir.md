@@ -202,15 +202,16 @@ compiler → runtime (binds, then control-flow blocks, then components) → keye
 reconciler → hot-swap. Each stage lands with its own specs; the existing suite runs
 against the flag in CI from the first runtime milestone.
 
-## 10. Open questions
+## 10. Resolved decisions (maintainer review, 2026-07-23)
 
-1. **Scope vars** (`<let>`/`<const>`) — compile into block-local signal slots, or keep
-   evaluation-scope objects? (Leaning: block-local slots; deps become precise.)
-2. **Spread ordering** — codify the before/after-spread precedence rules the current
-   engine implements ad hoc; needs a spec section before compiler work.
-3. **i18n hook points** — plugin taps at text/attr bind evaluation, so `@lipsjs/i18n`
-   can leave the core (Phase 3 split); confirm the hook shape early.
-4. **Interpolation of nullish values** — IR engine renders `''` (matching React/Vue)
-   vs current literal `"undefined"`; breaking-change note or compat flag?
-5. **`.lips` single-file format** — the parser should accept the `demos/jsml` SFC layout
-   (frontscript + template) so the playground lands on the same parser.
+1. **Scope vars** (`<let>`/`<const>`) → **block-local signal slots**; deps become precise.
+2. **Spread ordering** → the before/after-spread precedence rules the current engine
+   implements ad hoc get a codified spec section before compiler work starts.
+3. **i18n hook points** → plugin taps at text/attr bind evaluation; hook shape confirmed
+   early in Phase 2 so `@lipsjs/i18n` can leave the core in Phase 3.
+4. **Interpolation of nullish values** → IR engine renders **`''`** (matching React/Vue).
+   Breaking change vs the current literal `"undefined"` — ships with a changelog entry
+   when the engine default flips; no compat flag.
+5. **`.lips` single-file format** → **first-class parser input from day one**: the parser
+   accepts the `demos/jsml` SFC layout (frontscript + template), so the playground and
+   Modela's generated artifacts share one parser.
