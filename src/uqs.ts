@@ -96,7 +96,15 @@ export default class UpdateQueue<MT extends Metavars > {
         typeof sync.cleanup === 'function' && sync.cleanup()
       }
     }
-    catch( error ){ console.error( 'Failed to update dependency --', error ) }
+    catch( error ){
+      /**
+       * Route update failures through the component's
+       * error boundary when defined.
+       */
+      typeof ( this.component as any ).onError === 'function'
+              ? ( this.component as any ).onError( error )
+              : console.error( 'Failed to update dependency --', error )
+    }
   }
   
   /**

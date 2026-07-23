@@ -450,7 +450,17 @@ export default class Component<MT extends Metavars> extends Events {
   setHandler( list: Handler<MT> ){
     Object
     .entries( list )
-    .map( ([ method, fn ]) => this[ method ] = fn?.bind(this) )
+    .map( ([ method, fn ]) => {
+      /**
+       * Reject handler names that would silently clobber
+       * the component's own API (render, destroy, node,
+       * emit, state, …).
+       */
+      if( reservedMembers().has( method ) )
+        throw new Error(`Handler <${method}> is a reserved component member name`)
+
+      this[ method ] = fn?.bind(this)
+    })
   }
   setStylesheet( sheet?: string ){
     const cssOptions = {
@@ -661,7 +671,7 @@ export default class Component<MT extends Metavars> extends Events {
        */
       self.metrics.inc('elementCount')
     }
-    function execDynamicElement( $node: Cash, dtag: string, verb: MeshRenderer | string | null ): Cash {
+    function execDynamicElement( $node: Cash, dtag: string, verb: any ): Cash {
       const
       { attrs } = self.__getAttributes__( $node ),
       elementPath = generatePath('element'),
@@ -858,8 +868,12 @@ export default class Component<MT extends Metavars> extends Events {
 
       /**
        * Dynamic mesh rendering
+       *
+       * IMPORTANT: `null` is a valid verb (nothing to
+       * render yet — e.g. a router before first navigation)
+       * and must not reach `renderer.mesh`.
        */
-      if( isMesh( verb ) ){
+      if( verb && isMesh( verb ) ){
         renderer = verb as MeshRenderer
 
         // Process argvalues and dependencies track
@@ -867,8 +881,8 @@ export default class Component<MT extends Metavars> extends Events {
 
         /**
          * Return all possible arguments passed to the
-         * dynamic element in a single object variable 
-         * form that can be accessible in macro template 
+         * dynamic element in a single object variable
+         * form that can be accessible in macro template
          * as `arguments`.
          */
         contextScope.__arguments__ = __arguments__
@@ -878,30 +892,37 @@ export default class Component<MT extends Metavars> extends Events {
           $fragment = $fragment.add( $log )
       }
       /**
+       * Dynamic component template object rendering —
+       * scoped under the element's path so swapped-out
+       * instances can be disposed by path containment.
+       */
+      else if( isTemplate( verb ) )
+        $fragment = $fragment.add( self.__withPath__( elementPath, () => execComponent( $node, { template: verb } ) ) )
+      /**
        * Dynamic component, macro or element
        * rendering.
        */
       else if( typeof verb === 'string' ){
         /**
         * Process dynamic macro set by:
-        * 
+        *
         * Syntax `<{[dynamic-name]}/>`
         * processed to `<lips :dtag="[dynamic-name]"></lips>`
         */
         if( self.__macros.has( verb ) )
-          $fragment = $fragment.add( execMacro( $node, verb ) )
+          $fragment = $fragment.add( self.__withPath__( elementPath, () => execMacro( $node, verb ) ) )
 
         /**
         * Process dynamic component tag set by:
-        * 
+        *
         * Syntax `<{[dynamic-name]}/>`
         * processed to `<lips :dtag="[dynamic-name]"></lips>`
         */
         else if( self.lips.has( verb ) )
-          $fragment = $fragment.add( execComponent( $node, { name: verb } ) )
+          $fragment = $fragment.add( self.__withPath__( elementPath, () => execComponent( $node, { name: verb } ) ) )
 
         // Render standard HTML element
-        else $fragment = $fragment.add( execElement( $node, verb ) )
+        else $fragment = $fragment.add( self.__withPath__( elementPath, () => execElement( $node, verb ) ) )
       }
 
       // Track FGU dependency update on the dynamic tag
@@ -924,12 +945,19 @@ export default class Component<MT extends Metavars> extends Events {
             renderer.cleanup( boundaries )
             renderer = null
           }
-          else self.__emptyBoundaries__( boundaries, elementPath )
+          /**
+           * Swapped-out dynamic content never returns:
+           * dispose its component instances as well.
+           */
+          else self.__emptyBoundaries__( boundaries, elementPath, true )
           
           /**
            * The mesh renderer changed
+           *
+           * NOTE: `null` is a valid verb (render nothing) —
+           * boundaries were emptied above, nothing more to do.
            */
-          if( isMesh( verb ) ){
+          if( verb && isMesh( verb ) ){
             renderer = verb as MeshRenderer
 
             // Reset attribute trackers
@@ -938,7 +966,7 @@ export default class Component<MT extends Metavars> extends Events {
             // Update arguments dep nodes
             renderer.argv.length
             && self.__updateArgumentsDepNodes__( elementPath, __arguments__ )
-            
+
             // Rerender mesh content.
             $newContent = renderer.mesh( argvalues, memo )
 
@@ -947,41 +975,41 @@ export default class Component<MT extends Metavars> extends Events {
           }
 
           /**
-           * Render dynamic template only when first 
+           * Render dynamic template only when first
            * time renderer is `null` and the element's
            * dynamic update provide a component `template`
            * instead of a mesh `renderer`.
            */
           else if( isTemplate( verb ) ){
-            $newContent = execComponent( $node, { template: verb }, memo )
+            $newContent = self.__withPath__( elementPath, () => execComponent( $node, { template: verb }, memo ) )
             self.__fillBoundaries__( $newContent, boundaries )
           }
-        
+
           /**
           * Process dynamic macro set by:
-          * 
+          *
           * Syntax `<{[dynamic-name]}/>`
           * processed to `<lips :dtag="[dynamic-name]"></lips>`
           */
           else if( typeof verb === 'string' && self.__macros.has( verb ) ){
-            $newContent = execMacro( $node, verb, memo )
+            $newContent = self.__withPath__( elementPath, () => execMacro( $node, verb, memo ) )
             self.__fillBoundaries__( $newContent, boundaries )
           }
 
           /**
           * Process dynamic tag set by:
-          * 
+          *
           * Syntax `<{[dynamic-name]}/>`
           * processed to `<lips :dtag="[dynamic-name]"></lips>`
           */
           else if( typeof verb === 'string' && self.lips.has( verb ) ){
-            $newContent = execComponent( $node, { name: verb }, memo )
+            $newContent = self.__withPath__( elementPath, () => execComponent( $node, { name: verb }, memo ) )
             self.__fillBoundaries__( $newContent, boundaries )
           }
 
           // Render standard HTML element
           else if( typeof verb === 'string' ){
-            $newContent = execElement( $node, verb, memo )
+            $newContent = self.__withPath__( elementPath, () => execElement( $node, verb, memo ) )
             self.__fillBoundaries__( $newContent, boundaries )
           }
         },
@@ -2139,26 +2167,15 @@ export default class Component<MT extends Metavars> extends Events {
       result = self.__evaluate__( dtag, scope )
 
       /**
-       * Process dynamic component rendering tag set by:
-       * 
-       * Syntax `<{[template-object]}/>`
-       * processed to `<lips :dtag="[template-object]"></lips>`
+       * Every dynamic verb — template object, mesh renderer,
+       * component/tag name, or null — routes through
+       * execDynamicElement so the dtag dependency is ALWAYS
+       * tracked and later swaps re-render.
+       *
+       * (Template objects previously short-circuited to
+       * execComponent and never re-rendered on change.)
        */
-      if( isTemplate( result ) )
-        return execComponent( $node, { template: result } )
-
-      /**
-       * Process dynamic content rendering tag set by:
-       * 
-       * Syntax `<{input.render}/>`
-       * processed to `<lips :dtag=input.render></lips>`
-       * 
-       * or
-       * 
-       * Syntax `<{standard-tagname}/>`
-       * processed to `<lips :dtag="[standard-tagname]"></lips>`
-       */
-      else return execDynamicElement( $node, dtag, result )
+      return execDynamicElement( $node, dtag, result )
     }
     function parse( $node: Cash ){
       if( $node.get(0)?.nodeType === Node.COMMENT_NODE )
@@ -2248,8 +2265,18 @@ export default class Component<MT extends Metavars> extends Events {
       self.metrics.inc('renderCount')
     }
     catch( error ){
-      console.error('Rendering Failed --', error ) 
       self.metrics.trackError( error as Error )
+
+      /**
+       * Component-level error boundary: a defined onError
+       * lifecycle handler takes over reporting; console
+       * remains the fallback.
+       */
+      typeof this.onError === 'function'
+              ? this.onError.bind(this)( error as Error )
+              : console.error('Rendering Failed --', error )
+
+      this.emit('component:error', error )
     }
     finally {
       this.__renderDepth__--
@@ -2589,7 +2616,34 @@ export default class Component<MT extends Metavars> extends Events {
       end: document.createComment(`e:${path}`)
     }
   }
-  private __emptyBoundaries__( boundaries: FragmentBoundaries, parentPath: string ){
+  private __emptyBoundaries__( boundaries: FragmentBoundaries, parentPath: string, disposeInstances = false ){
+    /**
+     * Dispose component instances rendered under this
+     * branch when the swapped-out content can never
+     * return (dynamic tag/component swaps) — otherwise
+     * PCC/SCI entries accumulate until parent destroy.
+     */
+    if( disposeInstances ){
+      this.PCC.forEach( ( component, cacheId ) => {
+        const path = cacheId.split('#')[0]
+        if( !this.__isPathWithin__( path, parentPath ) ) return
+
+        try { component.destroy() }
+        catch( error ){ console.error('failed to dispose swapped component --', error ) }
+
+        this.PCC.delete( cacheId )
+      })
+
+      this.SCI.forEach( component => {
+        if( !this.__isPathWithin__( component.__path__, parentPath ) ) return
+
+        try { component.destroy() }
+        catch( error ){ console.error('failed to dispose swapped syntax component --', error ) }
+
+        this.SCI.delete( component )
+      })
+    }
+
     /**
      * Clean tracking mesh content dependencies
      */
@@ -2742,6 +2796,17 @@ export default class Component<MT extends Metavars> extends Events {
     if( __.length > 1 ) __.pop()
 
     return __.join('/')
+  }
+  /**
+   * Strict path containment: `parent + separator` prefix,
+   * immune to the `/2` vs `/25` prefix collisions of
+   * __hasSamePathParent__ (which stays as-is for partial
+   * update targeting until Phase 2 revisits path encoding).
+   */
+  private __isPathWithin__( path: string, parent: string ){
+    return path === parent
+            || path.startsWith( parent + '/' )
+            || path.startsWith( parent + ':' )
   }
   private __hasSamePathParent__( path: string, parentPath: string ){
     return (path.startsWith( parentPath ) && !path.replace( parentPath, '' ).startsWith('.'))
@@ -3393,4 +3458,23 @@ export default class Component<MT extends Metavars> extends Events {
 
     return this
   }
+}
+
+/**
+ * Component/Events API members that template handlers
+ * must not override. Computed lazily — the class must be
+ * fully defined before its prototype is inspected.
+ */
+let RESERVED_MEMBERS: Set<string> | null = null
+function reservedMembers(): Set<string> {
+  if( !RESERVED_MEMBERS )
+    RESERVED_MEMBERS = new Set([
+      ...Object.getOwnPropertyNames( Component.prototype ),
+      ...Object.getOwnPropertyNames( Events.prototype ),
+      // Critical instance fields
+      'state', 'input', 'context', 'static', 'lips', 'metrics', 'stylesheet',
+      'FGUD', 'FGUDMemory', 'UQS', 'ICE', 'PCC', 'SCI', 'VER'
+    ])
+
+  return RESERVED_MEMBERS
 }

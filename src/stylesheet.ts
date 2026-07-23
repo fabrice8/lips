@@ -56,16 +56,42 @@ export default class Stylesheet {
 
   /**
    * Wait for styles to be applied
+   *
+   * Always settles: resolves as soon as the style element
+   * is live, or after `timeout` — the observer is
+   * disconnected on every path (it previously leaked when
+   * the selector never satisfied).
    */
-  private waitForStyles( selector: string ): Promise<void>{
+  private waitForStyles( selector: string, timeout = 5000 ): Promise<void>{
     return new Promise( resolve => {
+      /**
+       * The injected <style> element's presence is the
+       * reliable signal — computed `cssText` is '' in both
+       * Chrome and jsdom, so the previous condition could
+       * never satisfy. try/catch keeps the observer callback
+       * throw-proof (a throw aborts the host's shared
+       * mutation-notification pass).
+       */
+      const applied = () => {
+        try { return !!document.querySelector( selector ) }
+        catch( e ){ return false }
+      }
+
+      // Already applied — no observer needed
+      if( applied() ) return resolve()
+
       const observer = new MutationObserver( () => {
-        const element = document.querySelector( selector )
-        if( element && getComputedStyle( element ).cssText ){
-          observer.disconnect()
-          resolve()
-        }
-      } )
+        if( !applied() ) return
+
+        clearTimeout( timer )
+        observer.disconnect()
+        resolve()
+      })
+
+      const timer = setTimeout( () => {
+        observer.disconnect()
+        resolve()
+      }, timeout )
 
       observer.observe( document.documentElement, {
         attributes: true,

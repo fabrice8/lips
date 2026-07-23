@@ -60,6 +60,7 @@ export type LifeCycleEventTypes = 'onCreate'
                                   | 'onAttach'
                                   | 'onDetach'
                                   | 'onContext'
+                                  | 'onError'
                                   | 'onDestroy'
 export interface LifecycleEvents<MT extends Metavars> {
   onCreate: ( this: Component<MT> ) => void
@@ -70,6 +71,7 @@ export interface LifecycleEvents<MT extends Metavars> {
   onAttach: ( this: Component<MT> ) => void
   onDetach: ( this: Component<MT> ) => void
   onContext: ( this: Component<MT> ) => void
+  onError: ( this: Component<MT>, error: Error ) => void
   onDestroy: ( this: Component<MT> ) => void
 }
 export type Handler<MT extends Metavars> = Partial<LifecycleEvents<MT>> & {
