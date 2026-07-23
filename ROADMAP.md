@@ -93,7 +93,7 @@ Consequences that re-rank the phases:
 > expression subsystem with dual execution, diagnostics contract, hot-swap, migration gates.
 
 - [ ] Tokenizer/parser → AST → IR; template errors with line/column
-- [ ] Expression compiler: one `Function` per unique expression, AST-derived dependency lists, per-expression cache
+- [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** sandboxed AST interpreter (CSP mode) — 31 parity specs
 - [ ] Per-key signal state; delete Proxy layer, deep-clone snapshots, and the digest loop
 - [ ] `historySignal()` opt-in wrapper; base `signal()` is value-only
 - [ ] Clone-based template instantiation (decision #5)
