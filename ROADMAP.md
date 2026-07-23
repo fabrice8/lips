@@ -64,6 +64,11 @@ Consequences that re-rank the phases:
 
 **Exit criteria:** green CI badge · reproducible one-command release · baseline benchmark numbers committed.
 
+> **Status 2026-07-23:** CI green on PR #3 · npm publishing via OIDC Trusted Publishing
+> (no token secret) · jsfb-style keyed harness in `bench/` with committed 1k baseline
+> (official js-framework-benchmark submission deferred until the Phase 2 engine lands).
+> Still open: Playwright smoke on demo apps · issue templates / contributing guide.
+
 ## Phase 1 — Correctness debt (weeks 2–6) — ✅ core complete (2026-07-23)
 
 - [~] Convert `test/test.component.ts` (3,216 lines of manual scenarios) into Vitest specs — 64-spec suite covers signals, utils, rendering, events, control flow, keyed lists, router, teardown; full demo-scenario conversion continues alongside Phase 2
@@ -83,6 +88,9 @@ Consequences that re-rank the phases:
 ## Phase 2 — The engine swap (weeks 6–12)
 
 *Same public API, new internals. Old vs new behind a flag, validated against the Phase 1 spec suite.*
+
+> **Design doc:** [design/template-ir.md](design/template-ir.md) (RFC-001) — IR format,
+> expression subsystem with dual execution, diagnostics contract, hot-swap, migration gates.
 
 - [ ] Tokenizer/parser → AST → IR; template errors with line/column
 - [ ] Expression compiler: one `Function` per unique expression, AST-derived dependency lists, per-expression cache
