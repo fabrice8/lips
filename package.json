@@ -25,6 +25,7 @@
     "dev": "bun build --entrypoints ./test/* ./src/lips.ts --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external --watch",
     "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external",
     "build:demos": "bun build --entrypoints ./test/* --entry-naming [name].min.[ext] --minify --root . --outdir ./dist --target browser --format esm --sourcemap=external",
+    "build:ir": "bun build --entrypoints ./src/ir/index.ts --entry-naming lips-ir.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external",
     "build:declaration": "tsc --project tsconfig.types.json",
     "compile": "bun run build && bun run build:demos",
     "typecheck": "tsc --noEmit",

@@ -31,20 +31,22 @@
 <div id="controls">
   <button id="run-vanilla">Run vanilla</button>
   <button id="run-ir">Run IR prototype</button>
+  <button id="run-irrt">Run IR runtime</button>
   <button id="run-lips">Run current Lips</button>
   <button id="run-all"><b>Run all</b></button>
 </div>
 <div id="status">idle</div>
 
 <table class="results" id="results">
-  <thead><tr><th>op (median ms)</th><th>vanilla</th><th>ir</th><th>lips</th></tr></thead>
+  <thead><tr><th>op (median ms)</th><th>vanilla</th><th>ir</th><th>ir-rt</th><th>lips</th></tr></thead>
   <tbody></tbody>
 </table>
 <pre id="json"></pre>
-<div id="arena"><div id="vanilla-root"></div><div id="ir-root"></div><div id="lips-root"></div></div>
+<div id="arena"><div id="vanilla-root"></div><div id="ir-root"></div><div id="irrt-root"></div><div id="lips-root"></div></div>
 
 <script type="module">
 import { signal, compileTemplate, instantiate } from '../spike/ir-engine.js'
+import { compileTemplate as compileIR, renderIR } from '../dist/lips-ir.min.js'
 import Lips from '../dist/lips.min.js'
 
 const N = 1000
@@ -227,6 +229,53 @@ function irEngine(){
   }
 }
 
+// ----------------------------------------- Phase-2 IR runtime (real engine)
+function irRtEngine(){
+  const root = document.querySelector('#irrt-root')
+  const { ir, diagnostics } = compileIR(`
+    <div>
+      <for [row] in=state.rows by="id">
+        <div class="{ state.selected === row.id ? 'row danger' : 'row' }">
+          <span class="c1">{row.id}</span>
+          <a class="c2" on-click( select, row.id )>{row.label}</a>
+        </div>
+      </for>
+    </div>`)
+  if( diagnostics.length ) console.warn('ir-rt compile diagnostics', diagnostics)
+
+  let inst = null
+
+  return {
+    name: 'ir-rt',
+    create( n ){
+      inst = renderIR( ir, {
+        state: { rows: buildData( n ), selected: null },
+        handlers: { select( id ){ this.state.selected = id } }
+      })
+      inst.mount( root )
+    },
+    replace( n ){ inst.state.rows = buildData( n ) },
+    update(){
+      // Shallow per-key reactivity: immutable-style item patches
+      inst.state.rows = inst.state.rows.map( ( r, i ) =>
+        i % 10 === 0 ? { ...r, label: r.label + ' !!!' } : r )
+    },
+    select( i ){ inst.state.selected = inst.state.rows[ i ].id },
+    swap( i, j ){
+      const rows = [ ...inst.state.rows ]
+      ;[ rows[ i ], rows[ j ] ] = [ rows[ j ], rows[ i ] ]
+      inst.state.rows = rows
+    },
+    remove( i ){ inst.state.rows = inst.state.rows.filter( ( _, k ) => k !== i ) },
+    append( n ){ inst.state.rows = [ ...inst.state.rows, ...buildData( n ) ] },
+    clear(){
+      inst?.dispose()
+      inst = null
+      root.textContent = ''
+    }
+  }
+}
+
 // ------------------------------------------------------- current Lips engine
 function lipsEngine(){
   const root = document.querySelector('#lips-root')
@@ -367,7 +416,7 @@ function render(){
 
   for( const op of OPS ){
     const tr = document.createElement('tr')
-    tr.innerHTML = `<td>${op}</td>` + [ 'vanilla', 'ir', 'lips' ].map( name => {
+    tr.innerHTML = `<td>${op}</td>` + [ 'vanilla', 'ir', 'ir-rt', 'lips' ].map( name => {
       const v = RESULTS[ name ]?.[ op ]
       return `<td>${v?.length ? median( v ).toFixed(1) : '—'}</td>`
     }).join('')
@@ -378,14 +427,16 @@ function render(){
     typeof v === 'number' ? +v.toFixed(2) : v, 2 )
 }
 
-const engines = { vanilla: vanillaEngine(), ir: irEngine(), lips: lipsEngine() }
+const engines = { vanilla: vanillaEngine(), ir: irEngine(), irrt: irRtEngine(), lips: lipsEngine() }
 
 document.querySelector('#run-vanilla').onclick = () => runEngine( engines.vanilla )
 document.querySelector('#run-ir').onclick = () => runEngine( engines.ir )
+document.querySelector('#run-irrt').onclick = () => runEngine( engines.irrt )
 document.querySelector('#run-lips').onclick = () => runEngine( engines.lips )
 document.querySelector('#run-all').onclick = async () => {
   await runEngine( engines.vanilla )
   await runEngine( engines.ir )
+  await runEngine( engines.irrt )
   await runEngine( engines.lips )
   status('ALL DONE')
 }

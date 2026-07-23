@@ -94,7 +94,8 @@ Consequences that re-rank the phases:
 
 - [x] Template parser (`src/ir/parser.ts`, 2026-07-23): recursive-descent, owns the syntax (no innerHTML/regex), error-recovering with line/col diagnostics, `.lips` SFC splitting, `<for>`-in-`<table>` proven — 32 specs
 - [x] IR compiler (`src/ir/compiler.ts`, 2026-07-23): AST → serializable TemplateIR — static skeletons with coalescing-aware integer paths, bind table (text/attr/prop/event/spread), block nodes (if-chains, keyed for, switch, async arms, let/const scope, log, comp/dynamic with inputs+events+spreads+contents), deduped expression table with compile-time validation re-anchored to template line/col; JSON round-trip + determinism proven — 31 specs
-- [ ] IR runtime: instantiate (clone + bind walk), per-key signals, keyed block reconciler
+- [x] IR runtime (`src/ir/runtime.ts` + `src/ir/signal.ts`, 2026-07-23): skeleton clone + bind walk over precomputed paths, per-key signals (no history/proxy/digest), block executors (if/switch/for/async/let/log/comp/dynamic), keyed reconciler with natural entry keys, dual execution modes, component defs with reactive input flow — 26 specs. **Benchmarked**: create ~87×, update ~147×, select ~209×, replace ~253× faster than current engine at 1k rows; ~1.6× vanilla create; 13 KB gzip (`bench/baseline/2026-07-23-1k-ir-runtime.json`)
+- [ ] Remaining: component contents/slots + events, LIS reconciler, deep-reactive opt-in, hot-swap API, engine flag + spec-parity gate
 - [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** sandboxed AST interpreter (CSP mode) — 31 parity specs
 - [ ] Per-key signal state; delete Proxy layer, deep-clone snapshots, and the digest loop
 - [ ] `historySignal()` opt-in wrapper; base `signal()` is value-only
