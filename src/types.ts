@@ -115,6 +115,12 @@ export type LipsConfig<Context extends Object> = {
   debug?: boolean
   context?: Context
   stylesheets?: string[]
+  /**
+   * Rendering engine (RFC-001 §9): 'runtime' is the current
+   * digest engine (default); 'ir' activates the Phase 2 IR
+   * engine behind the same public API.
+   */
+  engine?: 'runtime' | 'ir'
 }
 export type StyleSettings = {
   sheet?: string

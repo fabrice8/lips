@@ -32,6 +32,14 @@ import { sameBinds, sameChild, sameLets } from './swap'
 export interface IRComponentDef {
   ir: TemplateIR
   state?: Record<string, any>
+  statics?: Record<string, any>
+  /** Deep-reactive component state (old-engine parity) */
+  deep?: boolean
+  /**
+   * Methods bound to the component self — lifecycle keys
+   * (onCreate/onInput/onMount/onDestroy) are invoked by the
+   * runtime at the matching moments.
+   */
   handlers?: Record<string, ( this: any, ...args: any[] ) => any>
 }
 
@@ -46,10 +54,15 @@ export interface RenderSetup {
   context?: Record<string, any>
   static?: Record<string, any>
   handlers?: Record<string, ( this: any, ...args: any[] ) => any>
+  /** Deep-reactive root state (old-engine parity) */
+  deep?: boolean
+  /** Extra members merged onto self before handlers bind (e.g. emit) */
+  expose?: Record<string, any>
 }
 
 export interface IRInstance {
   state: Record<string, any>
+  self: Record<string, any>
   nodes: Node[]
   mount( container: Element ): void
   swap( newIR: TemplateIR ): SwapReport
@@ -572,7 +585,7 @@ class IRRenderer {
   ){
     type Item = {
       key: any
-      sigs: [ () => any, ( v: any ) => void ][]
+      sigs: [ () => any, ( v: any ) => void, () => void ][]
       inst: BlockInstance
     }
 
@@ -630,12 +643,25 @@ class IRRenderer {
         for( const t of next ){
           let key = t.key
           // Duplicate keys degrade to positional identity
-          if( seen.has( key ) ) key = `#dup:${ordered.length}`
+          if( seen.has( key ) ){
+            console.warn(`<for> duplicate key '${String( key )}' — falling back to positional identity`)
+            key = `#dup:${ordered.length}`
+          }
           seen.add( key )
 
           const existing = byKey.get( key )
           if( existing ){
-            existing.sigs.forEach( ( [ , set ], j ) => set( t.values[ j ] ) )
+            existing.sigs.forEach( ( [ get, set, touch ], j ) => {
+              const nv = t.values[ j ]
+              /**
+               * Same object reference may have mutated in place
+               * (deep-reactive mode) — force the item's binds to
+               * re-evaluate; unchanged primitives stay silent.
+               */
+              Object.is( get(), nv ) && typeof nv === 'object' && nv !== null
+                ? touch()
+                : set( nv )
+            })
             ordered.push( existing )
           }
           else {
@@ -703,16 +729,25 @@ class IRRenderer {
       }).dispose )
     }
 
-    const state = reactive( { ...( def.state || {} ) } )
-    const self: any = { state, input }
+    const state = reactive( { ...( def.state || {} ) }, def.deep ?? false )
+    const self: any = { state, input, static: def.statics }
     def.handlers && Object.entries( def.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 
-    const cenv: RunEnv = { state, input, context: benv.context, static: benv.static, self, scope: undefined }
+    // Lifecycle: creation → (initial input) → render → mount
+    typeof self.onCreate === 'function' && self.onCreate()
+    Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput()
+
+    const cenv: RunEnv = { state, input, context: benv.context, static: def.statics, self, scope: undefined }
     const renderer = new IRRenderer( def.ir, this.options )
     const inst = renderer.renderBlock( def.ir.root, cenv )
 
     insertAfter( anchor, nodesOf( inst ) )
-    disposers.push( () => destroy( inst ) )
+    typeof self.onMount === 'function' && self.onMount()
+
+    disposers.push( () => {
+      destroy( inst )
+      typeof self.onDestroy === 'function' && self.onDestroy()
+    })
     // TODO(Phase 2 follow-up): slotted contents + component events
   }
 
@@ -783,9 +818,9 @@ class IRRenderer {
 // -------------------------------------------------------------------- API
 export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: RuntimeOptions = {} ): IRInstance {
   const
-  state = reactive( setup.state || {} ),
-  input = setup.input ? reactive( setup.input ) : undefined,
-  self: any = { state, input }
+  state = reactive( setup.state || {}, setup.deep ?? false ),
+  input = setup.input ? reactive( setup.input, setup.deep ?? false ) : undefined,
+  self: any = { state, input, static: setup.static, ...( setup.expose || {} ) }
 
   setup.handlers && Object.entries( setup.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 
@@ -803,6 +838,7 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
 
   return {
     state,
+    self,
     get nodes(){ return nodesOf( current ) },
     mount( container: Element ){ container.append( ...nodesOf( current ) ) },
     swap( newIR: TemplateIR ): SwapReport {

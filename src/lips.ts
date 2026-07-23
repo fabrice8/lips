@@ -6,6 +6,7 @@ import DWS from './dws'
 import I18N from './i18n'
 import Stylesheet from './stylesheet'
 import ComponentClass from './component'
+import { IRLips } from './ir/facade'
 import { effect, signal } from './signal'
 import { isDiff } from './utils'
 import * as If from './syntax/if'
@@ -24,17 +25,27 @@ export default class Lips<Context extends Object = {}> {
   private store: Map<string, Template<any>> = new Map()
 
   private __root?: ComponentClass<any>
-  public preprocessor: TPS
+  // `!` — the constructor may return the IR facade before these assign
+  public preprocessor!: TPS
   public i18n = new I18N()
-  public watcher: DWS<any>
-  public IUC: IUC
+  public watcher!: DWS<any>
+  public IUC!: IUC
 
-  private __setLang: ( lang: string ) => void
-  private __getLang: () => string
-  private __setContext: ( ctx: Context ) => void
-  private __getContext: () => Context
+  private __setLang!: ( lang: string ) => void
+  private __getLang!: () => string
+  private __setContext!: ( ctx: Context ) => void
+  private __getContext!: () => Context
 
   constructor( config?: LipsConfig<Context> ){
+    /**
+     * RFC-001 §9 — engine flag: `{ engine: 'ir' }` swaps in the
+     * Phase 2 IR engine behind the same public API. The facade
+     * implements the compatible subset; the parity spec suite is
+     * the contract (tests/engine-parity.spec.ts).
+     */
+    if( config?.engine === 'ir' )
+      return new IRLips( config as any ) as any
+
     this.config = config
 
     if( this.config?.debug ) 

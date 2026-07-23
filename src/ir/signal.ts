@@ -14,8 +14,14 @@ type Effect = {
 
 let CURRENT: Effect | null = null
 
-export function signal<T>( value: T ): [ () => T, ( next: T ) => void ] {
+export function signal<T>( value: T ): [ () => T, ( next: T ) => void, () => void ] {
   const subs = new Set<Effect>()
+
+  const notify = () => {
+    // Copy: effects may retrack while running
+    for( const e of [ ...subs ] )
+      !e.disposed && e.run()
+  }
 
   const read = () => {
     if( CURRENT && !CURRENT.disposed ){
@@ -27,13 +33,15 @@ export function signal<T>( value: T ): [ () => T, ( next: T ) => void ] {
   const write = ( next: T ) => {
     if( Object.is( next, value ) ) return
     value = next
-
-    // Copy: effects may retrack while running
-    for( const e of [ ...subs ] )
-      !e.disposed && e.run()
+    notify()
   }
+  /**
+   * Force-notify without a value change — the deep-reactive
+   * facade uses this when nested content mutates in place.
+   */
+  const touch = () => notify()
 
-  return [ read, write ]
+  return [ read, write, touch ]
 }
 
 export interface EffectHandle {
@@ -80,15 +88,21 @@ export function untrack<T>( fn: () => T ): T {
 const IS_REACTIVE = Symbol('lips.reactive')
 
 /**
- * Per-key reactive facade over a plain object (shallow):
+ * Per-key reactive facade over a plain object:
  * reading a key inside an effect subscribes to that key;
  * writing notifies only that key's subscribers.
  * Idempotent — wrapping a reactive object returns it as-is.
+ *
+ * Shallow by default (RFC §6). `deep: true` opts into nested
+ * mutation tracking: plain objects/arrays read through a key are
+ * lazily proxied, and any nested write force-notifies that top
+ * key's subscribers (coarse but O(subscribers-of-key)).
  */
-export function reactive<T extends object>( obj: T ): T {
+export function reactive<T extends object>( obj: T, deep = false ): T {
   if( ( obj as any )[ IS_REACTIVE ] ) return obj
 
-  const sigs = new Map<PropertyKey, [ () => any, ( v: any ) => void ]>()
+  const sigs = new Map<PropertyKey, [ () => any, ( v: any ) => void, () => void ]>()
+  const wrapped = deep ? new WeakMap<object, any>() : null
 
   const sigFor = ( key: PropertyKey, initial: any ) => {
     let s = sigs.get( key )
@@ -99,10 +113,45 @@ export function reactive<T extends object>( obj: T ): T {
     return s
   }
 
+  /** Only plain objects/arrays are deep-wrapped (Map/Date/etc. pass through) */
+  const isPlain = ( v: any ) =>
+    v !== null && typeof v === 'object'
+    && ( Array.isArray( v ) || Object.getPrototypeOf( v ) === Object.prototype )
+
+  const deepWrap = ( value: any, touch: () => void ): any => {
+    if( !deep || !isPlain( value ) ) return value
+
+    const hit = wrapped!.get( value )
+    if( hit ) return hit
+
+    const proxy = new Proxy( value, {
+      get( t: any, k ){
+        const v = t[ k ]
+        return isPlain( v ) ? deepWrap( v, touch ) : v
+      },
+      set( t: any, k, v ){
+        t[ k ] = v
+        touch()
+        return true
+      },
+      deleteProperty( t: any, k ){
+        delete t[ k ]
+        touch()
+        return true
+      }
+    })
+
+    wrapped!.set( value, proxy )
+    return proxy
+  }
+
   return new Proxy( obj, {
     get( target: any, key ){
       if( key === IS_REACTIVE ) return true
-      if( typeof key === 'string' ) return sigFor( key, target[ key ] )[0]()
+      if( typeof key === 'string' ){
+        const s = sigFor( key, target[ key ] )
+        return deepWrap( s[0](), s[2] )
+      }
       return target[ key ]
     },
     set( target: any, key, value ){
