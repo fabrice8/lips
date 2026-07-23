@@ -15,12 +15,15 @@ import type { TemplateIR } from './compiler'
 import { compileTemplate } from './compiler'
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import { renderIR } from './runtime'
-import { reactive } from './signal'
+import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
+import I18N from '../i18n'
+import { routerTemplate } from './router'
 
 interface FacadeTemplate {
   default?: string
+  macros?: string
   state?: Record<string, any>
   handler?: Record<string, ( this: any, ...args: any[] ) => any>
   _static?: Record<string, any>
@@ -59,7 +62,7 @@ export class IRFacadeComponent extends Events {
   readonly state: Record<string, any>
   private instance: IRInstance
   private stylesheet?: Stylesheet
-  private lifecycleSelf: Record<string, any>
+  private contextWatcher?: () => void
   private destroyed = false
 
   constructor(
@@ -77,19 +80,10 @@ export class IRFacadeComponent extends Events {
     const inputR = input ? reactive( { ...input }, true ) : undefined
 
     /**
-     * Pre-render lifecycle runs against a self that shares the
-     * reactive stores with the rendered instance.
+     * The runtime owns the whole lifecycle (create → input →
+     * render → mount → attach → destroy) for root and nested
+     * components alike — the facade only supplies wiring.
      */
-    this.lifecycleSelf = {
-      state: this.state,
-      input: inputR,
-      static: template._static,
-      context: lips.getContext(),
-      emit: ( event: string, ...args: any[] ) => this.emit( event, ...args )
-    }
-    handlers?.onCreate?.call( this.lifecycleSelf )
-    input && Object.keys( input ).length && handlers?.onInput?.call( this.lifecycleSelf )
-
     this.instance = renderIR( ir, {
       state: this.state,
       input: inputR,
@@ -97,12 +91,24 @@ export class IRFacadeComponent extends Events {
       static: template._static,
       handlers,
       deep: true,
-      expose: { emit: this.lifecycleSelf.emit, context: lips.getContext() }
+      expose: {
+        emit: ( event: string, ...args: any[] ) => this.emit( event, ...args ),
+        context: lips.getContext()
+      }
     }, options )
 
     template.stylesheet && ( this.stylesheet = new Stylesheet( name, { sheet: template.stylesheet } ) )
 
-    handlers?.onMount?.call( this.instance.self )
+    /**
+     * Context subscription: components declaring `context: [...]`
+     * get onContext whenever a declared field changes.
+     */
+    if( template.context?.length && typeof handlers?.onContext === 'function' )
+      this.contextWatcher = lips.watchContext( template.context, () => {
+        try { handlers.onContext!.call( this.instance.self ) }
+        catch( error ){ console.error('[lips:ir]', error ) }
+      })
+
     this.emit('component:mount')
   }
 
@@ -120,9 +126,10 @@ export class IRFacadeComponent extends Events {
     if( this.destroyed ) return
     this.destroyed = true
 
+    this.contextWatcher?.()
+    // dispose() runs onDetach/onDestroy — the runtime owns lifecycle
     this.instance.dispose()
     this.stylesheet?.clear()
-    this.template.handler?.onDestroy?.call( this.instance.self )
     this.emit('component:destroy')
   }
 }
@@ -136,6 +143,11 @@ export class IRLips {
   private context: Record<string, any>
   private __root?: IRFacadeComponent
 
+  public i18n = new I18N()
+  /** Language signal — translated binds subscribe through it */
+  private getLang: () => string
+  private setLang: ( v: string ) => void
+
   /**
    * Registered components resolved lazily — the runtime looks
    * names up per render, so registration order doesn't matter.
@@ -145,6 +157,13 @@ export class IRLips {
   constructor( private config?: FacadeConfig ){
     this.debug = !!config?.debug
     this.context = reactive( { ...( config?.context || {} ) }, true )
+
+    const [ getLang, setLang ] = signal( this.i18n.lang )
+    this.getLang = getLang
+    this.setLang = setLang
+
+    // Built-in components
+    this.register('router', routerTemplate as FacadeTemplate )
 
     const self = this
     this.componentsProxy = new Proxy( {} as Record<string, IRComponentDef>, {
@@ -170,7 +189,7 @@ export class IRLips {
   private compile( template: FacadeTemplate ): TemplateIR {
     let ir = this.irCache.get( template )
     if( !ir ){
-      const result = compileTemplate( template.default || '' )
+      const result = compileTemplate( template.default || '', { macros: template.macros })
       result.diagnostics.length
         && console.warn('[lips:ir] template diagnostics —', result.diagnostics )
 
@@ -186,6 +205,7 @@ export class IRLips {
         ir: this.compile( template ),
         state: template.state,
         statics: template._static,
+        context: template.context,
         handlers: guardHandlers( template.handler ),
         deep: true
       }
@@ -198,7 +218,33 @@ export class IRLips {
   render( name: string, template: FacadeTemplate, input?: Record<string, any> ){
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), {
       mode: this.config?.mode,
-      components: this.componentsProxy
+      components: this.componentsProxy,
+      watchContext: ( fields, fn ) => this.watchContext( fields, fn ),
+      /**
+       * Route pages (and any `<{templateObject}/>`) are plain
+       * template objects — compile + cache them on demand.
+       */
+      resolveTemplate: ( value: any ) =>
+        value && typeof value.default === 'string'
+          ? this.defFor( value.name || 'dynamic', value as FacadeTemplate )
+          : undefined,
+      expose: {
+        setContext: ( arg: any, value?: any ) => this.setContext( arg, value )
+      },
+      i18n: {
+        /**
+         * Reading the language signal inside the bind effect is
+         * what makes setLanguage() re-translate every marked node.
+         */
+        translate: ( text: string ) => {
+          this.getLang() // track — passing the lang would short-circuit translate()
+          return this.i18n.translate( text ).text
+        },
+        format: ( reference: string, params: any ) => {
+          this.getLang()
+          return this.i18n.format( reference, params ) ?? ''
+        }
+      }
     })
   }
   root( template: FacadeTemplate, selector: string ){
@@ -207,12 +253,45 @@ export class IRLips {
     return this.__root
   }
 
+  // ---- i18n
+  setLanguage( lang: string ){
+    this.i18n.lang = lang
+    this.setLang( lang )
+  }
+  getLanguage(){ return this.getLang() }
+  useTranslator( support: string | string[], fn: ( lang: string ) => void ){
+    let first = true
+    const { dispose } = effect( () => {
+      const lang = this.getLang()
+      if( first ){ first = false; return }
+      ;( support === '*' || ( Array.isArray( support ) && support.includes( lang ) ) ) && fn( lang )
+    })
+    return dispose
+  }
+
   // ---- context
   getContext(){ return this.context }
   setContext( arg: string | Record<string, any>, value?: any ){
     typeof arg === 'string'
       ? this.context[ arg ] = value
       : Object.entries( arg ).forEach( ( [ k, v ] ) => this.context[ k ] = v )
+  }
+  /**
+   * Subscribe to a subset of context fields — the effect tracks
+   * exactly those keys, so unrelated context writes don't fire it.
+   * Returns an unsubscribe function.
+   */
+  watchContext( fields: string[], fn: () => void ){
+    let first = true
+    const { dispose } = effect( () => {
+      fields.forEach( f => this.context[ f ] ) // track
+      first ? first = false : fn()
+    })
+    return dispose
+  }
+  useContext( fields: string[], fn: ( ctx: Record<string, any> ) => void ){
+    return this.watchContext( fields, () =>
+      fn( Object.fromEntries( fields.map( f => [ f, this.context[ f ] ] ) ) ) )
   }
 
   dispose(){

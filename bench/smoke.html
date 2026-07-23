@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Lips default-engine smoke</title></head>
+<body>
+<h1>Default engine smoke test</h1>
+<p class="note">Exercises the public API with <code>new Lips()</code> — now the IR engine — in a real browser.</p>
+<div id="app"></div>
+<pre id="out">running…</pre>
+
+<script type="module">
+import Lips from '../dist/lips.min.js'
+
+const results = []
+const check = ( name, cond, detail = '' ) => results.push({ name, pass: !!cond, detail })
+const q = s => document.querySelector( s )
+const tick = ( ms = 30 ) => new Promise( r => setTimeout( r, ms ) )
+
+const lips = new Lips()
+
+// dictionaries + language
+lips.i18n.setDictionary('fr', { 'Count': 'Compter' })
+lips.setLanguage('en-US')
+
+// nested component with events + slot
+lips.register('panel', {
+  state: { n: 0 },
+  handler: {
+    bump(){ this.state.n++; this.emit('bumped', this.state.n ) }
+  },
+  default: `<section class="panel">
+    <button class="bump" on-click( bump )>{state.n}</button>
+    <{input.renderer}/>
+  </section>`
+})
+
+const Home = { default: `<h2 class="home">Home</h2>` }
+const Item = { default: `<h2 class="item">{input.params.id}/{input.query.q}</h2>` }
+
+let lastEmit = null
+const app = lips.render('smoke', {
+  macros: `<macro [label] name="chip"><em class="chip">#{label}</em></macro>`,
+  _static: {
+    routes: [
+      { path: '/', template: Home, default: true },
+      { path: '/item/:id', template: Item }
+    ]
+  },
+  state: {
+    who: 'Ada',
+    rows: [ { id: 'a', label: 'A' }, { id: 'b', label: 'B' }, { id: 'c', label: 'C' } ],
+    mode: 'x'
+  },
+  handler: {
+    onBumped( n ){ lastEmit = n }
+  },
+  default: `
+    <div>
+      <p class="greet">Hello {state.who}</p>
+      <button i18n class="i18n">Count</button>
+      <chip label=state.who/>
+
+      <ul><for [row, i] in=state.rows by="id"><li class="row">{i}:{row.label}</li></for></ul>
+
+      <switch( state.mode )>
+        <case is="x"><b class="sw">X</b></case>
+        <default><b class="sw">D</b></default>
+      </switch>
+
+      <panel on-bumped( onBumped )><i class="slotted">slot of {state.who}</i></panel>
+
+      <router routes=static.routes></router>
+    </div>`
+})
+app.appendTo('#app')
+
+await tick()
+
+// --- assertions
+check('renders text', q('.greet')?.textContent === 'Hello Ada')
+check('macro inlined', q('.chip')?.textContent === '#Ada')
+check('keyed list', document.querySelectorAll('.row').length === 3)
+check('switch case', q('.sw')?.textContent === 'X')
+check('slot in parent scope', q('.slotted')?.textContent === 'slot of Ada')
+check('router default route', !!q('.home'))
+check('i18n baseline', q('.i18n')?.textContent === 'Count')
+
+// reactive update
+app.state.who = 'Grace'
+await tick()
+check('reactive text', q('.greet')?.textContent === 'Hello Grace')
+check('reactive macro', q('.chip')?.textContent === '#Grace')
+check('reactive slot', q('.slotted')?.textContent === 'slot of Grace')
+
+// keyed reorder preserves node identity
+const before = [ ...document.querySelectorAll('.row') ]
+app.state.rows = [ { id: 'c', label: 'C' }, { id: 'b', label: 'B' }, { id: 'a', label: 'A' } ]
+await tick()
+const after = [ ...document.querySelectorAll('.row') ]
+check('keyed reorder identity', after[0] === before[2] && after[2] === before[0],
+  after.map( n => n.textContent ).join(','))
+
+// component events
+q('.bump').click()
+await tick()
+check('component event', lastEmit === 1 && q('.bump').textContent === '1')
+
+// i18n language switch
+lips.setLanguage('fr-FR')
+await tick()
+check('i18n switch', q('.i18n')?.textContent === 'Compter')
+
+// router navigation with params/query
+lips.getContext().navigate('/item/a%20b?q=7')
+await tick()
+check('router navigate + decode', q('.item')?.textContent === 'a b/7')
+check('router disposed prev page', !q('.home'))
+
+const failed = results.filter( r => !r.pass )
+document.querySelector('#out').textContent =
+  results.map( r => `${r.pass ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '  — ' + r.detail : ''}` ).join('\n')
+  + `\n\n${results.length - failed.length}/${results.length} passed`
+
+window.__SMOKE__ = { total: results.length, failed: failed.map( f => f.name ) }
+</script>
+</body>
+</html>

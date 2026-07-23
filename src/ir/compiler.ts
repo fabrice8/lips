@@ -54,9 +54,9 @@ export interface BlockIR {
 }
 
 export type BindIR =
-  | { t: 'text',   p: Path, e: E }                       // anchor; runtime inserts a text node after it
-  | { t: 'attr',   p: Path, name: string, e: E }
-  | { t: 'prop',   p: Path, name: string, e: E }         // @html / @text / @format
+  | { t: 'text',   p: Path, e: E, i18n?: 1 }             // anchor; runtime inserts a text node after it
+  | { t: 'attr',   p: Path, name: string, e: E, i18n?: 1 }
+  | { t: 'prop',   p: Path, name: string, e: E, i18n?: 1, ref?: string } // @html / @text / @format
   | { t: 'event',  p: Path, name: string, e: E }         // raw instruction — runtime resolves handler form
   | { t: 'spread', p: Path, e: E }
 
@@ -66,6 +66,7 @@ export interface ArmIR {
 }
 
 export type ChildIR =
+  | { t: 'macro',   p: Path, name: string, vars: Record<string, CompInput>, args: string[], block: BlockIR }
   | { t: 'if',      p: Path, branches: { when: E | null, block: BlockIR }[] }
   | { t: 'for',     p: Path, of?: E, from?: CompInput, to?: CompInput, by?: CompInput, args: string[], block: BlockIR }
   | { t: 'switch',  p: Path, on: E, cases: { is: CompInput | null, block: BlockIR }[] }
@@ -78,6 +79,17 @@ export type ChildIR =
 export interface CompileResult {
   ir: TemplateIR
   diagnostics: TemplateDiagnostic[]
+}
+
+export interface CompileOptions {
+  /** `<macro [argv] name="X">…</macro>` definitions, inlined at call sites */
+  macros?: string
+}
+
+interface MacroDef {
+  name: string
+  argv: string[]
+  children: TemplateNode[]
 }
 
 // ------------------------------------------------------------------ tables
@@ -121,10 +133,12 @@ class Compiler {
   private exprs: string[] = []
   private exprIndex = new Map<string, E>()
   private lineStarts: number[] | null = null
+  /** Guards against macros that (indirectly) call themselves */
+  private macroStack: string[] = []
 
   readonly diagnostics: TemplateDiagnostic[] = []
 
-  constructor( private src: string ){}
+  constructor( private src: string, private macros = new Map<string, MacroDef>() ){}
 
   // ---- diagnostics
   private locate( offset: number ){
@@ -222,7 +236,7 @@ class Compiler {
      * The index simulation must match browser parsing:
      * consecutive static text coalesces into ONE node.
      */
-    const emitSiblings = ( nodes: TemplateNode[], path: Path ) => {
+    const emitSiblings = ( nodes: TemplateNode[], path: Path, i18nParent = false ) => {
       let index = 0
       let lastWasText = false
 
@@ -237,6 +251,15 @@ class Compiler {
 
         switch( node.t ){
           case 'text': {
+            /**
+             * Static text under an `i18n` element still needs a
+             * bind — there is nothing to translate in a skeleton.
+             */
+            if( i18nParent ){
+              block.binds.push({ t: 'text', p: anchor(), e: this.synth( JSON.stringify( node.value ) ), i18n: 1 })
+              break
+            }
+
             html.push( escText( node.value ) )
             if( !lastWasText ) index++
             lastWasText = true
@@ -249,7 +272,9 @@ class Compiler {
             break
           }
           case 'interp': {
-            block.binds.push({ t: 'text', p: anchor(), e: this.concat( node.parts ) })
+            const bind: BindIR = { t: 'text', p: anchor(), e: this.concat( node.parts ) }
+            if( i18nParent ) bind.i18n = 1
+            block.binds.push( bind )
             break
           }
           case 'fragment': {
@@ -293,6 +318,13 @@ class Compiler {
               break
             }
 
+            // Macro call → inline the definition body
+            if( this.macros.has( node.tag ) ){
+              const macroBlock = this.macroCall( node, anchor(), scope )
+              macroBlock && block.blocks.push( macroBlock )
+              break
+            }
+
             // Component candidate
             if( !HTML_TAGS.has( node.tag ) ){
               block.blocks.push( this.compLike( node, anchor(), scope, 'comp' ) )
@@ -320,29 +352,66 @@ class Compiler {
     index: number,
     html: string[],
     block: BlockIR,
-    emitSiblings: ( nodes: TemplateNode[], path: Path ) => void
+    emitSiblings: ( nodes: TemplateNode[], path: Path, i18nParent?: boolean ) => void
   ){
     const p: Path = [ ...path, index ]
     let open = `<${node.tag}`
 
+    /**
+     * `i18n` marks an element's own text and its visual
+     * attributes (title/placeholder) as translatable.
+     */
+    const i18n = node.attrs.some( a => a.k === 'bool' && a.name === 'i18n' && a.value )
+    const translatableAttr = ( name: string ) => i18n && ( name === 'title' || name === 'placeholder' )
+
     for( const attr of node.attrs ){
       switch( attr.k ){
         case 'literal':
-          attr.name.startsWith('@')
-            ? block.binds.push({ t: 'prop', p, name: attr.name.slice( 1 ), e: this.synth( JSON.stringify( attr.value ) ) })
-            : open += ` ${attr.name}="${escAttr( attr.value )}"`
+          if( attr.name === '@format' ){
+            block.binds.push( this.formatBind( p, attr ) )
+            break
+          }
+          if( attr.name.startsWith('@') ){
+            block.binds.push({ t: 'prop', p, name: attr.name.slice( 1 ), e: this.synth( JSON.stringify( attr.value ) ) })
+            break
+          }
+          // Literal title/placeholder under i18n must become a bind to be translated
+          if( translatableAttr( attr.name ) ){
+            block.binds.push({ t: 'attr', p, name: attr.name, e: this.synth( JSON.stringify( attr.value ) ), i18n: 1 })
+            break
+          }
+          open += ` ${attr.name}="${escAttr( attr.value )}"`
           break
         case 'bool':
-          attr.value && ( open += ` ${attr.name}` )
+          // `i18n` is a compiler directive, not an output attribute
+          attr.name !== 'i18n' && attr.value && ( open += ` ${attr.name}` )
           break
-        case 'expr':
-          attr.name.startsWith('@')
-            ? block.binds.push({ t: 'prop', p, name: attr.name.slice( 1 ), e: this.expr( attr.source, attr.loc ) })
-            : block.binds.push({ t: 'attr', p, name: attr.name, e: this.expr( attr.source, attr.loc ) })
+        case 'expr': {
+          if( attr.name === '@format' ){
+            block.binds.push( this.formatBind( p, attr ) )
+            break
+          }
+          if( attr.name.startsWith('@') ){
+            block.binds.push({ t: 'prop', p, name: attr.name.slice( 1 ), e: this.expr( attr.source, attr.loc ) })
+            break
+          }
+
+          const bind: BindIR = { t: 'attr', p, name: attr.name, e: this.expr( attr.source, attr.loc ) }
+          if( translatableAttr( attr.name ) ) bind.i18n = 1
+          block.binds.push( bind )
           break
-        case 'interp':
-          block.binds.push({ t: 'attr', p, name: attr.name, e: this.concat( attr.parts ) })
+        }
+        case 'interp': {
+          if( attr.name === '@format' ){
+            block.binds.push( this.formatBind( p, attr ) )
+            break
+          }
+
+          const bind: BindIR = { t: 'attr', p, name: attr.name, e: this.concat( attr.parts ) }
+          if( translatableAttr( attr.name ) ) bind.i18n = 1
+          block.binds.push( bind )
           break
+        }
         case 'event':
           block.binds.push({ t: 'event', p, name: attr.name, e: this.synth( attr.source ) })
           break
@@ -366,8 +435,37 @@ class Compiler {
     }
 
     html.push( open + '>' )
-    node.children.length && emitSiblings( node.children, p )
+    node.children.length && emitSiblings( node.children, p, i18n )
     html.push( `</${node.tag}>` )
+  }
+
+  /**
+   * `@format="reference, { params }"` → a prop bind carrying the
+   * dictionary reference plus a compiled params expression.
+   */
+  private formatBind( p: Path, attr: AttrNode & { k: 'literal' | 'expr' | 'interp' } ): BindIR {
+    /**
+     * `@format` carries a reference plus a params OBJECT, so the
+     * braces are data — not interpolation. Reconstruct the raw
+     * source when the parser split it into interpolation parts.
+     */
+    const raw = attr.k === 'literal' ? attr.value
+              : attr.k === 'expr' ? attr.source
+              : attr.parts.map( part => typeof part === 'string' ? part : `{${part.expr}}` ).join('')
+
+    const comma = raw.indexOf(',')
+
+    if( comma === -1 ){
+      this.report( 'LIPS-C012', 'error',
+        `@format expects "reference, { params }"`, attr.loc.offset, attr.loc.length )
+      return { t: 'prop', p, name: 'format', e: this.synth('({})'), ref: raw.trim() }
+    }
+
+    const
+    ref = raw.slice( 0, comma ).trim(),
+    params = raw.slice( comma + 1 ).trim()
+
+    return { t: 'prop', p, name: 'format', e: this.expr( params, attr.loc ), ref }
   }
 
   // ---- control-flow blocks
@@ -536,6 +634,44 @@ class Compiler {
     return { lit: undefined }
   }
 
+  /**
+   * Macro call site → inlined block.
+   *
+   * Every call-site attribute becomes a block-scoped variable
+   * (the macro's declared `argv` are the named ones; all of them
+   * together also form `arguments` at runtime).
+   */
+  private macroCall( node: ElementNode, p: Path, scope: string[] ): ChildIR | null {
+    const macro = this.macros.get( node.tag )!
+
+    if( this.macroStack.includes( macro.name ) ){
+      this.report( 'LIPS-C009', 'error',
+        `Recursive macro <${macro.name}> (${[ ...this.macroStack, macro.name ].join(' → ')})`,
+        node.loc.offset, node.loc.length )
+      return null
+    }
+
+    const vars: Record<string, CompInput> = {}
+    for( const attr of node.attrs )
+      if( attr.k === 'literal' || attr.k === 'expr' || attr.k === 'interp' || attr.k === 'bool' )
+        vars[ attr.name ] = this.compInput( attr )
+
+    /**
+     * Undeclared argv default to `undefined`: falsy in
+     * conditions and attribute-removing like the old engine's
+     * `false` sentinel, but renders as '' in text interpolation
+     * per RFC decision #4 (the old engine printed "false").
+     */
+    for( const name of macro.argv )
+      if( !( name in vars ) ) vars[ name ] = { lit: undefined }
+
+    this.macroStack.push( macro.name )
+    const block = this.block( macro.children, [ ...scope, ...macro.argv ] )
+    this.macroStack.pop()
+
+    return { t: 'macro', p, name: macro.name, vars, args: macro.argv, block }
+  }
+
   /** Components and dynamic tags share input/event/spread shape */
   private compLike( node: ElementNode, p: Path, scope: string[], kind: 'comp' | 'dynamic' ): ChildIR {
     const
@@ -575,10 +711,56 @@ class Compiler {
 }
 
 // -------------------------------------------------------------------- API
-export function compileTemplate( src: string ): CompileResult {
+/** Parse `<macro [argv] name="X">…</macro>` blocks into a lookup */
+function parseMacros( src: string, diagnostics: TemplateDiagnostic[] ){
+  const macros = new Map<string, MacroDef>()
+  if( !src?.trim() ) return macros
+
   const parsed = parseTemplate( src )
-  const compiler = new Compiler( src )
+  diagnostics.push( ...parsed.diagnostics )
+
+  for( const node of parsed.root.children ){
+    if( node.t !== 'element' ) continue
+
+    if( node.tag !== 'macro' ){
+      diagnostics.push({
+        code: 'LIPS-C010', severity: 'warning',
+        message: `Only <macro> definitions are allowed in the macros source — ignoring <${node.tag}>`,
+        loc: { line: 1, col: 1, offset: node.loc.offset, length: node.loc.length }
+      })
+      continue
+    }
+
+    let name = ''
+    const argv: string[] = []
+    for( const attr of node.attrs ){
+      if( attr.k === 'args' ) argv.push( ...attr.names )
+      else if( attr.k === 'literal' && attr.name === 'name' ) name = attr.value
+    }
+
+    if( !name ){
+      diagnostics.push({
+        code: 'LIPS-C011', severity: 'error',
+        message: `<macro> requires a name attribute`,
+        loc: { line: 1, col: 1, offset: node.loc.offset, length: node.loc.length }
+      })
+      continue
+    }
+
+    // Tag names arrive lowercased — match call sites case-insensitively
+    macros.set( name.toLowerCase(), { name, argv, children: node.children })
+  }
+
+  return macros
+}
+
+export function compileTemplate( src: string, options?: CompileOptions ): CompileResult {
+  const diagnostics: TemplateDiagnostic[] = []
+  const macros = parseMacros( options?.macros || '', diagnostics )
+
+  const parsed = parseTemplate( src )
+  const compiler = new Compiler( src, macros )
   const ir = compiler.compile( parsed.root.children )
 
-  return { ir, diagnostics: [ ...parsed.diagnostics, ...compiler.diagnostics ] }
+  return { ir, diagnostics: [ ...diagnostics, ...parsed.diagnostics, ...compiler.diagnostics ] }
 }

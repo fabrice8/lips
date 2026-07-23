@@ -1,0 +1,154 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import Lips from '../src/lips'
+
+function settle( check: () => boolean, timeout = 3000 ){
+  return new Promise<void>( ( resolve, reject ) => {
+    const t0 = Date.now()
+    ;( function tick(){
+      let ok = false
+      try { ok = check() } catch( e ){ /* keep polling */ }
+      if( ok ) return resolve()
+      if( Date.now() - t0 > timeout ) return reject( new Error('settle timeout') )
+      setTimeout( tick, 4 )
+    } )()
+  })
+}
+const q = ( sel: string ) => document.querySelector( sel )
+
+const EN = {
+  'Count': 'Count',
+  'Reply': 'Reply',
+  'welcome_user': { type: 'text', value: 'Welcome {name}!' },
+  'items_count': {
+    type: 'plural',
+    value: { '0': 'No items', '1': 'One item', '*': '{count} items' }
+  }
+}
+const FR = {
+  'Count': 'Compter',
+  'Reply': 'Repondre',
+  'Search…': 'Rechercher…',
+  'welcome_user': { type: 'text', value: 'Bienvenue {name}!' }
+}
+
+let lips: any
+beforeEach( () => {
+  document.body.innerHTML = '<div id="app"></div>'
+  lips = new Lips({ engine: 'ir' } as any )
+  lips.i18n.setDictionary('en', EN )
+  lips.i18n.setDictionary('fr', FR )
+  lips.setLanguage('en-US')
+})
+
+describe('i18n', () => {
+  it('translates static text on i18n-marked elements', async () => {
+    lips.render('t-static', { default: `<button i18n class="b">Count</button>` }).appendTo('#app')
+    await settle( () => !!q('.b') )
+
+    expect( q('.b')?.textContent ).toBe('Count')
+
+    lips.setLanguage('fr-FR')
+    await settle( () => q('.b')?.textContent === 'Compter' )
+  })
+
+  it('does not emit the i18n marker as a DOM attribute', async () => {
+    lips.render('t-marker', { default: `<button i18n class="b">Count</button>` }).appendTo('#app')
+    await settle( () => !!q('.b') )
+
+    expect( q('.b')?.hasAttribute('i18n') ).toBe( false )
+  })
+
+  it('leaves unmarked elements untranslated', async () => {
+    lips.render('t-unmarked', { default: `<button class="b">Count</button>` }).appendTo('#app')
+    await settle( () => !!q('.b') )
+
+    lips.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 20 ) )
+    expect( q('.b')?.textContent ).toBe('Count')
+  })
+
+  it('translates interpolated text under an i18n element', async () => {
+    const c = lips.render('t-interp', {
+      state: { word: 'Reply' },
+      default: `<span i18n class="s">{state.word}</span>`
+    })
+    c.appendTo('#app')
+    await settle( () => q('.s')?.textContent === 'Reply' )
+
+    lips.setLanguage('fr-FR')
+    await settle( () => q('.s')?.textContent === 'Repondre' )
+  })
+
+  it('translates title/placeholder attributes only when marked', async () => {
+    lips.render('t-attrs', {
+      default: `<div><input i18n class="i" placeholder="Search…"><b class="p" title="Count">x</b></div>`
+    }).appendTo('#app')
+    await settle( () => !!q('.i') )
+
+    lips.setLanguage('fr-FR')
+    await settle( () => q('.i')?.getAttribute('placeholder') === 'Rechercher…' )
+
+    // unmarked element keeps its literal title
+    expect( q('.p')?.getAttribute('title') ).toBe('Count')
+  })
+
+  it('renders @format with parameters', async () => {
+    const c = lips.render('t-format', {
+      state: { name: 'Ada' },
+      default: `<p class="f" @format="welcome_user, { name: state.name }"></p>`
+    })
+    c.appendTo('#app')
+
+    await settle( () => q('.f')?.textContent === 'Welcome Ada!' )
+
+    c.state.name = 'Grace'
+    await settle( () => q('.f')?.textContent === 'Welcome Grace!' )
+
+    lips.setLanguage('fr-FR')
+    await settle( () => q('.f')?.textContent === 'Bienvenue Grace!' )
+  })
+
+  it('supports plural-style formats', async () => {
+    const c = lips.render('t-plural', {
+      state: { n: 0 },
+      default: `<b class="c" @format="items_count, { count: state.n }"></b>`
+    })
+    c.appendTo('#app')
+
+    await settle( () => q('.c')?.textContent === 'No items' )
+
+    c.state.n = 1
+    await settle( () => q('.c')?.textContent === 'One item' )
+
+    c.state.n = 5
+    await settle( () => q('.c')?.textContent === '5 items' )
+  })
+
+  it('exposes getLanguage and useTranslator', async () => {
+    expect( lips.getLanguage() ).toBe('en-US')
+
+    const seen: string[] = []
+    lips.useTranslator('*', ( lang: string ) => seen.push( lang ) )
+
+    lips.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 10 ) )
+
+    expect( lips.getLanguage() ).toBe('fr-FR')
+    expect( seen ).toEqual([ 'fr-FR' ])
+  })
+
+  it('translates inside loops and nested components', async () => {
+    lips.register('chip', { default: `<em i18n class="chip">{input.word}</em>` })
+
+    lips.render('t-nested', {
+      state: { words: [ 'Count', 'Reply' ] },
+      default: `<div><for [w] in=state.words><chip word=w/></for></div>`
+    }).appendTo('#app')
+
+    await settle( () => document.querySelectorAll('.chip').length === 2 )
+
+    lips.setLanguage('fr-FR')
+    await settle( () =>
+      [ ...document.querySelectorAll('.chip') ].map( e => e.textContent ).join('|') === 'Compter|Repondre' )
+  })
+})
