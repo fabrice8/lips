@@ -9,7 +9,14 @@ import {
   DYNAMIC_TAGNAME_ATTR
 } from './constants'
 
-const TEMPLATE_CACHE = new Map()
+/**
+ * LRU-bounded preprocess cache. Unbounded growth bites
+ * hardest under runtime template generation, where
+ * revised template strings rarely repeat exactly.
+ */
+const
+TEMPLATE_CACHE = new Map(),
+TEMPLATE_CACHE_MAX = 500
 
 export default class TPS {
   private templateStore: Map<string, Template<any>>
@@ -19,9 +26,15 @@ export default class TPS {
   }
 
   parse( str: string, altStore?: Map<string, Template<any> | Macro> ){
-    // Use cache
-    if( TEMPLATE_CACHE.has( str ) )
-      return TEMPLATE_CACHE.get( str )
+    // Use cache — re-insertion keeps hot templates recent (LRU)
+    if( TEMPLATE_CACHE.has( str ) ){
+      const cached = TEMPLATE_CACHE.get( str )
+
+      TEMPLATE_CACHE.delete( str )
+      TEMPLATE_CACHE.set( str, cached )
+
+      return cached
+    }
     
     // Fresh parsing
     let result = (str || '')
@@ -58,10 +71,16 @@ export default class TPS {
     result = this.markExpressionAttributes( result, altStore )
 
     /**
-     * Cache processed template
+     * Cache processed template — evict the least recently
+     * used entry once the cap is reached.
      */
+    if( TEMPLATE_CACHE.size >= TEMPLATE_CACHE_MAX ){
+      const oldest = TEMPLATE_CACHE.keys().next().value
+      oldest !== undefined && TEMPLATE_CACHE.delete( oldest )
+    }
+
     TEMPLATE_CACHE.set( str, result )
-    
+
     return result
   }
   isExpression( value: string ): boolean {

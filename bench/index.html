@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lips benchmark harness (jsfb-style keyed)</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 16px; }
+  h1 { font-size: 18px; }
+  .note { color: #666; max-width: 760px; }
+  #controls { margin: 12px 0; display: flex; gap: 8px; align-items: center; }
+  button { padding: 6px 14px; cursor: pointer; }
+  table.results { border-collapse: collapse; margin: 12px 0; }
+  table.results td, table.results th { border: 1px solid #ccc; padding: 4px 10px; text-align: right; }
+  table.results th:first-child, table.results td:first-child { text-align: left; }
+  #status { font-weight: 600; color: #06c; min-height: 1.2em; }
+  #arena .row { display: flex; gap: 12px; font-size: 12px; }
+  #arena .row.danger { background: #fdd; }
+  pre { background: #f6f6f6; padding: 8px; max-width: 760px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<h1>Lips benchmark harness — jsfb-style keyed operations</h1>
+<p class="note">
+  Standard keyed op set at 1,000 rows: <b>create</b>, <b>replace all</b>, <b>partial update</b>
+  (every 10th), <b>select</b>, <b>swap</b> (rows 1 ↔ 998), <b>remove</b> (mid-list),
+  <b>append</b> 1k, <b>clear</b>. Engines: hand-written vanilla, the Phase-2 IR prototype,
+  and current Lips (keyed <code>&lt;for by="id"&gt;</code>). Timings are script + DOM settle;
+  medians reported. Div-based rows (current Lips cannot render <code>&lt;for&gt;</code> inside a table).
+</p>
+
+<div id="controls">
+  <button id="run-vanilla">Run vanilla</button>
+  <button id="run-ir">Run IR prototype</button>
+  <button id="run-lips">Run current Lips</button>
+  <button id="run-all"><b>Run all</b></button>
+</div>
+<div id="status">idle</div>
+
+<table class="results" id="results">
+  <thead><tr><th>op (median ms)</th><th>vanilla</th><th>ir</th><th>lips</th></tr></thead>
+  <tbody></tbody>
+</table>
+<pre id="json"></pre>
+<div id="arena"><div id="vanilla-root"></div><div id="ir-root"></div><div id="lips-root"></div></div>
+
+<script type="module">
+import { signal, compileTemplate, instantiate } from '../spike/ir-engine.js'
+import Lips from '../dist/lips.min.js'
+
+const N = 1000
+
+// ------------------------------------------------------------ shared helpers
+const
+A = ['pretty','large','big','small','tall','short','long','handsome','plain','quaint','clean','elegant','easy','angry','crazy','helpful','mushy','odd','unsightly','adorable'],
+C = ['red','yellow','blue','green','pink','brown','purple','white','black','orange'],
+W = ['table','chair','house','bbq','desk','car','pony','cookie','sandwich','burger','pizza','mouse','keyboard']
+
+let nextId = 1
+function buildData( count ){
+  const data = []
+  for( let i = 0; i < count; i++ )
+    data.push({
+      id: nextId++,
+      label: `${A[ i % A.length ]} ${C[ i % C.length ]} ${W[ i % W.length ]}`
+    })
+  return data
+}
+
+const yieldTask = () => new Promise( r => setTimeout( r, 0 ) )
+function poll( check, timeout = 20000 ){
+  return new Promise( ( resolve, reject ) => {
+    const t0 = performance.now()
+    ;( function tick(){
+      let ok = false
+      try { ok = check() } catch( e ){ /* keep polling */ }
+      if( ok ) return resolve()
+      if( performance.now() - t0 > timeout ) return reject( new Error('settle timeout') )
+      setTimeout( tick, 2 )
+    } )()
+  })
+}
+async function measure( fn ){
+  const t0 = performance.now()
+  await fn()
+  const t1 = performance.now()
+  await yieldTask()
+  return t1 - t0
+}
+const median = arr => {
+  const s = [ ...arr ].sort( ( a, b ) => a - b )
+  return s.length ? s[ Math.floor( s.length / 2 ) ] : NaN
+}
+function swapNodes( n1, n2 ){
+  const p = n1.parentNode, ref = n1.nextSibling === n2 ? n1 : n1.nextSibling
+  p.insertBefore( n1, n2 )
+  p.insertBefore( n2, ref )
+}
+
+// ------------------------------------------------------------ vanilla engine
+function vanillaEngine(){
+  const root = document.querySelector('#vanilla-root')
+  const rowTpl = document.createElement('template')
+  rowTpl.innerHTML = `<div class="row"><span class="c1"></span><a class="c2"></a></div>`
+
+  let views = [], selected = null, container = null
+
+  const makeView = d => {
+    const el = rowTpl.content.firstElementChild.cloneNode( true )
+    el.childNodes[0].textContent = d.id
+    el.childNodes[1].textContent = d.label
+    el.childNodes[1].addEventListener('click', () => select( d.id ) )
+    return { el, data: d }
+  }
+  const select = id => {
+    if( selected != null ) views.find( v => v.data.id === selected )?.el.classList.remove('danger')
+    views.find( v => v.data.id === id )?.el.classList.add('danger')
+    selected = id
+  }
+
+  return {
+    name: 'vanilla',
+    create( n ){
+      container = document.createElement('div')
+      const frag = document.createDocumentFragment()
+      views = buildData( n ).map( d => { const v = makeView( d ); frag.appendChild( v.el ); return v } )
+      container.appendChild( frag )
+      root.appendChild( container )
+    },
+    replace( n ){
+      const frag = document.createDocumentFragment()
+      const next = buildData( n ).map( d => { const v = makeView( d ); frag.appendChild( v.el ); return v } )
+      container.textContent = ''
+      container.appendChild( frag )
+      views = next
+      selected = null
+    },
+    update(){
+      for( let i = 0; i < views.length; i += 10 ){
+        views[i].data.label += ' !!!'
+        views[i].el.childNodes[1].textContent = views[i].data.label
+      }
+    },
+    select( i ){ select( views[i].data.id ) },
+    swap( i, j ){
+      swapNodes( views[i].el, views[j].el )
+      ;[ views[i], views[j] ] = [ views[j], views[i] ]
+    },
+    remove( i ){
+      views[i].el.remove()
+      views.splice( i, 1 )
+    },
+    append( n ){
+      const frag = document.createDocumentFragment()
+      const added = buildData( n ).map( d => { const v = makeView( d ); frag.appendChild( v.el ); return v } )
+      container.appendChild( frag )
+      views = views.concat( added )
+    },
+    clear(){
+      root.textContent = ''
+      views = []; selected = null; container = null
+    }
+  }
+}
+
+// ------------------------------------------------------- IR prototype engine
+function irEngine(){
+  const root = document.querySelector('#ir-root')
+  const ir = compileTemplate( `
+    <div :class="app.selected() === row.id ? 'row danger' : 'row'">
+      <span class="c1">{row.id}</span>
+      <a class="c2" @click="select">{row.label()}</a>
+    </div>`, [ 'row', 'app' ] )
+
+  let views = [], container = null
+  const [ getSelected, setSelected ] = signal( null )
+  const app = { selected: getSelected }
+  const handlers = { select: ( e, row ) => setSelected( row.id ) }
+
+  const makeView = d => {
+    const [ label, setLabel ] = signal( d.label )
+    const row = { id: d.id, label, setLabel }
+    const inst = instantiate( ir, [ row, app ], handlers )
+    return { row, inst }
+  }
+
+  return {
+    name: 'ir',
+    create( n ){
+      container = document.createElement('div')
+      const frag = document.createDocumentFragment()
+      views = buildData( n ).map( d => { const v = makeView( d ); frag.appendChild( v.inst.el ); return v } )
+      container.appendChild( frag )
+      root.appendChild( container )
+    },
+    replace( n ){
+      for( const v of views ) v.inst.dispose()
+      const frag = document.createDocumentFragment()
+      views = buildData( n ).map( d => { const v = makeView( d ); frag.appendChild( v.inst.el ); return v } )
+      container.textContent = ''
+      container.appendChild( frag )
+      setSelected( null )
+    },
+    update(){
+      for( let i = 0; i < views.length; i += 10 )
+        views[i].row.setLabel( views[i].row.label() + ' !!!' )
+    },
+    select( i ){ setSelected( views[i].row.id ) },
+    swap( i, j ){
+      swapNodes( views[i].inst.el, views[j].inst.el )
+      ;[ views[i], views[j] ] = [ views[j], views[i] ]
+    },
+    remove( i ){
+      views[i].inst.dispose()
+      views.splice( i, 1 )
+    },
+    append( n ){
+      const frag = document.createDocumentFragment()
+      const added = buildData( n ).map( d => { const v = makeView( d ); frag.appendChild( v.inst.el ); return v } )
+      container.appendChild( frag )
+      views = views.concat( added )
+    },
+    clear(){
+      for( const v of views ) v.inst.dispose()
+      root.textContent = ''
+      views = []; setSelected( null ); container = null
+    }
+  }
+}
+
+// ------------------------------------------------------- current Lips engine
+function lipsEngine(){
+  const root = document.querySelector('#lips-root')
+  const lips = new Lips()
+  let comp = null
+
+  const template = () => ({
+    state: { rows: [], selected: null },
+    handler: {
+      select( id ){ this.state.selected = id }
+    },
+    default: `
+      <div>
+        <for [row] in=state.rows by="id">
+          <div class="{ state.selected === row.id ? 'row danger' : 'row' }">
+            <span class="c1">{row.id}</span>
+            <a class="c2" on-click(select, row.id)>{row.label}</a>
+          </div>
+        </for>
+      </div>`
+  })
+
+  const rowsIn = () => root.querySelectorAll('.row')
+  /**
+   * Generic settle: DOM row count matches state, and sampled
+   * rows agree on id + label with the state (0, middle, last).
+   */
+  const settled = () => {
+    const rows = comp.state.rows, els = rowsIn()
+    if( els.length !== rows.length ) return false
+    if( !rows.length ) return true
+
+    for( const i of [ 0, Math.floor( rows.length / 2 ), rows.length - 1 ] ){
+      const el = els[ i ]
+      if( el.querySelector('.c1').textContent !== String( rows[ i ].id ) ) return false
+      if( el.querySelector('.c2').textContent !== rows[ i ].label ) return false
+    }
+    return true
+  }
+
+  return {
+    name: 'lips',
+    async create( n ){
+      const t = template()
+      t.state.rows = buildData( n )
+      comp = lips.render( `bench-${Date.now()}`, t )
+      comp.appendTo( '#lips-root' )
+      await poll( settled )
+    },
+    async replace( n ){
+      comp.state.rows = buildData( n )
+      await poll( settled )
+    },
+    async update(){
+      const rows = comp.state.rows
+      for( let i = 0; i < rows.length; i += 10 )
+        rows[i].label += ' !!!'
+      await poll( settled )
+    },
+    async select( i ){
+      const id = comp.state.rows[i].id
+      comp.state.selected = id
+      await poll( () => rowsIn()[i]?.classList.contains('danger') )
+    },
+    async swap( i, j ){
+      const rows = comp.state.rows
+      const t = rows[i]
+      rows[i] = rows[j]
+      rows[j] = t
+      await poll( settled )
+    },
+    async remove( i ){
+      comp.state.rows.splice( i, 1 )
+      await poll( settled )
+    },
+    async append( n ){
+      comp.state.rows = [ ...comp.state.rows, ...buildData( n ) ]
+      await poll( settled )
+    },
+    async clear(){
+      comp?.destroy()
+      comp = null
+      root.textContent = ''
+      await poll( () => rowsIn().length === 0 )
+    }
+  }
+}
+
+// ---------------------------------------------------------------- harness
+const RESULTS = ( window.__RESULTS__ = { meta: {
+  date: new Date().toISOString(),
+  rows: N,
+  ua: navigator.userAgent,
+  note: 'script+DOM settle timings, medians; paint excluded'
+} } )
+const status = msg => document.querySelector('#status').textContent = msg
+const OPS = [ 'create', 'replace', 'update', 'select', 'swap', 'remove', 'append', 'clear' ]
+
+async function runEngine( engine ){
+  const r = {}
+  OPS.forEach( op => r[ op ] = [] )
+  r.errors = []
+  RESULTS[ engine.name ] = r
+
+  const guard = async ( op, fn ) => {
+    try { return await fn() }
+    catch( e ){ r.errors.push( `${op}: ${e.message}` ); return NaN }
+  }
+  const run = async ( op, times, fn ) => {
+    for( let k = 0; k < times; k++ ){
+      status( `${engine.name}: ${op} #${k + 1}` )
+      r[ op ].push( await guard( op, () => measure( () => fn( k ) ) ) )
+    }
+  }
+
+  // create ×3 (clear in between, unmeasured)
+  for( let k = 0; k < 3; k++ ){
+    status( `${engine.name}: create #${k + 1}` )
+    r.create.push( await guard( 'create', () => measure( () => engine.create( N ) ) ) )
+    if( k < 2 ) await guard( 'create', () => engine.clear() )
+  }
+
+  await run( 'replace', 3, () => engine.replace( N ) )
+  await run( 'update',  5, () => engine.update() )
+  await run( 'select',  5, k => engine.select( ( ( k + 1 ) * 97 ) % N ) )
+  await run( 'swap',    5, () => engine.swap( 1, 998 ) )
+  await run( 'remove',  5, () => engine.remove( 500 ) )
+  await run( 'append',  1, () => engine.append( N ) )
+  await run( 'clear',   1, () => engine.clear() )
+
+  render()
+  status( `${engine.name}: done` )
+}
+
+function render(){
+  const tbody = document.querySelector('#results tbody')
+  tbody.innerHTML = ''
+
+  for( const op of OPS ){
+    const tr = document.createElement('tr')
+    tr.innerHTML = `<td>${op}</td>` + [ 'vanilla', 'ir', 'lips' ].map( name => {
+      const v = RESULTS[ name ]?.[ op ]
+      return `<td>${v?.length ? median( v ).toFixed(1) : '—'}</td>`
+    }).join('')
+    tbody.appendChild( tr )
+  }
+
+  document.querySelector('#json').textContent = JSON.stringify( RESULTS, ( k, v ) =>
+    typeof v === 'number' ? +v.toFixed(2) : v, 2 )
+}
+
+const engines = { vanilla: vanillaEngine(), ir: irEngine(), lips: lipsEngine() }
+
+document.querySelector('#run-vanilla').onclick = () => runEngine( engines.vanilla )
+document.querySelector('#run-ir').onclick = () => runEngine( engines.ir )
+document.querySelector('#run-lips').onclick = () => runEngine( engines.lips )
+document.querySelector('#run-all').onclick = async () => {
+  await runEngine( engines.vanilla )
+  await runEngine( engines.ir )
+  await runEngine( engines.lips )
+  status('ALL DONE')
+}
+</script>
+</body>
+</html>

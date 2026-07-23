@@ -4,3 +4,5 @@ build
 yarn-error.log
 
 mediafile.*
+.serena
+.claude/settings.local.json

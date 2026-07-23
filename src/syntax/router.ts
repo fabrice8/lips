@@ -45,16 +45,16 @@ export const _static: Static = {
 export const context = ['navigate']
 
 function parseQuery( str: string ){
-  const
-  obj: any = {},
-  array = str.split('&')
+  /**
+   * URLSearchParams handles percent-decoding, `+` as
+   * space, values containing `=`, and empty entries.
+   */
+  return Object.fromEntries( new URLSearchParams( str ) )
+}
 
-  array.map( each => {
-    const [ key, value ] = each.split('=')
-    obj[ key ] = value
-  })
-
-  return obj
+function safeDecode( value: string ){
+  try { return decodeURIComponent( value ) }
+  catch( e ){ return value }
 }
 
 declare global {
@@ -191,9 +191,9 @@ export const handler: Handler<Metavars<Input<any>, State, Static, Context>> = {
 
       // Find matching path
       if( matches !== null && matches.index === 0 ){
-        // Extract pathname params values
+        // Extract pathname params values (percent-decoded)
         for( let x = 0; x + 1 < matches.length && x < pathVars.length; x++ )
-          params[ pathVars[x].replaceAll(/[\/:]/g, '') ] = matches[ x + 1 ]
+          params[ pathVars[x].replaceAll(/[\/:]/g, '') ] = safeDecode( matches[ x + 1 ] )
 
         matchRoute = route
         break

@@ -5,11 +5,26 @@ import { isEqual } from '../utils'
 type ArgvTrack = {
   argvalues: VariableSet,
   boundaries: FragmentBoundaries
+  /**
+   * Reconciliation key — present only in keyed mode
+   * (`by=` attribute). Also used to derive the item's
+   * partial path suffix `[k:<key>]`.
+   */
+  key?: string | number
 }
 export interface Input {
   in: Record<string, any> | any[]
   from?: number
   to?: number
+  /**
+   * Keyed reconciliation (arrays only):
+   * - string: property path into each item, e.g. `by="id"`
+   * - function: `( item, index ) => key` for computed keys
+   *
+   * Named `by` (Marko-style) — `key` is reserved/skipped by
+   * the component input caster.
+   */
+  by?: string | (( item: any, index: number ) => string | number)
   renderer?: MeshRenderer
 }
 export interface State {
@@ -64,7 +79,16 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
     this.static.processingBatch = true
     try {
       if( _from !== undefined ) return this.asFromTo( options.renderer, _from, _to, memo, init )
-      else if( Array.isArray( _in ) ) return this.asArray( options.renderer, _in, memo, init )
+      /**
+       * Keyed reconciliation (`by=`) for arrays.
+       *
+       * TODO(Phase 1): Map/Object iteration should default to
+       * keyed reconciliation by the natural entry key.
+       */
+      else if( Array.isArray( _in ) )
+        return options.by !== undefined
+                  ? this.asKeyedArray( options.renderer, _in, memo, init )
+                  : this.asArray( options.renderer, _in, memo, init )
       else if( _in instanceof Map ) return this.asMap( options.renderer, _in, memo, init )
       else if( typeof _in == 'object' ) return this.asObject( options.renderer, _in, memo, init )
     }
@@ -96,9 +120,205 @@ export const handler: Handler<Metavars<Input, State, Static>> = {
   },
   removeItem( renderer: MeshRenderer, index: number ){
     if( !this.static.argvlist?.[ index ] ) return
-    
+
     renderer.cleanup( this.static.argvlist[ index ].boundaries, `[${index}]` )
     this.static.argvlist.splice( index, 1 )
+  },
+
+  /**
+   * Resolve an item's reconciliation key from the `by=`
+   * input: property path string or key function.
+   */
+  keyOf( item: any, index: number ){
+    const by = this.input.by
+    return typeof by === 'function'
+                ? by( item, index )
+                : String( by ).split('.').reduce( ( v: any, k: string ) => v?.[ k ], item )
+  },
+  /**
+   * Render a fresh keyed item. Does NOT insert into the DOM
+   * nor into `argvlist` — callers own placement and ordering.
+   */
+  addKeyedItem( renderer: MeshRenderer, memo: VariableSet, argvalues: VariableSet, key: string | number ){
+    const
+    suffix = `[k:${key}]`,
+    $item = renderer.mesh( argvalues, memo, suffix ),
+    { boundaries, $partial } = renderer.demarcate( $item || $(), suffix )
+
+    this.static.prevRenderer = renderer
+
+    return { track: { argvalues, boundaries, key } as ArgvTrack, $partial }
+  },
+  /**
+   * Tear down every tracked item (used when falling back
+   * from keyed to index mode on invalid keys).
+   */
+  clearAllItems( renderer: MeshRenderer ){
+    if( !this.static.argvlist ) return
+
+    for( let i = this.static.argvlist.length - 1; i >= 0; i-- ){
+      const track = this.static.argvlist[ i ]
+      renderer.cleanup( track.boundaries, track.key !== undefined ? `[k:${track.key}]` : `[${i}]` )
+    }
+
+    this.static.argvlist = null
+    this.static.lastIn = null
+  },
+  asKeyedArray( renderer: MeshRenderer, _in: any[], memo: VariableSet, init: boolean ){
+    /**
+     * Reference check to avoid unnecessary processing
+     * (inputs are deep-cloned upstream, so this only
+     * catches genuine no-op re-entries)
+     */
+    if( this.static.argvlist
+        && this.static.lastIn
+        && _in === this.static.lastIn )
+      return
+
+    // Cache the input for future reference checks
+    this.static.lastIn = _in
+
+    const [ evar, ivar ] = renderer.argv
+
+    /**
+     * Compute keys upfront — undefined/null/duplicate keys
+     * invalidate keyed mode for this pass: fall back to
+     * index reconciliation after clearing keyed tracks.
+     */
+    const
+    keys: ( string | number )[] = [],
+    seen = new Set<string | number>()
+
+    for( let i = 0; i < _in.length; i++ ){
+      const k = this.keyOf( _in[ i ], i )
+      if( k === undefined || k === null || seen.has( k ) ){
+        console.warn(`<for> \`by\` yielded ${seen.has( k ) ? 'duplicate' : 'undefined'} key at index ${i} — falling back to index reconciliation`)
+
+        this.clearAllItems( renderer )
+        return this.asArray( renderer, _in, memo, init )
+      }
+
+      seen.add( k )
+      keys.push( k )
+    }
+
+    /**
+     * Initial keyed render
+     */
+    if( !Array.isArray( this.static.argvlist ) ){
+      // Clear existing for content
+      this.static.prevRenderer?.cleanup()
+      this.static.argvlist = []
+
+      let $content = $()
+      for( let i = 0; i < _in.length; i++ ){
+        const argvalues: VariableSet = {}
+        if( evar ) argvalues[ evar ] = { value: _in[ i ], type: 'arg' }
+        if( ivar ) argvalues[ ivar ] = { value: i, type: 'arg' }
+
+        const { track, $partial } = this.addKeyedItem( renderer, memo, argvalues, keys[ i ] )
+
+        this.static.argvlist.push( track )
+        $content = $content.add( $partial )
+      }
+
+      if( !$content?.length ) return
+      if( init ) return $content
+
+      renderer.fill( $content )
+      return
+    }
+
+    /**
+     * Keyed reconciliation pass
+     *
+     * 1. Match by key: reuse tracks, patch changed values/index
+     * 2. Create tracks for new keys (placement deferred)
+     * 3. Cleanup tracks whose keys disappeared
+     * 4. Single pointer walk to restore DOM order — moves
+     *    whole boundary ranges, preserving node identity and
+     *    nested component state
+     */
+    const oldByKey = new Map<string | number, ArgvTrack>()
+    this.static.argvlist.forEach( ( track: ArgvTrack ) => oldByKey.set( track.key as string | number, track ) )
+
+    const
+    newTracks: ArgvTrack[] = [],
+    pendingInserts = new Map<string | number, any>()
+
+    for( let i = 0; i < _in.length; i++ ){
+      const
+      k = keys[ i ],
+      existing = oldByKey.get( k )
+
+      if( existing ){
+        oldByKey.delete( k )
+
+        // Patch only what changed: item value and/or index
+        const updates: VariableSet = {}
+        if( evar && !isEqual( existing.argvalues[ evar ]?.value, _in[ i ] ) )
+          updates[ evar ] = { value: _in[ i ], type: 'arg' }
+
+        if( ivar && existing.argvalues[ ivar ]?.value !== i )
+          updates[ ivar ] = { value: i, type: 'arg' }
+
+        if( Object.keys( updates ).length ){
+          existing.argvalues = { ...existing.argvalues, ...updates }
+          renderer.update( Object.keys( updates ), updates, memo, existing.boundaries, `[k:${k}]` )
+        }
+
+        newTracks.push( existing )
+      }
+      else {
+        const argvalues: VariableSet = {}
+        if( evar ) argvalues[ evar ] = { value: _in[ i ], type: 'arg' }
+        if( ivar ) argvalues[ ivar ] = { value: i, type: 'arg' }
+
+        const { track, $partial } = this.addKeyedItem( renderer, memo, argvalues, k )
+
+        pendingInserts.set( k, $partial )
+        newTracks.push( track )
+      }
+    }
+
+    // Remove disappeared keys (also removes their boundaries)
+    oldByKey.forEach( ( track, k ) => renderer.cleanup( track.boundaries, `[k:${k}]` ) )
+
+    /**
+     * Pointer walk: enforce DOM order to match `newTracks`.
+     * `pointer` is the last correctly-placed node, starting
+     * at this <for> component's own start boundary.
+     */
+    if( this.boundaries ){
+      let pointer: Node = this.boundaries.start
+
+      for( const track of newTracks ){
+        const $pending = pendingInserts.get( track.key as string | number )
+
+        // Insert freshly created item right after pointer
+        if( $pending ) $( pointer ).after( $pending )
+
+        // Move existing range only when out of position
+        else if( pointer.nextSibling !== track.boundaries.start ){
+          const nodes: Node[] = []
+          let n: Node | null = track.boundaries.start
+
+          while( n ){
+            nodes.push( n )
+            if( n === track.boundaries.end ) break
+            n = n.nextSibling
+          }
+
+          const frag = document.createDocumentFragment()
+          nodes.forEach( nd => frag.appendChild( nd ) )
+          pointer.parentNode?.insertBefore( frag, pointer.nextSibling )
+        }
+
+        pointer = track.boundaries.end
+      }
+    }
+
+    this.static.argvlist = newTracks
   },
 
   asFromTo( renderer: MeshRenderer, _from: number, _to: number, memo: VariableSet, init: boolean ){

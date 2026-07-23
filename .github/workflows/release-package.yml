@@ -1,20 +1,43 @@
-name: Lips library
+name: Publish package
+
+# Publishes @lipsjs/lips to npmjs via OIDC Trusted Publishing — no
+# NPM_TOKEN secret needed: npmjs is configured to trust this repo's
+# release-package.yml workflow, and npm exchanges the job's OIDC token
+# for short-lived publish credentials (provenance attached automatically).
+#
+# NOTE: the trusted-publisher config on npmjs must reference this exact
+# workflow filename (release-package.yml).
 
 on:
   release:
-    types: [created]
+    types: [published]
 
 jobs:
-  publish-gpr:
+  publish-npm:
+    runs-on: ubuntu-latest
     permissions:
-      packages: write
       contents: read
+      id-token: write # required for OIDC trusted publishing
     steps:
       - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          registry-url: https://npm.pkg.github.com/
-      - run: npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing requires npm >= 11.5.1
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest && npm --version
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun run test
+
+      # npm runs `prepack` (build + type declarations) before packing
+      - name: Publish to npm
+        run: npm publish --access public
