@@ -19,6 +19,7 @@ import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import I18N from '../i18n'
+import { routerTemplate } from './router'
 
 interface FacadeTemplate {
   default?: string
@@ -161,6 +162,9 @@ export class IRLips {
     this.getLang = getLang
     this.setLang = setLang
 
+    // Built-in components
+    this.register('router', routerTemplate as FacadeTemplate )
+
     const self = this
     this.componentsProxy = new Proxy( {} as Record<string, IRComponentDef>, {
       get( _, name: string ){
@@ -216,6 +220,17 @@ export class IRLips {
       mode: this.config?.mode,
       components: this.componentsProxy,
       watchContext: ( fields, fn ) => this.watchContext( fields, fn ),
+      /**
+       * Route pages (and any `<{templateObject}/>`) are plain
+       * template objects — compile + cache them on demand.
+       */
+      resolveTemplate: ( value: any ) =>
+        value && typeof value.default === 'string'
+          ? this.defFor( value.name || 'dynamic', value as FacadeTemplate )
+          : undefined,
+      expose: {
+        setContext: ( arg: any, value?: any ) => this.setContext( arg, value )
+      },
       i18n: {
         /**
          * Reading the language signal inside the bind effect is

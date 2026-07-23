@@ -51,6 +51,14 @@ export interface RuntimeOptions {
   /** Host-provided context subscription (returns an unsubscribe) */
   watchContext?( fields: string[], fn: () => void ): () => void
   /**
+   * Resolve a plain template object (e.g. a route's `template`)
+   * into a component definition — the host owns compilation and
+   * caching. Enables `<{state.page}/>` with template objects.
+   */
+  resolveTemplate?( value: any ): IRComponentDef | undefined
+  /** Extra members merged onto every component's self (e.g. setContext) */
+  expose?: Record<string, any>
+  /**
    * i18n plugin hook (RFC §6): both calls must READ a language
    * signal so translated binds re-run on language change.
    */
@@ -725,10 +733,15 @@ class IRRenderer {
               return
             }
 
-            // Component name or definition object
+            /**
+             * Component name, a ready IRComponentDef, or a plain
+             * template object resolved through the host hook.
+             */
             const def = typeof verb === 'string'
               ? this.options.components?.[ verb ]
-              : ( verb && typeof verb === 'object' && verb.ir ? verb as IRComponentDef : undefined )
+              : verb && typeof verb === 'object'
+                ? ( verb.ir ? verb as IRComponentDef : this.options.resolveTemplate?.( verb ) )
+                : undefined
 
             if( def ) this.execComponent( def, child, anchor, benv, scopeNames, inner )
             else if( typeof verb === 'string' )
@@ -934,6 +947,7 @@ class IRRenderer {
      */
     const listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
     const self: any = {
+      ...( this.options.expose || {} ),
       state, input, static: def.statics, context: benv.context,
       emit( event: string, ...args: any[] ){
         listeners.get( event )?.forEach( fn => fn( ...args ) )
