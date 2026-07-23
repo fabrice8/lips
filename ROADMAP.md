@@ -64,19 +64,21 @@ Consequences that re-rank the phases:
 
 **Exit criteria:** green CI badge · reproducible one-command release · baseline benchmark numbers committed.
 
-## Phase 1 — Correctness debt (weeks 2–6)
+## Phase 1 — Correctness debt (weeks 2–6) — ✅ core complete (2026-07-23)
 
-- [ ] Convert `test/test.component.ts` (3,216 lines of manual scenarios) into Vitest specs — this doubles as the behavior spec that protects the Phase 2 engine swap
-- [ ] Fix known landmines:
-  - [ ] `destroy()` iterates a `Map` with `for…in` → child components never destroyed (`src/component.ts:2292`)
-  - [ ] Keyed `<for>` reconciliation (`key` is parsed then discarded; updates are index-based → state bleed on reorder)
-  - [ ] Handler names can clobber framework internals (`setHandler` assigns onto `this`)
-  - [ ] `Events.off` removes all listeners for an event; add per-listener unsubscribe
-  - [ ] Router: `decodeURIComponent` on query/params; path prefix collision check
-  - [ ] Stylesheet `waitForStyles` observer leak; bounded `TEMPLATE_CACHE`; scoped DWS observation
-- [ ] Error propagation: stop swallowing render errors in `console.error`; introduce component-level error boundary
+- [~] Convert `test/test.component.ts` (3,216 lines of manual scenarios) into Vitest specs — 64-spec suite covers signals, utils, rendering, events, control flow, keyed lists, router, teardown; full demo-scenario conversion continues alongside Phase 2
+- [x] Fix known landmines:
+  - [x] `destroy()` iterates a `Map` with `for…in` → child components never destroyed; + SCI tracking for syntax components; + idempotent destroy
+  - [x] Keyed `<for>` reconciliation (`by=` attribute — key path or function; DOM ranges move, state travels with keys)
+  - [x] Handler names can clobber framework internals → reserved-name guard throws at definition
+  - [x] `Events.off` per-listener unsubscribe; emit null-crash + in-place mutation fixed
+  - [x] Router: `URLSearchParams` query parsing + percent-decoded path params
+  - [x] Stylesheet `waitForStyles` observer leak; bounded LRU `TEMPLATE_CACHE`
+  - [x] Bonus (spike-discovered): null/template dynamic-tag crash + dead dtag tracking; immediate disposal of swapped-out dynamic content
+  - [ ] Scoped DWS observation — deferred to Phase 2 (lifecycle rework)
+- [x] Error propagation: `onError` lifecycle boundary + `component:error` event; console remains fallback
 
-**Exit criteria:** list reorder / teardown / leak suites green · no known-crash issues open.
+**Exit criteria met:** list reorder / teardown / leak suites green (64 pass) · no known-crash issues open.
 
 ## Phase 2 — The engine swap (weeks 6–12)
 

@@ -192,6 +192,51 @@ describe('nested components', () => {
   })
 })
 
+describe('safety & error handling', () => {
+  it('rejects handler names that clobber the component API', () => {
+    expect( () => lips.render('t-reserved', {
+      handler: { render(){} },
+      default: `<div/>`
+    }) ).toThrow( /reserved/ )
+
+    expect( () => lips.render('t-reserved-2', {
+      handler: { destroy(){} },
+      default: `<div/>`
+    }) ).toThrow( /reserved/ )
+  })
+
+  it('routes render errors to the onError boundary', async () => {
+    const consoleSpy = vi.spyOn( console, 'error' ).mockImplementation( () => {} )
+    let caught: Error | null = null
+
+    lips.render('t-onerror', {
+      state: { items: null },
+      handler: {
+        onError( error: Error ){ caught = error }
+      },
+      // <for> without body content → no mesh renderer → throws
+      default: `<div><for in=state.items></for></div>`
+    })
+
+    await settle( () => caught !== null )
+    expect( ( caught as unknown as Error ).message ).toMatch( /mesh renderer/ )
+    consoleSpy.mockRestore()
+  })
+
+  it('injects and clears component stylesheets', async () => {
+    const c = lips.render('t-style', {
+      default: `<div class="styled">x</div>`,
+      stylesheet: `.styled { color: red; }`
+    })
+    c.appendTo('#app')
+
+    await settle( () => !!document.head.querySelector('style[rel="t-style"]') )
+
+    c.destroy()
+    await settle( () => !document.head.querySelector('style[rel="t-style"]') )
+  })
+})
+
 describe('teardown', () => {
   it('removes root component DOM on destroy()', async () => {
     const c = lips.render('t-destroy', {
@@ -247,6 +292,28 @@ describe('teardown', () => {
     // parent + <if> instance + <for> instance
     expect( spy ).toHaveBeenCalledTimes( 3 )
     expect( document.querySelector('#app div') ).toBeNull()
+    spy.mockRestore()
+  })
+
+  it('disposes swapped-out dynamic components immediately', async () => {
+    lips.register('view-a', { default: `<p class="va">A</p>` })
+    lips.register('view-b', { default: `<p class="vb">B</p>` })
+
+    const c = lips.render('t-dyn-swap', {
+      state: { view: 'view-a' },
+      default: `<div><{state.view}/></div>`
+    })
+    c.appendTo('#app')
+    await settle( () => !!document.querySelector('.va') )
+
+    const spy = vi.spyOn( ComponentClass.prototype, 'destroy' )
+
+    c.state.view = 'view-b'
+    await settle( () => !!document.querySelector('.vb') )
+
+    // The swapped-out view-a instance was destroyed, not just detached
+    expect( spy ).toHaveBeenCalled()
+    expect( document.querySelector('.va') ).toBeNull()
     spy.mockRestore()
   })
 
