@@ -16,7 +16,7 @@ identical DOM deltas make paint comparable). Medians reported.
 ## Run it
 
 ```bash
-bun run build && bun run build:ir  # dist/lips.min.js + dist/lips-ir.min.js
+bun run build                      # dist/lips.min.js
 python3 -m http.server 8931        # repo root
 # open http://localhost:8931/bench/index.html → Run all
 ```

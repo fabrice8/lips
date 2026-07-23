@@ -2,16 +2,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import Lips from '../src/lips'
 
 /**
- * THE PARITY GATE (RFC-001 §9)
+ * BEHAVIOR SUITE — the public API contract.
  *
- * One shared behavior suite executed against BOTH engines through
- * the same public API — `new Lips()` vs `new Lips({ engine: 'ir' })`.
- * This file is the migration contract: the IR engine graduates by
- * passing the same specs the current engine passes.
- *
- * Known parity gaps (old-engine-only suites still cover them):
- * router, i18n, macros, component slots/events, dynamic template
- * objects — tracked in ROADMAP.
+ * Born as the parity gate that qualified the IR engine against the
+ * legacy digest engine. The legacy engine has since been deleted, so
+ * this now stands as the framework's behavior contract: everything a
+ * template can express, asserted through `new Lips()`.
  */
 
 function settle( check: () => boolean, timeout = 3000 ){
@@ -415,8 +411,9 @@ function parity( engineName: string, createLips: () => any ){
 
 
 /**
- * Behaviors where the IR engine is CORRECT and the current engine is
- * not — verified by direct probe against the current engine:
+ * Behaviors the deleted legacy engine got WRONG — kept as regression
+ * specs so a future refactor cannot reintroduce them. Verified by
+ * direct probe against the legacy engine before its removal:
  *
  *  - inline arrow instructions (`on-click( () => state.count++ )`) do
  *    not mutate state: the old evaluator passes `state.toJSON()`, a
@@ -429,15 +426,12 @@ function parity( engineName: string, createLips: () => any ){
  *  - onContext fires for ANY context write, not just the fields the
  *    component declared
  *
- * These run against the IR engine only; matching the old behavior is
- * not the goal. They move into the shared gate if the old engine is
- * ever fixed.
  */
-describe('ir engine: fixes over the current engine', () => {
+describe('regressions fixed relative to the legacy engine', () => {
   let lips: any
   beforeEach( () => {
     document.body.innerHTML = '<div id="app"></div>'
-    lips = new Lips({ engine: 'ir' } as any)
+    lips = new Lips()
   })
 
     it('renders <async> loading → then arms', async () => {
@@ -551,5 +545,4 @@ describe('ir engine: fixes over the current engine', () => {
     })
 })
 
-parity( 'legacy engine', () => new Lips({ engine: 'runtime' } as any) )
-parity( 'ir engine (default)', () => new Lips() )
+parity( 'lips', () => new Lips() )

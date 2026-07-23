@@ -9,10 +9,15 @@ Everything below lands in one release: the engine rewrite plus the
 Phase 0/1 foundation work that made it verifiable.
 
 ### Changed — BREAKING
-- **The IR engine is now the default.** `new Lips()` runs the Phase 2
+- **The IR engine is the only engine.** `new Lips()` runs the Phase 2
   engine (parser → IR → clone+bind runtime, per-key signals). The legacy
-  digest engine remains available for one deprecation release via
-  `new Lips({ engine: 'runtime' })`, then it is removed.
+  digest engine has been removed — there is no `engine` option.
+- **cash-dom is no longer a dependency.** `stylis` is the only runtime
+  dependency; `stylesheet.ts` runs on native DOM.
+- Removed with the legacy engine: `src/component.ts`, `src/tps.ts`,
+  `src/iuc/`, `src/dws.ts`, `src/uqs.ts`, `src/metrics.ts`, the old
+  `src/signal.ts`/`src/utils.ts`/`src/constants.ts`, `src/syntax/`, and
+  the manual `test/` harness — 7,453 lines.
 - Nullish interpolation renders `''` instead of the literal `"undefined"`
   (RFC-001 decision #4).
 - Undeclared macro arguments are `undefined` rather than `false`: same
