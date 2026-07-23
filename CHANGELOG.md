@@ -30,13 +30,18 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - `destroy()` now destroys nested child components recursively — it iterated
   the PCC `Map` with `for…in` (which yields nothing), leaving every child's
   effects, IUC registrations and watchers alive
+- Syntax-component instances (`<if>`, `<for>`, `<switch>`, …) are now tracked
+  in a dedicated SCI registry and disposed with their parent — they are
+  excluded from the PCC cache by design and previously leaked on every
+  parent teardown
+- `destroy()` is idempotent — repeated calls are safe no-ops
 - Removed the bogus `tsc` npm package from devDependencies (it shadowed the
   real TypeScript compiler binary)
 
 ### Known issues (tracked for Phase 1 — see ROADMAP.md)
-- Syntax-component instances (`<if>`, `<for>`, …) are excluded from the PCC
-  cache and are still never destroyed with their parent — needs instance
-  tracking
+- Dynamic re-renders (`<{state.page}/>` swaps, dynamic tags) accumulate
+  PCC/SCI entries until parent destroy — no intermediate instance disposal
+  when swapped-out content will never return
 - `<for>` over `Map`/plain-object inputs is still index-based — should
   default to keyed reconciliation by the natural entry key
 - `<for>` cannot render inside `<table>`/`<tbody>` (innerHTML parsing hoists

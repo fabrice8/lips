@@ -85,12 +85,22 @@ export default class Component<MT extends Metavars> extends Events {
   public FGUDMemory: FGUDMemory = new Map()
   // Preserved Child Components
   private PCC: Map<string, Component<MT>> = new Map()
+  /**
+   * Syntax Component Instances (<if>, <for>, <switch>, …)
+   *
+   * Excluded from PCC on purpose — their mesh wiring is
+   * rebuilt per render so they must not be reused — but
+   * tracked here so destroy() can dispose them (effects,
+   * IUC registrations, watchers) with the parent.
+   */
+  private SCI: Set<Component<MT>> = new Set()
   // Virtual Events Registry
   private VER: Array<VirtualEvent<MT>> = []
 
   private prepath = '0'
   private debug = false
   private isRendered = false
+  private isDestroyed = false
 
   private __setInput: ( input: MT['Input'] ) => void
   private __setState: ( state: MT['State'] ) => void
@@ -1285,11 +1295,16 @@ export default class Component<MT extends Metavars> extends Events {
         $fragment = $fragment.add( component.node )
 
         /**
-         * Only cache non-syntax components 
+         * Only cache non-syntax components
          * for post-rendering reusability purpose.
+         *
+         * Syntax component instances are tracked in SCI
+         * instead so destroy() can dispose them with the
+         * parent component.
          */
-        !template.declaration?.syntax
-        && self.PCC.set( componentCacheId, component )
+        template.declaration?.syntax
+                ? self.SCI.add( component )
+                : self.PCC.set( componentCacheId, component )
       }
 
       // Close boundaries to the initial fragment when it's added to DOM
@@ -2258,6 +2273,14 @@ export default class Component<MT extends Metavars> extends Events {
   }
   destroy(){
     /**
+     * Idempotence guard: children may already have been
+     * destroyed by their parent's teardown, and lifecycle
+     * paths (watchers, dispose hooks) may overlap.
+     */
+    if( this.isDestroyed ) return
+    this.isDestroyed = true
+
+    /**
      * Dispose signal effect dependency of this
      * component.
      */
@@ -2300,10 +2323,20 @@ export default class Component<MT extends Metavars> extends Events {
     })
 
     /**
+     * Destroy syntax component instances (<if>, <for>, …)
+     * excluded from PCC by design.
+     */
+    this.SCI.forEach( component => {
+      try { component.destroy() }
+      catch( error ){ console.error('failed to destroy syntax component --', error ) }
+    })
+
+    /**
      * Cleanup
      */
     this.$?.remove()
     this.PCC?.clear()
+    this.SCI?.clear()
     this.FGUD?.clear()
     this.FGUDMemory?.clear()
     // this.state.reset()

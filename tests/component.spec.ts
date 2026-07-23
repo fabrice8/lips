@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Lips from '../src/lips'
+import ComponentClass from '../src/component'
 
 /**
  * Integration specs: render real components into happy-dom.
@@ -228,8 +229,36 @@ describe('teardown', () => {
     expect( document.querySelector('.leaf') ).toBeNull()
   })
 
-  // Remaining Phase 1 gap: syntax components (<if>, <for>, …) are
-  // intentionally excluded from the PCC cache, so their instances are
-  // still never destroyed with the parent — needs instance tracking.
-  it.todo('destroys syntax-component instances on parent destroy()')
+  it('destroys syntax-component instances on parent destroy()', async () => {
+    const c = lips.render('t-syntax-destroy', {
+      state: { on: true, items: [ 'a', 'b' ] },
+      default: `
+        <div>
+          <if( state.on )><p>on</p></if>
+          <for [x] in=state.items><i>{x}</i></for>
+        </div>`
+    })
+    c.appendTo('#app')
+    await settle( () => document.querySelectorAll('i').length === 2 )
+
+    const spy = vi.spyOn( ComponentClass.prototype, 'destroy' )
+    c.destroy()
+
+    // parent + <if> instance + <for> instance
+    expect( spy ).toHaveBeenCalledTimes( 3 )
+    expect( document.querySelector('#app div') ).toBeNull()
+    spy.mockRestore()
+  })
+
+  it('destroy() is idempotent', async () => {
+    const c = lips.render('t-destroy-twice', {
+      state: { items: [ 1, 2 ] },
+      default: `<div><for [x] in=state.items><u>{x}</u></for></div>`
+    })
+    c.appendTo('#app')
+    await settle( () => document.querySelectorAll('u').length === 2 )
+
+    c.destroy()
+    expect( () => c.destroy() ).not.toThrow()
+  })
 })
