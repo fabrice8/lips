@@ -1,0 +1,23 @@
+{
+  "meta": {
+    "date": "2026-07-23",
+    "rows": 1000,
+    "engineVersion": "phase-2/ir-engine — real IR runtime (parser+compiler+runtime, compiled expression mode) vs current 0.1.2+phase1",
+    "environment": "Chromium 148 (Electron), macOS, embedded pane",
+    "method": "script + DOM-settle timings, paint excluded; medians of 3-5 runs (1 for append/clear)",
+    "harness": "bench/index.html (4 engines)",
+    "bundle": "dist/lips-ir.min.js — 39.9 KB min / 13.0 KB gzip (includes parser+compiler; precompiled-IR deployments ship less)"
+  },
+  "medians_ms": {
+    "vanilla": { "create": 3.6, "replace": 2.2, "update": 0.1, "select": 0.1, "swap": 0.0, "remove": 0.0, "append": 1.6, "clear": 1.3 },
+    "ir":      { "create": 5.6, "replace": 5.5, "update": 0.2, "select": 0.3, "swap": 0.0, "remove": 0.0, "append": 2.4, "clear": 1.9 },
+    "ir-rt":   { "create": 5.6, "replace": 8.2, "update": 0.7, "select": 0.5, "swap": 1.4, "remove": 0.5, "append": 4.6, "clear": 2.4 },
+    "lips":    { "create": 485.5, "replace": 2071.6, "update": 102.6, "select": 104.3, "swap": 3.8, "remove": 5.2, "append": 648.8, "clear": 15.6 }
+  },
+  "observations": [
+    "The REAL IR engine (ir-rt) holds the spike prototype's promise: create 5.6ms (~1.6x vanilla) with the full pipeline — runtime template parse, IR compile, keyed reconciler, per-key signals, component support.",
+    "vs current engine: create ~87x, replace ~253x, partial update ~147x, select ~209x, append ~141x faster. All 8 ops error-free in both engines.",
+    "ir-rt swap (1.4ms) pays the pointer-walk without LIS optimization yet; still 2.7x faster than current keyed <for>.",
+    "Phase 2 ROADMAP budget check: update/select land within noise of vanilla (sub-ms); create at 1.56x vanilla vs the <=1.4x Phase-2 budget — LIS reconciler and bind-walk tuning are the known remaining levers (Phase 3 target 1.2x)."
+  ]
+}
