@@ -6,6 +6,11 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 ## [Unreleased]
 
 ### Added
+- **Keyed `<for>` reconciliation**: `<for [item, i] in=state.items by="id">`
+  matches items by key (property path or key function via `by=fn`), moving
+  existing DOM ranges instead of rewriting them in place — node identity and
+  nested component state survive reorders, prepends and mid-list removals.
+  Undefined/duplicate keys warn and fall back to index reconciliation.
 - Real test suite: Vitest + jsdom — 40 specs covering signals, utils
   (`isDiff`/`isEqual`/`deepClone`/`deepAssign`), rendering, reactive updates,
   events, `<if>`/`<for>`, nested components, teardown (`tests/`)
@@ -32,7 +37,8 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - Syntax-component instances (`<if>`, `<for>`, …) are excluded from the PCC
   cache and are still never destroyed with their parent — needs instance
   tracking
-- `<for>` has no keyed reconciliation — list updates are index-based
+- `<for>` over `Map`/plain-object inputs is still index-based — should
+  default to keyed reconciliation by the natural entry key
 - `<for>` cannot render inside `<table>`/`<tbody>` (innerHTML parsing hoists
   unknown elements out of table context)
 - `appendTo()` silently renders `[object Object]` when passed a raw DOM element
