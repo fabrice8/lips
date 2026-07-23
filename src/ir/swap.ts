@@ -26,6 +26,10 @@ export const normBind = ( b: BindIR, x: string[] ): any => ({ ...b, e: x[ b.e ] 
 
 export function normChild( c: ChildIR, x: string[] ): any {
   switch( c.t ){
+    case 'macro':
+      return { t: c.t, name: c.name, args: c.args,
+        vars: Object.fromEntries( Object.entries( c.vars ).map( ( [ k, v ] ) => [ k, normInput( v, x ) ] ) ),
+        block: normBlock( c.block, x ) }
     case 'if':
       return { t: c.t, branches: c.branches.map( b => ({
         when: b.when == null ? null : x[ b.when ],

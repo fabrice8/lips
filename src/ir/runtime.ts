@@ -573,6 +573,44 @@ class IRRenderer {
         break
       }
 
+      case 'macro': {
+        /**
+         * Inlined macro body: declared argv become block-scoped
+         * reactive vars; every call-site attribute also lands in
+         * `arguments` (per-key reactive, so `arguments.x` binds
+         * track only that key).
+         */
+        const scope = Object.create( benv.scope ?? null )
+        const args = reactive( {} as Record<string, any> )
+
+        for( const [ name, ci ] of Object.entries( child.vars ) ){
+          if( 'lit' in ci ){
+            args[ name ] = ci.lit
+            if( child.args.includes( name ) ){
+              const [ get ] = signal( ci.lit )
+              defineGetter( scope, name, get )
+            }
+            continue
+          }
+
+          const run = this.runner( ci.e, scopeNames )
+          const [ get, set ] = signal<any>( undefined )
+
+          if( child.args.includes( name ) ) defineGetter( scope, name, get )
+
+          disposers.push( effect( () => {
+            const v = run( benv )
+            set( v )
+            args[ name ] = v
+          }).dispose )
+        }
+
+        const inst = this.renderBlock( child.block, { ...benv, arguments: args, scope })
+        insertAfter( anchor, nodesOf( inst ) )
+        disposers.push( () => destroy( inst ) )
+        break
+      }
+
       case 'for':
         this.execFor( child, anchor, benv, scopeNames, disposers )
         break

@@ -66,6 +66,7 @@ export interface ArmIR {
 }
 
 export type ChildIR =
+  | { t: 'macro',   p: Path, name: string, vars: Record<string, CompInput>, args: string[], block: BlockIR }
   | { t: 'if',      p: Path, branches: { when: E | null, block: BlockIR }[] }
   | { t: 'for',     p: Path, of?: E, from?: CompInput, to?: CompInput, by?: CompInput, args: string[], block: BlockIR }
   | { t: 'switch',  p: Path, on: E, cases: { is: CompInput | null, block: BlockIR }[] }
@@ -78,6 +79,17 @@ export type ChildIR =
 export interface CompileResult {
   ir: TemplateIR
   diagnostics: TemplateDiagnostic[]
+}
+
+export interface CompileOptions {
+  /** `<macro [argv] name="X">…</macro>` definitions, inlined at call sites */
+  macros?: string
+}
+
+interface MacroDef {
+  name: string
+  argv: string[]
+  children: TemplateNode[]
 }
 
 // ------------------------------------------------------------------ tables
@@ -121,10 +133,12 @@ class Compiler {
   private exprs: string[] = []
   private exprIndex = new Map<string, E>()
   private lineStarts: number[] | null = null
+  /** Guards against macros that (indirectly) call themselves */
+  private macroStack: string[] = []
 
   readonly diagnostics: TemplateDiagnostic[] = []
 
-  constructor( private src: string ){}
+  constructor( private src: string, private macros = new Map<string, MacroDef>() ){}
 
   // ---- diagnostics
   private locate( offset: number ){
@@ -290,6 +304,13 @@ class Compiler {
             // Dynamic tag
             if( node.tag === '#dynamic' ){
               block.blocks.push( this.compLike( node, anchor(), scope, 'dynamic' ) )
+              break
+            }
+
+            // Macro call → inline the definition body
+            if( this.macros.has( node.tag ) ){
+              const macroBlock = this.macroCall( node, anchor(), scope )
+              macroBlock && block.blocks.push( macroBlock )
               break
             }
 
@@ -536,6 +557,44 @@ class Compiler {
     return { lit: undefined }
   }
 
+  /**
+   * Macro call site → inlined block.
+   *
+   * Every call-site attribute becomes a block-scoped variable
+   * (the macro's declared `argv` are the named ones; all of them
+   * together also form `arguments` at runtime).
+   */
+  private macroCall( node: ElementNode, p: Path, scope: string[] ): ChildIR | null {
+    const macro = this.macros.get( node.tag )!
+
+    if( this.macroStack.includes( macro.name ) ){
+      this.report( 'LIPS-C009', 'error',
+        `Recursive macro <${macro.name}> (${[ ...this.macroStack, macro.name ].join(' → ')})`,
+        node.loc.offset, node.loc.length )
+      return null
+    }
+
+    const vars: Record<string, CompInput> = {}
+    for( const attr of node.attrs )
+      if( attr.k === 'literal' || attr.k === 'expr' || attr.k === 'interp' || attr.k === 'bool' )
+        vars[ attr.name ] = this.compInput( attr )
+
+    /**
+     * Undeclared argv default to `undefined`: falsy in
+     * conditions and attribute-removing like the old engine's
+     * `false` sentinel, but renders as '' in text interpolation
+     * per RFC decision #4 (the old engine printed "false").
+     */
+    for( const name of macro.argv )
+      if( !( name in vars ) ) vars[ name ] = { lit: undefined }
+
+    this.macroStack.push( macro.name )
+    const block = this.block( macro.children, [ ...scope, ...macro.argv ] )
+    this.macroStack.pop()
+
+    return { t: 'macro', p, name: macro.name, vars, args: macro.argv, block }
+  }
+
   /** Components and dynamic tags share input/event/spread shape */
   private compLike( node: ElementNode, p: Path, scope: string[], kind: 'comp' | 'dynamic' ): ChildIR {
     const
@@ -575,10 +634,56 @@ class Compiler {
 }
 
 // -------------------------------------------------------------------- API
-export function compileTemplate( src: string ): CompileResult {
+/** Parse `<macro [argv] name="X">…</macro>` blocks into a lookup */
+function parseMacros( src: string, diagnostics: TemplateDiagnostic[] ){
+  const macros = new Map<string, MacroDef>()
+  if( !src?.trim() ) return macros
+
   const parsed = parseTemplate( src )
-  const compiler = new Compiler( src )
+  diagnostics.push( ...parsed.diagnostics )
+
+  for( const node of parsed.root.children ){
+    if( node.t !== 'element' ) continue
+
+    if( node.tag !== 'macro' ){
+      diagnostics.push({
+        code: 'LIPS-C010', severity: 'warning',
+        message: `Only <macro> definitions are allowed in the macros source — ignoring <${node.tag}>`,
+        loc: { line: 1, col: 1, offset: node.loc.offset, length: node.loc.length }
+      })
+      continue
+    }
+
+    let name = ''
+    const argv: string[] = []
+    for( const attr of node.attrs ){
+      if( attr.k === 'args' ) argv.push( ...attr.names )
+      else if( attr.k === 'literal' && attr.name === 'name' ) name = attr.value
+    }
+
+    if( !name ){
+      diagnostics.push({
+        code: 'LIPS-C011', severity: 'error',
+        message: `<macro> requires a name attribute`,
+        loc: { line: 1, col: 1, offset: node.loc.offset, length: node.loc.length }
+      })
+      continue
+    }
+
+    // Tag names arrive lowercased — match call sites case-insensitively
+    macros.set( name.toLowerCase(), { name, argv, children: node.children })
+  }
+
+  return macros
+}
+
+export function compileTemplate( src: string, options?: CompileOptions ): CompileResult {
+  const diagnostics: TemplateDiagnostic[] = []
+  const macros = parseMacros( options?.macros || '', diagnostics )
+
+  const parsed = parseTemplate( src )
+  const compiler = new Compiler( src, macros )
   const ir = compiler.compile( parsed.root.children )
 
-  return { ir, diagnostics: [ ...parsed.diagnostics, ...compiler.diagnostics ] }
+  return { ir, diagnostics: [ ...diagnostics, ...parsed.diagnostics, ...compiler.diagnostics ] }
 }

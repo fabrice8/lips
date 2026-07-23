@@ -21,6 +21,7 @@ import Stylesheet from '../stylesheet'
 
 interface FacadeTemplate {
   default?: string
+  macros?: string
   state?: Record<string, any>
   handler?: Record<string, ( this: any, ...args: any[] ) => any>
   _static?: Record<string, any>
@@ -174,7 +175,7 @@ export class IRLips {
   private compile( template: FacadeTemplate ): TemplateIR {
     let ir = this.irCache.get( template )
     if( !ir ){
-      const result = compileTemplate( template.default || '' )
+      const result = compileTemplate( template.default || '', { macros: template.macros })
       result.diagnostics.length
         && console.warn('[lips:ir] template diagnostics —', result.diagnostics )
 
