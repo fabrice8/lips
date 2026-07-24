@@ -10,11 +10,20 @@
  * time (see `compileTemplate`) for CSP-safe, parse-free startup.
  */
 
-import { IRLips, IRFacadeComponent, setCompiler } from './ir/facade'
+import { compile, serialize, stringify, middleware } from 'stylis'
+import { IRLips, IRFacadeComponent, setCompiler, registerBuiltin } from './ir/facade'
+import { setStyleCompiler } from './stylesheet'
 import { compileTemplate } from './ir/compiler'
+import { routerTemplate } from './ir/router'
 
-// Full build: runtime template compilation available
+/**
+ * Full build capabilities. The `./runtime` entry wires none of these,
+ * so its bundle tree-shakes the template compiler, Stylis, and the
+ * built-in components out entirely.
+ */
 setCompiler( compileTemplate )
+setStyleCompiler( css => serialize( compile( css ), middleware([ stringify ]) ) )
+registerBuiltin( 'router', routerTemplate )
 
 export * from './types'
 

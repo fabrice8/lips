@@ -31,10 +31,15 @@ Phase 0/1 foundation work that made it verifiable.
   with `file:line:col`. Paired with `mode: 'interpreted'`, a precompiled
   app never constructs a `Function` and runs under `script-src` without
   `unsafe-eval`.
-- **Subpath entries**: `@lipsjs/lips` (full, 20.7 KB gzip),
-  `@lipsjs/lips/runtime` (precompiled-only — parser and compiler
-  tree-shaken out, 14.5 KB gzip), `@lipsjs/lips/precompile` (build-time,
-  9.1 KB gzip), `@lipsjs/lips/dev` (unminified).
+- **Subpath entries** with a CI-enforced size budget:
+  `@lipsjs/lips` (full, 21 KB gzip), `@lipsjs/lips/runtime`
+  (precompiled-only — parser, compiler, Stylis, and built-in
+  components all tree-shaken out, **12.1 KB gzip**),
+  `@lipsjs/lips/precompile` (build-time, 9.2 KB gzip),
+  `@lipsjs/lips/dev` (unminified). Stylis and the built-in `<router>`
+  are injected by the full entry rather than imported by the core, so
+  the runtime bundle drops them entirely. `bun run size` fails the
+  build on a budget breach (`scripts/size-check.mjs`).
 - **IR engine** (`src/ir/`): own tokenizer + template parser with
   positioned diagnostics that never throw, expression parser with
   AST-derived dependencies, IR compiler emitting a serializable

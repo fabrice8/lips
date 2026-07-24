@@ -112,7 +112,7 @@ Consequences that re-rank the phases:
 
 - [x] **Subpath entries (2026-07-23)**: `.` (full, 20.7 KB gz) · `./runtime` (precompiled-only, compiler tree-shaken out, **14.5 KB gz**) · `./precompile` (build-time, 9.1 KB gz) · `./dev`. The compiler is injected rather than imported, so the runtime entry drops the parser+compiler entirely and throws an actionable error if handed source templates
 - [x] cash-dom removed entirely (stylesheet.ts on native DOM); stylis is the only runtime dependency
-- [ ] Size budget enforced in CI; trim toward ≤12 KB gz (stylis is the largest remaining chunk — lazy-loading the stylesheet module is the next lever)
+- [x] **Size budget enforced in CI (2026-07-24)**: `scripts/size-check.mjs` gzips each entry against a budget, wired into CI. Stylis and the built-in `<router>` are injected by the full entry, not imported by the core, so `./runtime` tree-shakes both — **14.5 → 12.1 KB gz** (at target). Dynamic-`import()` for Stylis was rejected: it fragments the single-file no-build bundle for 1.8 KB. Remaining lever toward a smaller leaf: split router/i18n into their own entries
 - [x] **Precompilation + CSP-safe mode (2026-07-23)**: `precompile()` turns authoring templates into IR ahead of time (macros inlined, source dropped); `lipsPlugin()` compiles `.lips` SFCs to modules with embedded IR and fails the build on template errors with file:line:col. With `mode: 'interpreted'` a precompiled app **never constructs a Function** — proven by spec with a non-vacuous control
 - [ ] SSR/hydration spike on the same IR
 - [ ] Publish styled-component/scoped-CSS docs and security model page (`@html`, "templates are code")

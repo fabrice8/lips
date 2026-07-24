@@ -22,5 +22,8 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Size budget
+        run: bun run size
+
       - name: Unit & integration tests
         run: bun run test

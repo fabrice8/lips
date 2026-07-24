@@ -39,7 +39,8 @@
     "typecheck": "tsc --noEmit",
     "prepack": "bun run build && bun run build:declaration",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "size": "node scripts/size-check.mjs"
   },
   "dependencies": {
     "stylis": "^4.3.4"

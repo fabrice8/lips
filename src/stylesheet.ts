@@ -1,19 +1,26 @@
 /**
  * Component stylesheets — scoped by a `rel` attribute selector,
- * compiled with Stylis, injected once per namespace and reference
- * counted so shared components clean up correctly.
+ * injected once per namespace and reference counted so shared
+ * components clean up correctly. Native DOM only (no cash-dom).
  *
- * Native DOM only (no cash-dom): this file is on the critical path
- * of every component that ships styles.
+ * The CSS preprocessor (Stylis) is INJECTED, not imported, so the
+ * precompiled-only `./runtime` build tree-shakes it out entirely.
+ * The full `@lipsjs/lips` entry wires it (see src/lips.ts); a build
+ * without it warns and skips source stylesheets rather than shipping
+ * a preprocessor a precompiled/CSP app never needs.
  */
-
-import { compile, serialize, stringify, middleware } from 'stylis'
 
 export type StyleSettings = {
   sheet?: string
   /** Inject globally instead of scoping to `[rel="<nsp>"]` */
   meta?: boolean
 }
+
+type StyleCompiler = ( css: string ) => string
+let STYLE_COMPILER: StyleCompiler | null = null
+
+/** Wire the CSS preprocessor (full build only) */
+export function setStyleCompiler( fn: StyleCompiler ){ STYLE_COMPILER = fn }
 
 export default class Stylesheet {
   private nsp: string
@@ -36,14 +43,6 @@ export default class Stylesheet {
     return document.head.querySelector<HTMLStyleElement>(`style[rel="${this.rel}"]`)
   }
 
-  /** Process sheet source through Stylis */
-  compile( str: string ): string {
-    try { return serialize( compile( str ), middleware([ stringify ]) ) }
-    catch( error: any ){
-      throw new Error(`Style compilation failed: ${error.message}`)
-    }
-  }
-
   /**
    * Compile and inject. `dindex` counts live instances sharing this
    * namespace: it increases per instance and decreases on clear, so
@@ -53,6 +52,13 @@ export default class Stylesheet {
     this.settings = settings
     if( !settings.sheet ) return
 
+    if( !STYLE_COMPILER ){
+      console.warn(
+        `[lips] <${this.nsp}> stylesheet skipped — this build has no CSS preprocessor. `
+        + 'Use "@lipsjs/lips" (not "@lipsjs/lips/runtime") for source stylesheets.' )
+      return
+    }
+
     const existing = this.styleElement
     if( existing ){
       // Already injected — just take a reference
@@ -61,7 +67,10 @@ export default class Stylesheet {
     }
 
     const source = settings.meta ? settings.sheet : `[rel="${this.nsp}"] { ${settings.sheet} }`
-    const sheet = this.compile( source )
+    let sheet: string
+    try { sheet = STYLE_COMPILER( source ) }
+    catch( error: any ){ throw new Error(`Style compilation failed: ${error.message}`) }
+
     if( !sheet )
       throw new Error(`<${this.nsp}> stylesheet compilation produced no output`)
 

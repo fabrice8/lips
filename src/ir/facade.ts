@@ -22,13 +22,22 @@ type CompilerFn = ( src: string, options?: CompileOptions ) => CompileResult
 let COMPILER: CompilerFn | null = null
 
 export function setCompiler( fn: CompilerFn ){ COMPILER = fn }
+
+/**
+ * Built-in components (e.g. `<router>`) are INJECTED by the full
+ * entry rather than imported here, so the precompiled-only
+ * `./runtime` build — which can't compile their source templates
+ * anyway — tree-shakes them out.
+ */
+const BUILTINS: Record<string, any> = {}
+export function registerBuiltin( name: string, template: any ){ BUILTINS[ name ] = template }
+
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import { renderIR } from './runtime'
 import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import I18N from '../i18n'
-import { routerTemplate } from './router'
 
 interface FacadeTemplate {
   default?: string
@@ -173,8 +182,8 @@ export class IRLips {
     this.getLang = getLang
     this.setLang = setLang
 
-    // Built-in components (router's template is source — needs the compiler)
-    COMPILER && this.register('router', routerTemplate as FacadeTemplate )
+    // Built-in components (their templates are source — need the compiler)
+    COMPILER && Object.entries( BUILTINS ).forEach( ( [ name, template ] ) => this.register( name, template ) )
 
     const self = this
     this.componentsProxy = new Proxy( {} as Record<string, IRComponentDef>, {

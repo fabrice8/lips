@@ -225,4 +225,28 @@ describe('runtime-only entry (@lipsjs/lips/runtime)', () => {
 
     vi.resetModules()
   })
+
+  it('has no CSS preprocessor wired — source stylesheets warn and skip', async () => {
+    /**
+     * Fresh graph = the runtime bundle: Stylis is injected only by the
+     * full entry (src/lips), so a runtime-only build must not compile
+     * or inject a source stylesheet — proving Stylis is tree-shaken out.
+     */
+    vi.resetModules()
+    document.head.querySelectorAll('style[rel]').forEach( s => s.remove() )
+    const warn = vi.spyOn( console, 'warn' ).mockImplementation( () => {} )
+
+    const { default: RuntimeLips } = await import('../src/runtime')
+    const { template } = precompile({ default: `<b class="s">x</b>` })
+
+    const rt: any = new RuntimeLips()
+    rt.render('styled', { ...template, stylesheet: `.s { color: red }` } as any ).appendTo('#app')
+
+    await settle( () => !!q('.s') )
+    expect( document.head.querySelector('style[rel="styled"]') ).toBeNull()
+    expect( warn ).toHaveBeenCalledWith( expect.stringContaining('no CSS preprocessor') )
+
+    warn.mockRestore()
+    vi.resetModules()
+  })
 })
