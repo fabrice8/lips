@@ -1,51 +1,53 @@
-# Lips: Fast, Lightweight Reactive UI Framework
+# Lips — Fast, Lightweight Reactive UI Framework
 
-Lips is a modern, runtime-based UI framework that brings fine-grained reactivity without the need for build steps. Create dynamic web applications with a simple, declarative syntax that feels familiar to HTML developers while providing powerful reactive capabilities.
+Lips is a runtime, fine-grained reactive UI framework with an HTML-native template
+syntax. Import it and build — **no build step required** — or precompile your templates
+ahead of time for CSP-safe, parse-free startup.
 
-## ✨ Key Features
+Under the hood a template compiles to a small **IR** (intermediate representation): the
+DOM is cloned from static skeletons and each binding is its own effect over per-key
+signals, so a state change updates only what actually read it — no virtual DOM, no diffing.
 
-- **Zero Build Step**: Just import the script and start building
-- **Fine-Grained Reactivity**: Only updates what changed, not the entire component
-- **Intuitive Template Syntax**: Simple yet powerful templating that's familiar to HTML developers
-- **TypeScript Support**: Full type definitions for better developer experience
-- **Built-in Performance Monitoring**: Track rendering performance with integrated benchmarking
-- **Flexible Component Architecture**: Object-based or ES Module syntax for your components
-- **Context API**: Share state across components without prop drilling
-- **Lifecycle Hooks**: Fine-grained control over component behavior
-- **Built-in Routing & i18n**: Everything you need in a single package
+```
+template string ──parse──▶ AST ──compile──▶ IR ──render──▶ DOM
+```
 
-## 🚀 Quick Start
+## ✨ Highlights
+
+- **Zero build step** — import and go; templates render at runtime
+- **Fine-grained reactivity** — per-key signals; updates are O(bindings that changed)
+- **HTML-native syntax** — element-shaped control flow (`<if>`, `<for>`, `<switch>`, `<async>`), not an attribute DSL
+- **Tiny** — ~21 KB gzip full, ~12 KB gzip precompiled-only, one dependency
+- **Serializable components** — a template is a plain object; the compiled IR is JSON
+- **Precompile + CSP mode** — build templates to IR; run with no `eval`/`Function` under a strict CSP
+- **Hot-swap** — `instance.swap(newIR)` re-renders only what changed, preserving state
+- **Batteries included** — router, i18n, macros, scoped styles, slots, component events
+- **TypeScript** — full type definitions
+
+## 🚀 Quick start
 
 ```html
 <!DOCTYPE html>
 <html>
-<head>
-  <title>My Lips App</title>
-</head>
 <body>
   <div id="app"></div>
-  
+
   <script type="module">
-    // Import from CDN directly in the module script
     import Lips from 'https://cdn.jsdelivr.net/npm/@lipsjs/lips'
 
-    const lips = new Lips();
-    
-    // <counter/> component
-    const counter = {
+    const lips = new Lips()
+
+    lips.root({
       state: { count: 0 },
       handler: {
-        increment() { this.state.count++; }
+        increment(){ this.state.count++ }
       },
       default: `
         <div>
           <h2>Count: {state.count}</h2>
           <button on-click(increment)>Increment</button>
-        </div>
-      `
-    };
-    
-    lips.root(counter, '#app');
+        </div>`
+    }, '#app')
   </script>
 </body>
 </html>
@@ -53,91 +55,123 @@ Lips is a modern, runtime-based UI framework that brings fine-grained reactivity
 
 ## 📦 Installation
 
-### Via NPM
-
 ```bash
 npm install @lipsjs/lips
 ```
 
-### Via CDN
+```js
+import Lips from '@lipsjs/lips'
+```
+
+### Entry points
+
+| Import | Contents | gzip |
+|---|---|---|
+| `@lipsjs/lips` | full: runtime + parser/compiler + styles + router | ~21 KB |
+| `@lipsjs/lips/runtime` | precompiled-only: no parser/compiler (CSP-friendly) | ~12 KB |
+| `@lipsjs/lips/precompile` | build-time helpers + Vite/Rollup plugin | — |
+| `@lipsjs/lips/dev` | unminified full build | — |
+
+## 🧩 Template syntax
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@lipsjs/lips"></script>
+<!-- interpolation & attributes -->
+<p title=state.title>Hello {state.name}!</p>
+
+<!-- events: named handler (+args) or inline arrow -->
+<button on-click(select, item.id)>pick</button>
+<button on-click(() => state.count++)>+</button>
+
+<!-- conditionals -->
+<if(state.ready)>…</if>
+<else-if(state.loading)>…</else-if>
+<else>…</else>
+
+<!-- keyed lists: node identity & child state survive reorders -->
+<for [item, i] in=state.items by="id">
+  <li>{i}: {item.label}</li>
+</for>
+
+<!-- switch, async, scoped vars, dynamic tags -->
+<switch(state.tab)><case is="a">…</case><default>…</default></switch>
+<async await(context.load())><loading>…</loading><then [data]>…</then><catch [e]>…</catch></async>
+<let doubled={ state.n * 2 }/>
+<{state.page} params=state.params/>
+```
+
+Components compose with **slots** (`<{input.renderer}/>`) and **events**
+(`this.emit('picked', …)` → parent `on-picked(...)`). Full lifecycle:
+`onCreate · onInput · onMount · onRender · onUpdate · onAttach · onDetach · onContext ·
+onError · onDestroy`.
+
+## ⚡ Precompile & CSP
+
+Compile templates to IR at build time — no runtime parsing, and with
+`mode: 'interpreted'` no `eval`/`Function`, so the app runs under `script-src` without
+`unsafe-eval`.
+
+```js
+import { precompile } from '@lipsjs/lips/precompile'
+const card = precompile({ state: {/*…*/}, default: `<div>…</div>` }).template // { ir, state, … }
+```
+
+Or let the bundler do it (Vite/Rollup) for `.lips` single-file components:
+
+```js
+// vite.config.js
+import { lipsPlugin } from '@lipsjs/lips/precompile'
+export default { plugins: [ lipsPlugin() ] }
+```
+
+```js
+import Card from './card.lips'   // already-compiled IR
+lips.register('card', Card)
+```
+
+## 🔥 Hot-swap
+
+Re-render a live component against a revised template, keeping component state:
+
+```js
+const app = lips.render('editor', template).appendTo('#app')
+const { changes } = app.swap(newIR)   // patches only what differs
 ```
 
 ## 📖 Documentation
 
-For comprehensive documentation, examples, and API reference, visit:
+[Full Lips documentation](https://lips-js.github.io)
 
-[Full Lips Documentation](https://lips-js.github.io)
+## 🏗️ Building from source
 
-## 🏗️ Building from Source
-
-Lips is developed using [Bun](https://bun.sh) runtime environment.
+Developed with [Bun](https://bun.sh).
 
 ```bash
-# Clone the repository
 git clone https://github.com/fabrice8/lips.git
 cd lips
+bun install
 
-# Install dependencies
-npm install
-
-# Make sure you have Bun installed
-# If not: curl -fsSL https://bun.sh/install | bash
-
-# Development with watch mode
-bun run dev
-
-# Build for production
-bun run compile
-
-# Build type declarations
-bun run build:declaration
+bun run dev      # watch build
+bun run build    # production bundles
+bun run test     # test suite
+bun run size     # size-budget check
 ```
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how you can help:
-
-1. **Fork the repository**
-2. **Create a feature branch**:
-   ```bash
-   git checkout -b feature/amazing-feature
-   ```
-3. **Commit your changes**:
-   ```bash
-   git commit -m 'Add some amazing feature'
-   ```
-4. **Push to the branch**:
-   ```bash
-   git push origin feature/amazing-feature
-   ```
-5. **Open a Pull Request**
-
-Please ensure your code follows the existing style and includes appropriate tests.
-
-### Development Guidelines
-
-- Ensure you have [Bun](https://bun.sh) installed for development
-- Follow the TypeScript coding style
-- Add unit tests for new features
-- Maintain the zero-build philosophy for runtime usage
-- Update documentation for any new features or changes
+Contributions welcome — fork, branch, and open a PR. Please keep the runtime dependency
+footprint small, add tests for new behavior, and run `bun run test` before submitting.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+MIT — see [LICENSE](LICENSE).
 
 ## 🙏 Acknowledgements
 
-- [Bun](https://bun.sh) for the fast JavaScript runtime and bundler
-- [Cash-DOM](https://github.com/fabiospampinato/cash) for the lightweight jQuery alternative
-- [Stylis](https://github.com/thysultan/stylis) for the CSS preprocessor
-- [MarkoJS](https://github.com/marko-js/marko) for their inspiring syntax declaration struture.
-- [SolidJS](https://github.com/solidjs/solid) for the signal based reactivity concept.
-- All contributors who have helped make Lips better
+- [Bun](https://bun.sh) — runtime & bundler
+- [Stylis](https://github.com/thysultan/stylis) — CSS preprocessor
+- [MarkoJS](https://github.com/marko-js/marko) — inspiring template syntax
+- [SolidJS](https://github.com/solidjs/solid) — signal-based fine-grained reactivity
 
 ---
 
-Lips - Reactive UI without the complexity. Created with ❤️ by [Fabrice K.E.M](https://github.com/fabrice8)
+Lips — reactive UI without the complexity. Created with ❤️ by [Fabrice K.E.M](https://github.com/fabrice8)
