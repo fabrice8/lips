@@ -35,6 +35,9 @@ export interface IRComponentDef {
   statics?: Record<string, any>
   /** Context fields this component subscribes to (fires onContext) */
   context?: string[]
+  /** Scoped stylesheet source + scope name (the `rel` value) */
+  stylesheet?: string
+  nsp?: string
   /** Deep-reactive component state (old-engine parity) */
   deep?: boolean
   /**
@@ -59,6 +62,12 @@ export interface RuntimeOptions {
   /** Extra members merged onto every component's self (e.g. setContext) */
   expose?: Record<string, any>
   /**
+   * Host-provided stylesheet injector (full build wires Stylis; the
+   * precompiled `./runtime` build omits it). Returns a handle whose
+   * `clear()` releases one reference.
+   */
+  createStylesheet?( nsp: string, css: string ): { clear(): void }
+  /**
    * i18n plugin hook (RFC §6): both calls must READ a language
    * signal so translated binds re-run on language change.
    */
@@ -78,6 +87,9 @@ export interface RenderSetup {
   deep?: boolean
   /** Extra members merged onto self before handlers bind (e.g. emit) */
   expose?: Record<string, any>
+  /** Scoped stylesheet source + scope name (the `rel` value) */
+  stylesheet?: string
+  nsp?: string
 }
 
 export interface IRInstance {
@@ -235,6 +247,26 @@ function insertAfter( ref: Node, nodes: Node[] ){
     parent.insertBefore( n, anchor.nextSibling )
     anchor = n
   }
+}
+
+/**
+ * Scoped stylesheet: stamp `rel="<nsp>"` on the component's top-level
+ * element roots so the injected `[rel="<nsp>"] { … }` sheet matches,
+ * then inject via the host factory. The `!rel` guard lets an inner
+ * component's scope win on a shared root. Returns a clear disposer.
+ */
+function applyScopedStyles(
+  options: RuntimeOptions,
+  inst: BlockInstance,
+  nsp: string,
+  css: string
+): ( () => void ) | undefined {
+  for( const n of nodesOf( inst ) )
+    if( n.nodeType === 1 /* ELEMENT_NODE */ && !( n as Element ).hasAttribute('rel') )
+      ( n as Element ).setAttribute('rel', nsp )
+
+  const sheet = options.createStylesheet?.( nsp, css )
+  return sheet ? () => sheet.clear() : undefined
 }
 function disposeInstance( inst: BlockInstance ){
   for( const h of inst.bindHandles ) h.dispose()
@@ -981,6 +1013,11 @@ class IRRenderer {
     const renderer = new IRRenderer( def.ir, this.options, hooks )
     const inst = renderer.renderBlock( def.ir.root, cenv )
 
+    // Scoped stylesheet — stamp rel before the nodes go live
+    const clearStyles = def.stylesheet
+      ? applyScopedStyles( this.options, inst, def.nsp || 'lips', def.stylesheet )
+      : undefined
+
     insertAfter( anchor, nodesOf( inst ) )
     hooks.ready()
 
@@ -1017,6 +1054,7 @@ class IRRenderer {
 
     disposers.push( () => {
       unwatchContext?.()
+      clearStyles?.()
       destroy( inst )
       try {
         attached && typeof self.onDetach === 'function' && self.onDetach()
@@ -1128,6 +1166,11 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
   let current = renderer.renderBlock( ir.root, env )
   hooks.ready()
 
+  // Scoped stylesheet for the root component
+  const clearStyles = setup.stylesheet
+    ? applyScopedStyles( options, current, setup.nsp || 'lips', setup.stylesheet )
+    : undefined
+
   try {
     typeof self.onMount === 'function' && self.onMount()
     typeof self.onRender === 'function' && self.onRender()
@@ -1165,6 +1208,7 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
       return { changes }
     },
     dispose(){
+      clearStyles?.()
       destroy( current )
       try {
         attached && typeof self.onDetach === 'function' && self.onDetach()

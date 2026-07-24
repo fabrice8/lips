@@ -78,6 +78,15 @@ Phase 0/1 foundation work that made it verifiable.
 
 Bundle: 13.0 KB gzip including parser and compiler (legacy: 95.6 KB min).
 
+### Fixed
+- **Scoped component stylesheets** now apply in the IR engine, for root
+  AND nested registered components. The runtime stamps `rel="<name>"` on
+  component roots so the injected `[rel="<name>"] { … }` sheet matches;
+  sheets are reference-counted across instances and cleared on destroy.
+  (The IR engine had regressed this from 0.1.x — it injected the
+  `<style>` but stamped no `rel`, and nested components injected nothing
+  at all.)
+
 ### Fixed by the new engine (the legacy engine gets these wrong)
 - Inline arrow event instructions (`on-click( () => state.count++ )`) now
   mutate state — the legacy evaluator passed a non-reactive

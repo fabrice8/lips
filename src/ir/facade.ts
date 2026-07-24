@@ -81,7 +81,6 @@ function guardHandlers( handler?: FacadeTemplate['handler'] ){
 export class IRFacadeComponent extends Events {
   readonly state: Record<string, any>
   private instance: IRInstance
-  private stylesheet?: Stylesheet
   private contextWatcher?: () => void
   private destroyed = false
 
@@ -111,13 +110,14 @@ export class IRFacadeComponent extends Events {
       static: template._static,
       handlers,
       deep: true,
+      // Scoped stylesheet — the runtime stamps `rel` and injects
+      stylesheet: template.stylesheet,
+      nsp: name,
       expose: {
         emit: ( event: string, ...args: any[] ) => this.emit( event, ...args ),
         context: lips.getContext()
       }
     }, options )
-
-    template.stylesheet && ( this.stylesheet = new Stylesheet( name, { sheet: template.stylesheet } ) )
 
     /**
      * Context subscription: components declaring `context: [...]`
@@ -147,9 +147,8 @@ export class IRFacadeComponent extends Events {
     this.destroyed = true
 
     this.contextWatcher?.()
-    // dispose() runs onDetach/onDestroy — the runtime owns lifecycle
+    // dispose() runs onDetach/onDestroy and clears the scoped stylesheet
     this.instance.dispose()
-    this.stylesheet?.clear()
     this.emit('component:destroy')
   }
 }
@@ -234,6 +233,8 @@ export class IRLips {
         state: template.state,
         statics: template._static,
         context: template.context,
+        stylesheet: template.stylesheet,
+        nsp: name,
         handlers: guardHandlers( template.handler ),
         deep: true
       }
@@ -258,6 +259,14 @@ export class IRLips {
           : undefined,
       expose: {
         setContext: ( arg: any, value?: any ) => this.setContext( arg, value )
+      },
+      /**
+       * Scoped-stylesheet factory. Undefined in a build without a CSS
+       * preprocessor (`./runtime`), so the runtime skips injection.
+       */
+      createStylesheet: ( nsp: string, css: string ) => {
+        const sheet = new Stylesheet( nsp, { sheet: css })
+        return { clear: () => sheet.clear() }
       },
       i18n: {
         /**
