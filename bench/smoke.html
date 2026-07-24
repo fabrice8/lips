@@ -36,6 +36,14 @@ lips.register('panel', {
 const Home = { default: `<h2 class="home">Home</h2>` }
 const Item = { default: `<h2 class="item">{input.params.id}/{input.query.q}</h2>` }
 
+// Scoped stylesheet: rgb(1,2,3) is unique enough to prove the cascade
+// applied. Rules scope to descendants of the rel-stamped root, so the
+// styled element sits inside the component's wrapper root.
+lips.register('styled', {
+  default: `<div class="styled-wrap"><span class="styled-el">styled</span></div>`,
+  stylesheet: `.styled-el { color: rgb(1, 2, 3); }`
+})
+
 let lastEmit = null
 const app = lips.render('smoke', {
   macros: `<macro [label] name="chip"><em class="chip">#{label}</em></macro>`,
@@ -68,6 +76,8 @@ const app = lips.render('smoke', {
 
       <panel on-bumped( onBumped )><i class="slotted">slot of {state.who}</i></panel>
 
+      <styled/>
+
       <router routes=static.routes></router>
     </div>`
 })
@@ -83,6 +93,9 @@ check('switch case', q('.sw')?.textContent === 'X')
 check('slot in parent scope', q('.slotted')?.textContent === 'slot of Ada')
 check('router default route', !!q('.home'))
 check('i18n baseline', q('.i18n')?.textContent === 'Count')
+// scoped stylesheet actually applied (real cascade)
+check('scoped style applies', getComputedStyle( q('.styled-el') ).color === 'rgb(1, 2, 3)',
+  getComputedStyle( q('.styled-el') ).color)
 
 // reactive update
 app.state.who = 'Grace'

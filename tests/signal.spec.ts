@@ -1,19 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
-import { signal, effect, batch, memo } from '../src/signal'
+import { signal, effect, untrack, reactive } from '../src/ir/signal'
 
 describe('signal', () => {
-  it('reads the initial value', () => {
-    const [ read ] = signal( 10 )
+  it('reads the initial value and writes back', () => {
+    const [ read, write ] = signal( 10 )
     expect( read() ).toBe( 10 )
-  })
 
-  it('writes and reads back a new value', () => {
-    const [ read, write ] = signal( 1 )
     write( 2 )
     expect( read() ).toBe( 2 )
   })
 
-  it('skips notification when value is unchanged (Object.is)', () => {
+  it('skips notification when the value is unchanged (Object.is)', () => {
     const [ read, write ] = signal( 5 )
     const spy = vi.fn( () => read() )
 
@@ -24,31 +21,17 @@ describe('signal', () => {
     expect( spy ).toHaveBeenCalledTimes( 1 )
   })
 
-  it('supports undo/redo history', () => {
-    const [ read, write, history ] = signal( 'a' )
-    write('b')
-    write('c')
+  it('touch() notifies without a value change', () => {
+    const obj = { n: 1 }
+    const [ read, , touch ] = signal( obj )
+    const spy = vi.fn( () => read() )
 
-    expect( history.canUndo() ).toBe( true )
-    history.undo()
-    expect( read() ).toBe('b')
-    history.undo()
-    expect( read() ).toBe('a')
-    expect( history.canUndo() ).toBe( false )
+    effect( spy )
+    obj.n = 2            // mutated in place — no write
+    expect( spy ).toHaveBeenCalledTimes( 1 )
 
-    history.redo()
-    expect( read() ).toBe('b')
-  })
-
-  it('drops redo branch after a write mid-history', () => {
-    const [ read, write, history ] = signal( 1 )
-    write( 2 )
-    write( 3 )
-    history.undo()          // back to 2
-    write( 99 )             // new branch
-
-    expect( read() ).toBe( 99 )
-    expect( history.canRedo() ).toBe( false )
+    touch()
+    expect( spy ).toHaveBeenCalledTimes( 2 )
   })
 })
 
@@ -65,8 +48,8 @@ describe('effect', () => {
   })
 
   it('tracks only signals actually read', () => {
-    const [ a, setA ] = signal( 'a' )
-    const [ , setB ] = signal( 'b' )
+    const [ a, setA ] = signal('a')
+    const [ , setB ] = signal('b')
     const spy = vi.fn( () => a() )
 
     effect( spy )
@@ -86,7 +69,7 @@ describe('effect', () => {
     dispose()
     write( 2 )
 
-    expect( spy ).toHaveBeenCalledTimes( 2 ) // initial + first write only
+    expect( spy ).toHaveBeenCalledTimes( 2 ) // initial + first write
   })
 
   it('re-tracks dependencies on every run (dynamic deps)', () => {
@@ -97,44 +80,74 @@ describe('effect', () => {
 
     effect( () => { seen.push( cond() ? a() : b() ) } )
 
-    setCond( false )     // now depends on b
-    setA('a2')           // must NOT re-run
-    setB('b2')           // must re-run
+    setCond( false )   // now depends on b
+    setA('a2')         // must NOT re-run
+    setB('b2')         // must re-run
 
     expect( seen ).toEqual([ 'a', 'b', 'b2' ])
   })
 })
 
-describe('batch', () => {
-  it('coalesces multiple writes into one effect run', () => {
-    const [ a, setA ] = signal( 0 )
-    const [ b, setB ] = signal( 0 )
-    const spy = vi.fn( () => a() + b() )
+describe('untrack', () => {
+  it('reads without subscribing', () => {
+    const [ read, write ] = signal( 1 )
+    const spy = vi.fn( () => untrack( () => read() ) )
 
     effect( spy )
+    write( 2 )
+
     expect( spy ).toHaveBeenCalledTimes( 1 )
-
-    batch( () => {
-      setA( 1 )
-      setB( 2 )
-    })
-
-    expect( spy ).toHaveBeenCalledTimes( 2 ) // one flush, not two
-    expect( a() + b() ).toBe( 3 )
-  })
-
-  it('returns the callback result', () => {
-    expect( batch( () => 42 ) ).toBe( 42 )
   })
 })
 
-describe('memo', () => {
-  it('derives and updates a computed value', () => {
-    const [ count, setCount ] = signal( 2 )
-    const [ doubled ] = memo( () => count() * 2 )
+describe('reactive', () => {
+  it('tracks per key — unrelated writes do not re-run', () => {
+    const store = reactive({ a: 1, b: 1 })
+    const spy = vi.fn( () => store.a )
 
-    expect( doubled() ).toBe( 4 )
-    setCount( 5 )
-    expect( doubled() ).toBe( 10 )
+    effect( spy )
+    store.b = 2
+    expect( spy ).toHaveBeenCalledTimes( 1 )
+
+    store.a = 2
+    expect( spy ).toHaveBeenCalledTimes( 2 )
+  })
+
+  it('is idempotent when re-wrapped', () => {
+    const store = reactive({ a: 1 })
+    expect( reactive( store ) ).toBe( store )
+  })
+
+  it('ignores shallow nested mutation by default', () => {
+    const store = reactive({ user: { name: 'Ada' } })
+    const spy = vi.fn( () => store.user.name )
+
+    effect( spy )
+    store.user.name = 'Grace'
+    expect( spy ).toHaveBeenCalledTimes( 1 )
+  })
+
+  it('propagates nested mutation in deep mode', () => {
+    const store = reactive({ user: { name: 'Ada' }, list: [ 1 ] }, true )
+    const seen: string[] = []
+
+    effect( () => { seen.push( store.user.name ) } )
+    store.user.name = 'Grace'
+    expect( seen ).toEqual([ 'Ada', 'Grace' ])
+
+    const lens = vi.fn( () => store.list.length )
+    effect( lens )
+    store.list.push( 2 )
+    expect( lens ).toHaveBeenCalledTimes( 2 )
+  })
+
+  it('deletes keys reactively', () => {
+    const store = reactive<{ a?: number }>({ a: 1 })
+    const seen: any[] = []
+
+    effect( () => { seen.push( store.a ) } )
+    delete store.a
+
+    expect( seen ).toEqual([ 1, undefined ])
   })
 })

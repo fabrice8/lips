@@ -11,18 +11,38 @@
  * declaration-driven syntax components.
  */
 
-import type { TemplateIR } from './compiler'
-import { compileTemplate } from './compiler'
+import type { TemplateIR, CompileResult, CompileOptions } from './compiler'
+
+/**
+ * The template compiler is INJECTED, not imported, so a
+ * precompiled-only build can tree-shake the parser and compiler out
+ * entirely (see src/runtime.ts vs src/lips.ts).
+ */
+type CompilerFn = ( src: string, options?: CompileOptions ) => CompileResult
+let COMPILER: CompilerFn | null = null
+
+export function setCompiler( fn: CompilerFn ){ COMPILER = fn }
+
+/**
+ * Built-in components (e.g. `<router>`) are INJECTED by the full
+ * entry rather than imported here, so the precompiled-only
+ * `./runtime` build — which can't compile their source templates
+ * anyway — tree-shakes them out.
+ */
+const BUILTINS: Record<string, any> = {}
+export function registerBuiltin( name: string, template: any ){ BUILTINS[ name ] = template }
+
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import { renderIR } from './runtime'
 import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import I18N from '../i18n'
-import { routerTemplate } from './router'
 
 interface FacadeTemplate {
   default?: string
+  /** Precompiled IR — skips parsing entirely (see src/precompile.ts) */
+  ir?: TemplateIR
   macros?: string
   state?: Record<string, any>
   handler?: Record<string, ( this: any, ...args: any[] ) => any>
@@ -61,7 +81,6 @@ function guardHandlers( handler?: FacadeTemplate['handler'] ){
 export class IRFacadeComponent extends Events {
   readonly state: Record<string, any>
   private instance: IRInstance
-  private stylesheet?: Stylesheet
   private contextWatcher?: () => void
   private destroyed = false
 
@@ -91,13 +110,14 @@ export class IRFacadeComponent extends Events {
       static: template._static,
       handlers,
       deep: true,
+      // Scoped stylesheet — the runtime stamps `rel` and injects
+      stylesheet: template.stylesheet,
+      nsp: name,
       expose: {
         emit: ( event: string, ...args: any[] ) => this.emit( event, ...args ),
         context: lips.getContext()
       }
     }, options )
-
-    template.stylesheet && ( this.stylesheet = new Stylesheet( name, { sheet: template.stylesheet } ) )
 
     /**
      * Context subscription: components declaring `context: [...]`
@@ -127,9 +147,8 @@ export class IRFacadeComponent extends Events {
     this.destroyed = true
 
     this.contextWatcher?.()
-    // dispose() runs onDetach/onDestroy — the runtime owns lifecycle
+    // dispose() runs onDetach/onDestroy and clears the scoped stylesheet
     this.instance.dispose()
-    this.stylesheet?.clear()
     this.emit('component:destroy')
   }
 }
@@ -162,8 +181,8 @@ export class IRLips {
     this.getLang = getLang
     this.setLang = setLang
 
-    // Built-in components
-    this.register('router', routerTemplate as FacadeTemplate )
+    // Built-in components (their templates are source — need the compiler)
+    COMPILER && Object.entries( BUILTINS ).forEach( ( [ name, template ] ) => this.register( name, template ) )
 
     const self = this
     this.componentsProxy = new Proxy( {} as Record<string, IRComponentDef>, {
@@ -187,9 +206,17 @@ export class IRLips {
   has( name: string ){ return this.store.has( name ) }
 
   private compile( template: FacadeTemplate ): TemplateIR {
+    // Precompiled: nothing to parse
+    if( template.ir ) return template.ir
+
     let ir = this.irCache.get( template )
     if( !ir ){
-      const result = compileTemplate( template.default || '', { macros: template.macros })
+      if( !COMPILER )
+        throw new Error(
+          'This build has no template compiler — templates must be precompiled to `ir` '
+          + '(import from "@lipsjs/lips" instead of "@lipsjs/lips/runtime")' )
+
+      const result = COMPILER( template.default || '', { macros: template.macros })
       result.diagnostics.length
         && console.warn('[lips:ir] template diagnostics —', result.diagnostics )
 
@@ -206,6 +233,8 @@ export class IRLips {
         state: template.state,
         statics: template._static,
         context: template.context,
+        stylesheet: template.stylesheet,
+        nsp: name,
         handlers: guardHandlers( template.handler ),
         deep: true
       }
@@ -225,11 +254,19 @@ export class IRLips {
        * template objects — compile + cache them on demand.
        */
       resolveTemplate: ( value: any ) =>
-        value && typeof value.default === 'string'
+        value && ( typeof value.default === 'string' || value.ir )
           ? this.defFor( value.name || 'dynamic', value as FacadeTemplate )
           : undefined,
       expose: {
         setContext: ( arg: any, value?: any ) => this.setContext( arg, value )
+      },
+      /**
+       * Scoped-stylesheet factory. Undefined in a build without a CSS
+       * preprocessor (`./runtime`), so the runtime skips injection.
+       */
+      createStylesheet: ( nsp: string, css: string ) => {
+        const sheet = new Stylesheet( nsp, { sheet: css })
+        return { clear: () => sheet.clear() }
       },
       i18n: {
         /**

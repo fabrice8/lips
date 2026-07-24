@@ -98,7 +98,7 @@ Consequences that re-rank the phases:
 - [x] Hot-swap API (`src/ir/swap.ts` + runtime, 2026-07-23): `instance.swap( newIR )` diffs by expression source — identical subtrees kept wholesale, bind-only changes rewired onto the same nodes (text nodes reused), changed child blocks re-executed at their anchors, skeleton changes rebuilt in place; `SwapReport` lists touched regions for canvas highlighting; state survives by construction — 11 specs incl. the Modela stepper scenario
 - [x] Engine flag + parity gate (2026-07-23): `new Lips({ engine: 'ir' })` returns the IR facade (`src/ir/facade.ts`) — old public API (register/render/appendTo/destroy, deep-reactive state, lifecycle onCreate/onInput/onMount/onDestroy, reserved-handler guard, stylesheets, events emitter) over the IR engine. `tests/engine-parity.spec.ts` runs 14 shared behavior specs against BOTH engines — 28/28 green. Deep-reactive opt-in landed (`reactive(obj, true)` + signal `touch`)
 - [x] **All parity blockers closed + default flipped (2026-07-23)**: slots, component events, full lifecycle, reactive context, macros, i18n, router, dynamic template objects. Parity suite runs 26 shared behaviors against both engines (52 specs) plus 6 IR-only specs for behaviors the legacy engine gets wrong. `new Lips()` = IR engine; `{ engine: 'runtime' }` is the deprecation escape hatch. Suite: 292 pass
-- [ ] Deprecation release, then delete the legacy engine (`tps.ts`, `iuc/`, `dws.ts`, `component.ts`)
+- [x] **Legacy engine deleted (2026-07-23)**: `component.ts`, `tps.ts`, `iuc/`, `dws.ts`, `uqs.ts`, `metrics.ts`, the old `signal.ts`/`utils.ts`/`constants.ts`, `syntax/` and the legacy manual harness — 7.4k lines. cash-dom dropped entirely (RFC decision #8); `stylesheet.ts` rewritten on native DOM. Bundle 95.6 KB min → **63 KB min / 21 KB gzip**
 - [ ] Deferred refinements: component-instance salvage across skeleton rebuilds, LIS reconciler
 - [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** sandboxed AST interpreter (CSP mode) — 31 parity specs
 - [ ] Per-key signal state; delete Proxy layer, deep-clone snapshots, and the digest loop
@@ -110,9 +110,10 @@ Consequences that re-rank the phases:
 
 ## Phase 3 — Shape the product (months 3–5)
 
-- [ ] Package split: `@lipsjs/core` / `@lipsjs/router` / `@lipsjs/i18n`; metrics → devtools plugin
-- [ ] cash-dom removed from core; size budget enforced in CI (core ≤ ~12 KB gz)
-- [ ] Optional Vite plugin emitting precompiled IR → **CSP-safe mode** (no `unsafe-eval`)
+- [x] **Subpath entries (2026-07-23)**: `.` (full, 20.7 KB gz) · `./runtime` (precompiled-only, compiler tree-shaken out, **14.5 KB gz**) · `./precompile` (build-time, 9.1 KB gz) · `./dev`. The compiler is injected rather than imported, so the runtime entry drops the parser+compiler entirely and throws an actionable error if handed source templates
+- [x] cash-dom removed entirely (stylesheet.ts on native DOM); stylis is the only runtime dependency
+- [x] **Size budget enforced in CI (2026-07-24)**: `scripts/size-check.mjs` gzips each entry against a budget, wired into CI. Stylis and the built-in `<router>` are injected by the full entry, not imported by the core, so `./runtime` tree-shakes both — **14.5 → 12.1 KB gz** (at target). Dynamic-`import()` for Stylis was rejected: it fragments the single-file no-build bundle for 1.8 KB. Remaining lever toward a smaller leaf: split router/i18n into their own entries
+- [x] **Precompilation + CSP-safe mode (2026-07-23)**: `precompile()` turns authoring templates into IR ahead of time (macros inlined, source dropped); `lipsPlugin()` compiles `.lips` SFCs to modules with embedded IR and fails the build on template errors with file:line:col. With `mode: 'interpreted'` a precompiled app **never constructs a Function** — proven by spec with a non-vacuous control
 - [ ] SSR/hydration spike on the same IR
 - [ ] Publish styled-component/scoped-CSS docs and security model page (`@html`, "templates are code")
 

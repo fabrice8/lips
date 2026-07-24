@@ -1,55 +1,22 @@
-import type { Cash } from 'cash-dom'
-import type Lips from './lips'
-import type Component from './component'
+/**
+ * Public types.
+ *
+ * Component authoring shape — the same plain object the framework has
+ * always taken, and the serializable artifact a generator can emit:
+ *
+ *   { default, state, handler, _static, context, macros, stylesheet }
+ */
 
-export interface Metavars<Input extends Object = {}, State extends Object = {}, Static extends Object = {}, Context extends Object = {}> {
+export interface Metavars<
+  Input extends Object = {},
+  State extends Object = {},
+  Static extends Object = {},
+  Context extends Object = {}
+> {
   Input: Input
   State: State
   Static: Static
   Context: Context
-}
-export interface InteractiveMetavars<MT extends Metavars = Metavars> {
-  input: MT['Input']
-  state: MT['State']
-  context: MT['Context']
-}
-export type Variable = {
-  value: any
-  type: 'let' | 'const' | 'arg'
-}
-export type VariableArguments = Record<string, any>
-export type VariableSet = Record<string, Variable> & {
-  __arguments__?: VariableArguments
-}
-
-export interface SpreadOpeartor {
-  each( key: string, value: any ): void
-  nullify?: ( attrs: string[] ) => void
-  get keystore(): string[]
-  set keystore( __: string[] )
-  memo: VariableSet
-}
-
-export type I18nVariant = Record<string, string>
-export type I18nFormat = {
-  type: string
-  value: string | I18nVariant | Record<string, string | I18nVariant>
-}
-export type Dictionary = Record<string, string | I18nFormat | I18nVariant>
-
-export type DeclarationTagType = 'nexted' | 'child'
-export type DeclarationTag = {
-  type: DeclarationTagType
-  many?: boolean
-  alts?: string[] // Alternative nexted
-  optional?: boolean
-}
-export type Declaration = {
-  name: string
-  syntax?: boolean
-  iterator?: boolean
-  contents?: boolean
-  tags?: Record<string, DeclarationTag>
 }
 
 export type LifeCycleEventTypes = 'onCreate'
@@ -62,194 +29,75 @@ export type LifeCycleEventTypes = 'onCreate'
                                   | 'onContext'
                                   | 'onError'
                                   | 'onDestroy'
+
+/**
+ * `this` inside a handler: reactive stores plus the component's
+ * own API (emit/on/off, setContext).
+ */
+export interface ComponentSelf<MT extends Metavars = Metavars> {
+  state: MT['State']
+  input: MT['Input']
+  context: MT['Context']
+  static: MT['Static']
+
+  emit( event: string, ...args: any[] ): void
+  on( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
+  off( event: string ): ComponentSelf<MT>
+  setContext( arg: string | Record<string, any>, value?: any ): void
+
+  [ key: string ]: any
+}
+
 export interface LifecycleEvents<MT extends Metavars> {
-  onCreate: ( this: Component<MT> ) => void
-  onInput: ( this: Component<MT>, memo?: VariableSet ) => void
-  onMount: ( this: Component<MT> ) => void
-  onRender: ( this: Component<MT> ) => void
-  onUpdate: ( this: Component<MT> ) => void
-  onAttach: ( this: Component<MT> ) => void
-  onDetach: ( this: Component<MT> ) => void
-  onContext: ( this: Component<MT> ) => void
-  onError: ( this: Component<MT>, error: Error ) => void
-  onDestroy: ( this: Component<MT> ) => void
+  onCreate( this: ComponentSelf<MT> ): void
+  onInput( this: ComponentSelf<MT> ): void
+  onMount( this: ComponentSelf<MT> ): void
+  onRender( this: ComponentSelf<MT> ): void
+  onUpdate( this: ComponentSelf<MT> ): void
+  onAttach( this: ComponentSelf<MT> ): void
+  onDetach( this: ComponentSelf<MT> ): void
+  onContext( this: ComponentSelf<MT> ): void
+  onError( this: ComponentSelf<MT>, error: Error ): void
+  onDestroy( this: ComponentSelf<MT> ): void
 }
+
 export type Handler<MT extends Metavars> = Partial<LifecycleEvents<MT>> & {
-  /**
-   * This mapped type creates a type for all string 
-   * keys EXCEPT those that are lifecycle event names
-   */
-  [ K in string as K extends keyof LifecycleEvents<MT> ? never : K]?: (this: Component<MT>, ...args: any[]) => void;
+  /** Any other key is a method bound to the component self */
+  [ K in string as K extends keyof LifecycleEvents<MT> ? never : K ]?:
+    ( this: ComponentSelf<MT>, ...args: any[] ) => any
 }
-export type Template<MT extends Metavars> = {
+
+export type Template<MT extends Metavars = Metavars> = {
+  /** Template source — the component's markup */
   default?: string
   state?: MT['State']
   _static?: MT['Static']
+  /** Context fields this component subscribes to (drives onContext) */
   context?: string[]
+  /** `<macro [argv] name="X">…</macro>` definitions, inlined at compile time */
   macros?: string
   handler?: Handler<MT>
   stylesheet?: string
-  declaration?: Declaration
 }
-export type DynamicTemplate<MT extends Metavars> = {
-  name?: string,
-  template?: Template<MT>
-}
-export type ComponentScope<MT extends Metavars> = {
-  input?: MT['Input']
-  state?: MT['State']
-  context?: MT['Context']
-  _static?: MT['Static']
-  macros?: string
-  handler?: Handler<MT>
-  stylesheet?: string
-  declaration?: Declaration
-}
-export type ComponentOptions<Context extends Object> = {
-  lips: Lips<Context>
-  debug?: boolean
-  prepath?: string
-  boundaries?: FragmentBoundaries
-}
-export type LipsConfig<Context extends Object> = {
+
+export type LipsConfig<Context extends Object = {}> = {
   debug?: boolean
   context?: Context
-  stylesheets?: string[]
   /**
-   * Rendering engine (RFC-001 §9): 'runtime' is the current
-   * digest engine (default); 'ir' activates the Phase 2 IR
-   * engine behind the same public API.
+   * Expression execution:
+   *  - 'compiled' (default) — one cached Function per expression
+   *  - 'interpreted' — sandboxed AST walker, required under a CSP
+   *    without `unsafe-eval`
    */
-  engine?: 'runtime' | 'ir'
+  mode?: 'compiled' | 'interpreted'
 }
-export type StyleSettings = {
-  sheet?: string
-  meta?: boolean
-  custom?: {
-    enabled: boolean
-    allowedRules: string[]
-    allowedProperties: string[]
-  }
-}
+
 export type EventListener = ( ...args: any[] ) => void
 
-export type Macro = {
-  argv: string[]
-  $node: Cash
+// -------------------------------------------------------------- i18n types
+export type I18nVariant = Record<string, string>
+export type I18nFormat = {
+  type: string
+  value: string | I18nVariant | Record<string, string | I18nVariant>
 }
-
-export type SyntaxAttributes = {
-  literals: Record<string, any>
-  expressions: Record<string, any>
-  map: {
-    explicitAttrs: string[]
-    spreadAttrs: string[]
-    beforeSpreadAttrs: string[]
-    afterSpreadAttrs: string[]
-    metaAttrs: string[]
-  }
-}
-
-export interface VirtualEvent<MT extends Metavars> {
-  element: Cash | Component<MT>
-  _event: string
-  instruction: string
-  nodepath: string
-  scope?: Record<string, any>
-  get __dependencies__(): FGUDependencies
-}
-
-/**
- * (FGU) Fine-Grain Update Dependencies
- */
-export type NodeType = 'component'
-                        | 'dynamic'
-                        | 'element'
-                        | 'event'
-                        | 'macro'
-                        | 'text'
-                        | 'let'
-                        | 'log'
-export type FGUDTarget = 'event-handler'
-                          | 'spread-attr'
-                          | 'meta-attr'
-                          | 'argument'
-                          | 'value'
-                          | 'attr'
-                          | 'dtag'
-export interface FGUSync {
-  memo?: VariableSet
-  cleanup?: () => void
-}
-export interface FGUDependency {
-  nodetype: NodeType
-  nodepath: string
-  deppath?: string
-  target: FGUDTarget
-  $fragment: Cash | null
-  boundaries?: FragmentBoundaries
-  haslet?: boolean
-  syntax?: boolean
-  partial?: string[]
-  priority?: number
-  level?: number
-  garbage?: boolean
-  update: ( memo: VariableSet, by?: string ) => FGUSync | void
-}
-export type FGUDependencies = Map<string, Map<string, FGUDependency>>
-export type FGUDBatchEntry = {
-  dep: string
-  deppath: string
-  priority?: number
-}
-export type FGUDMemorySlot = { 
-  tracks: Map<string, number>
-  memo: VariableSet
-}
-export type FGUDMemory = Map<string, FGUDMemorySlot>
-
-export interface I18nDependency {
-  nodetype: NodeType
-  nodepath: string
-  deppath?: string
-  target: FGUDTarget
-  $fragment: Cash
-  priority?: number
-  update: ( memo: VariableSet, by?: string ) => FGUSync | void
-}
-
-export type RenderedNode<MT extends Metavars> = {
-  $log: Cash
-  dependencies: FGUDependencies
-  events?: VirtualEvent<MT>[]
-}
-export type FragmentBoundaries = {
-  start: Comment
-  end: Comment
-}
-
-export interface MeshRenderer {
-  path: string | null
-  argv: string[]
-  mesh( argvalues?: VariableSet, scope?: VariableSet, suffix?: string ): Cash | null
-  update( deps: string[], argvalues: VariableSet, scope: VariableSet, boundaries?: FragmentBoundaries, suffix?: string ): void
-  cleanup( boundaries?: FragmentBoundaries, suffix?: string | true ): void
-  demarcate( $log: Cash, sufix: string ): { $partial: Cash, boundaries: FragmentBoundaries }
-  fill( $log: Cash, boundaries?: FragmentBoundaries ): void
-}
-export type MeshTemplate = Record<string, any> & {
-  renderer: MeshRenderer
-}
-export interface MeshWireSetup {
-  argv: string[]
-  scope: VariableSet
-  declaration?: Declaration
-  useAttributes: boolean
-  xmlns?: boolean
-  
-  $node: Cash
-  meshPath: string | null
-  
-  fragmentPath: string
-  fragmentBoundaries: FragmentBoundaries
-}
+export type Dictionary = Record<string, string | I18nFormat | I18nVariant>

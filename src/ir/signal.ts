@@ -118,25 +118,45 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
     v !== null && typeof v === 'object'
     && ( Array.isArray( v ) || Object.getPrototypeOf( v ) === Object.prototype )
 
+  /**
+   * Array mutators write several times (push sets an index AND
+   * length). Run them atomically so one operation is one
+   * notification, not one per internal write.
+   */
+  const ARRAY_MUTATORS = new Set([ 'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin' ])
+
   const deepWrap = ( value: any, touch: () => void ): any => {
     if( !deep || !isPlain( value ) ) return value
 
     const hit = wrapped!.get( value )
     if( hit ) return hit
 
+    let muted = false
+
     const proxy = new Proxy( value, {
       get( t: any, k ){
         const v = t[ k ]
+
+        if( Array.isArray( t ) && typeof k === 'string' && ARRAY_MUTATORS.has( k ) && typeof v === 'function' )
+          return ( ...args: any[] ) => {
+            muted = true
+            try { return v.apply( t, args ) }
+            finally {
+              muted = false
+              touch()
+            }
+          }
+
         return isPlain( v ) ? deepWrap( v, touch ) : v
       },
       set( t: any, k, v ){
         t[ k ] = v
-        touch()
+        !muted && touch()
         return true
       },
       deleteProperty( t: any, k ){
         delete t[ k ]
-        touch()
+        !muted && touch()
         return true
       }
     })

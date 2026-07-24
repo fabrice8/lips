@@ -9,16 +9,37 @@ Everything below lands in one release: the engine rewrite plus the
 Phase 0/1 foundation work that made it verifiable.
 
 ### Changed — BREAKING
-- **The IR engine is now the default.** `new Lips()` runs the Phase 2
+- **The IR engine is the only engine.** `new Lips()` runs the Phase 2
   engine (parser → IR → clone+bind runtime, per-key signals). The legacy
-  digest engine remains available for one deprecation release via
-  `new Lips({ engine: 'runtime' })`, then it is removed.
+  digest engine has been removed — there is no `engine` option.
+- **cash-dom is no longer a dependency.** `stylis` is the only runtime
+  dependency; `stylesheet.ts` runs on native DOM.
+- Removed with the legacy engine: `src/component.ts`, `src/tps.ts`,
+  `src/iuc/`, `src/dws.ts`, `src/uqs.ts`, `src/metrics.ts`, the old
+  `src/signal.ts`/`src/utils.ts`/`src/constants.ts`, `src/syntax/`, and
+  the manual `test/` harness — 7,453 lines.
 - Nullish interpolation renders `''` instead of the literal `"undefined"`
   (RFC-001 decision #4).
 - Undeclared macro arguments are `undefined` rather than `false`: same
   falsy/attribute-removing behavior, but they render as `''` in text.
 
 ### Added
+- **Precompilation & CSP-safe mode**: `precompile( template )` produces
+  IR ahead of time (macros inlined, template source dropped);
+  `lipsPlugin()` is a Vite/Rollup transform for `.lips` single-file
+  components that embeds the IR and fails the build on template errors
+  with `file:line:col`. Paired with `mode: 'interpreted'`, a precompiled
+  app never constructs a `Function` and runs under `script-src` without
+  `unsafe-eval`.
+- **Subpath entries** with a CI-enforced size budget:
+  `@lipsjs/lips` (full, 21 KB gzip), `@lipsjs/lips/runtime`
+  (precompiled-only — parser, compiler, Stylis, and built-in
+  components all tree-shaken out, **12.1 KB gzip**),
+  `@lipsjs/lips/precompile` (build-time, 9.2 KB gzip),
+  `@lipsjs/lips/dev` (unminified). Stylis and the built-in `<router>`
+  are injected by the full entry rather than imported by the core, so
+  the runtime bundle drops them entirely. `bun run size` fails the
+  build on a budget breach (`scripts/size-check.mjs`).
 - **IR engine** (`src/ir/`): own tokenizer + template parser with
   positioned diagnostics that never throw, expression parser with
   AST-derived dependencies, IR compiler emitting a serializable
@@ -56,6 +77,15 @@ Phase 0/1 foundation work that made it verifiable.
 | select row | 104.3 ms | 0.5 ms | ~209× |
 
 Bundle: 13.0 KB gzip including parser and compiler (legacy: 95.6 KB min).
+
+### Fixed
+- **Scoped component stylesheets** now apply in the IR engine, for root
+  AND nested registered components. The runtime stamps `rel="<name>"` on
+  component roots so the injected `[rel="<name>"] { … }` sheet matches;
+  sheets are reference-counted across instances and cleared on destroy.
+  (The IR engine had regressed this from 0.1.x — it injected the
+  `<style>` but stamped no `rel`, and nested components injected nothing
+  at all.)
 
 ### Fixed by the new engine (the legacy engine gets these wrong)
 - Inline arrow event instructions (`on-click( () => state.count++ )`) now
