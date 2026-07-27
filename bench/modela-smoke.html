@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Modela patterns smoke</title></head>
+<body>
+<h1>Modela editor patterns on Lips</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+
+<script type="module">
+import Lips from '../dist/lips.min.js'
+
+const results = []
+const check = ( name, cond, detail = '' ) => results.push({ name, pass: !!cond, detail })
+const q = s => document.querySelector( s )
+const qa = s => [ ...document.querySelectorAll( s ) ]
+const tick = ( ms = 30 ) => new Promise( r => setTimeout( r, ms ) )
+
+const lips = new Lips({ context: { selection: [] } })
+
+// --- recursive layer tree (layerlist ↔ layeritem), verbatim shapes
+lips.register('layerlist', {
+  default: `
+    <mul class="list">
+      <for [key, each] in=input.list>
+        <layeritem ...each depth=input.depth/>
+      </for>
+    </mul>`
+})
+lips.register('layeritem', {
+  context: [ 'selection' ],
+  default: `
+    <mli class="item"
+         data-depth=input.depth
+         class=(context.selection.includes( input.name ) ? 'item selected' : 'item')>
+      <mlabel>{input.name}</mlabel>
+      <if( input.layers )>
+        <layerlist list=input.layers depth=(input.depth + 1)/>
+      </if>
+    </mli>`
+})
+
+// --- toolbar macro with spread args
+const macros = `
+  <macro [key, type, active, label, icon] name="option">
+    <mli class="opt" data-key=key data-type=type data-active=active>
+      <micon class=icon/>
+      <if( label )><mlabel class="lbl">{label}</mlabel></if>
+    </mli>
+  </macro>`
+
+const layers = new Map([
+  [ 'a', { name: 'Group A', layers: new Map([ [ 'a1', { name: 'Child A1' } ] ]) } ],
+  [ 'b', { name: 'Layer B' } ]
+])
+
+let controlNode = null
+const busEvents = []
+
+const app = lips.render('layers-panel', {
+  macros,
+  state: {
+    layers,
+    tools: new Map([
+      [ 'pen', { icon: 'bx-pen', label: 'Pen', active: true } ],
+      [ 'hand', { icon: 'bx-hand' } ]
+    ])
+  },
+  handler: {
+    onCreate(){
+      // exactly how Movable/Sortable bind
+      this.on('component:attached', () => busEvents.push('attached') )
+      this.on('component:detached', () => busEvents.push('detached') )
+    },
+    onMount(){ controlNode = this.node },
+    addLayer(){ this.state.layers.set('c', { name: 'Layer C' }) }
+  },
+  stylesheet: `.item { padding-left: 4px } .selected { color: rgb(3, 2, 1) }`,
+  default: `
+    <mblock class="panel">
+      <mul class="toolbar">
+        <for [key, each] in=state.tools>
+          <option type="tool" key=key ...each/>
+        </for>
+      </mul>
+
+      <layerlist list=state.layers depth=0/>
+
+      <button class="add" on-click( addLayer )>add</button>
+    </mblock>`
+})
+app.appendTo('#app')
+await tick()
+
+// --- assertions
+check('recursive tree renders', qa('.item').length === 3, `${qa('.item').length} items`)
+check('nested depth propagates', qa('.item').some( e => e.getAttribute('data-depth') === '1' ))
+check('macro spread applied', q('.opt')?.getAttribute('data-key') === 'pen' && q('.lbl')?.textContent === 'Pen')
+check('macro spread + explicit merge', q('.opt')?.getAttribute('data-type') === 'tool')
+check('conditional in macro (2nd has no label)', qa('.opt')[1]?.querySelector('.lbl') === null)
+check('self.node is live element', controlNode?.[0] === q('.panel'))
+check('component:attached fired', busEvents.includes('attached'))
+
+// Map mutation → tree updates
+q('.add').click()
+await tick()
+check('Map .set() re-renders tree', qa('.item').length === 4, `${qa('.item').length} items`)
+
+// context-driven selection restyle
+lips.setContext('selection', [ 'Layer B' ])
+await tick()
+const selected = qa('.item').find( e => e.className.includes('selected') )
+check('context selection applies', !!selected && selected.textContent.includes('Layer B'))
+
+// scoped stylesheet actually applies through the cascade
+check('scoped style applies', selected && getComputedStyle( selected ).color === 'rgb(3, 2, 1)',
+  selected ? getComputedStyle( selected ).color : 'n/a')
+
+// teardown
+app.destroy()
+await tick()
+check('component:detached fired', busEvents.includes('detached'))
+check('DOM cleared on destroy', q('.panel') === null)
+
+const failed = results.filter( r => !r.pass )
+document.querySelector('#out').textContent =
+  results.map( r => `${r.pass ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? '  — ' + r.detail : ''}` ).join('\n')
+  + `\n\n${results.length - failed.length}/${results.length} passed`
+
+window.__MODELA__ = { total: results.length, failed: failed.map( f => f.name ) }
+</script>
+</body>
+</html>

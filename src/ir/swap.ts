@@ -28,7 +28,9 @@ export function normChild( c: ChildIR, x: string[] ): any {
   switch( c.t ){
     case 'macro':
       return { t: c.t, name: c.name, args: c.args,
-        vars: Object.fromEntries( Object.entries( c.vars ).map( ( [ k, v ] ) => [ k, normInput( v, x ) ] ) ),
+        sets: c.sets.map( s => 'spread' in s
+          ? { spread: x[ s.spread ] }
+          : { name: s.name, ci: normInput( s.ci, x ) } ),
         block: normBlock( c.block, x ) }
     case 'if':
       return { t: c.t, branches: c.branches.map( b => ({

@@ -645,31 +645,66 @@ class IRRenderer {
          * reactive vars; every call-site attribute also lands in
          * `arguments` (per-key reactive, so `arguments.x` binds
          * track only that key).
+         *
+         * `sets` apply in SOURCE ORDER — spreads (`...each`) and
+         * explicit attrs override each other left to right, JS
+         * object-literal style.
          */
         const scope = Object.create( benv.scope ?? null )
         const args = reactive( {} as Record<string, any> )
 
-        for( const [ name, ci ] of Object.entries( child.vars ) ){
-          if( 'lit' in ci ){
-            args[ name ] = ci.lit
-            if( child.args.includes( name ) ){
-              const [ get ] = signal( ci.lit )
-              defineGetter( scope, name, get )
-            }
-            continue
+        // One signal per declared argv (undeclared → stays undefined)
+        const argSignals: Record<string, ReturnType<typeof signal<any>>> = {}
+        for( const name of child.args ){
+          argSignals[ name ] = signal<any>( undefined )
+          defineGetter( scope, name, argSignals[ name ][0] )
+        }
+
+        type SetRunner =
+          | { kind: 'spread', run: ( env: RunEnv ) => any }
+          | { kind: 'value', name: string, value: () => any }
+
+        const runners: SetRunner[] = child.sets.map( s => {
+          if( 'spread' in s )
+            return { kind: 'spread', run: this.runner( s.spread, scopeNames ) }
+
+          if( 'lit' in s.ci ){
+            const lit = s.ci.lit
+            return { kind: 'value', name: s.name, value: () => lit }
           }
 
-          const run = this.runner( ci.e, scopeNames )
-          const [ get, set ] = signal<any>( undefined )
+          const run = this.runner( s.ci.e, scopeNames )
+          return { kind: 'value', name: s.name, value: () => run( benv ) }
+        })
 
-          if( child.args.includes( name ) ) defineGetter( scope, name, get )
+        let prevKeys = new Set<string>()
 
-          disposers.push( effect( () => {
-            const v = run( benv )
-            set( v )
-            args[ name ] = v
-          }).dispose )
-        }
+        disposers.push( effect( () => {
+          // Evaluate every set in order into one flat view
+          const next: Record<string, any> = {}
+
+          for( const r of runners ){
+            if( r.kind === 'spread' ){
+              const obj = r.run( benv )
+              if( obj && typeof obj === 'object' )
+                for( const [ k, v ] of ( obj instanceof Map ? obj : Object.entries( obj ) ) )
+                  next[ k ] = v
+            }
+            else next[ r.name ] = r.value()
+          }
+
+          untrack( () => {
+            // Feed declared argv signals (Object.is skips no-ops)
+            for( const name of child.args )
+              argSignals[ name ][1]( next[ name ] )
+
+            // Mirror everything into `arguments`; drop vanished keys
+            const nextKeys = new Set( Object.keys( next ) )
+            for( const k of prevKeys ) !nextKeys.has( k ) && delete args[ k ]
+            for( const k of nextKeys ) args[ k ] = next[ k ]
+            prevKeys = nextKeys
+          })
+        }).dispose )
 
         const inst = this.renderBlock( child.block, { ...benv, arguments: args, scope })
         insertAfter( anchor, nodesOf( inst ) )
@@ -842,6 +877,10 @@ class IRRenderer {
       if( src instanceof Map )
         return [ ...src.entries() ].map( ( [ k, v ], i ) => ({ key: k, values: [ k, v, i ] }) )
 
+      /** Sets iterate like arrays: [ value, index ] */
+      if( src instanceof Set )
+        return [ ...src ].map( ( item, i ) => ({ key: keyFor( item, item, i ), values: [ item, i ] }) )
+
       if( src && typeof src === 'object' )
         return Object.entries( src ).map( ( [ k, v ], i ) => ({ key: k, values: [ k, v, i ] }) )
 
@@ -978,9 +1017,22 @@ class IRRenderer {
      * `on-*( … )` instructions receive the emitted arguments.
      */
     const listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
+    /** Set once the block renders — backs `self.node` */
+    let selfInst: BlockInstance | null = null
+
     const self: any = {
       ...( this.options.expose || {} ),
       state, input, static: def.statics, context: benv.context,
+      /**
+       * Live element nodes of this component — the handle external
+       * controls (drag/resize/sort) bind to. Elements only: comment
+       * boundaries are an implementation detail.
+       */
+      get node(){
+        return selfInst
+          ? nodesOf( selfInst ).filter( n => n.nodeType === 1 ) as Element[]
+          : []
+      },
       emit( event: string, ...args: any[] ){
         listeners.get( event )?.forEach( fn => fn( ...args ) )
       },
@@ -988,8 +1040,19 @@ class IRRenderer {
         listeners.set( event, [ ...( listeners.get( event ) || [] ), fn ])
         return self
       },
-      off( event: string ){
-        listeners.delete( event )
+      once( event: string, fn: ( ...args: any[] ) => void ){
+        const wrapped = ( ...args: any[] ) => {
+          self.off( event, wrapped )
+          fn( ...args )
+        }
+        return self.on( event, wrapped )
+      },
+      off( event: string, fn?: ( ...args: any[] ) => void ){
+        if( !fn ) listeners.delete( event )
+        else {
+          const rest = ( listeners.get( event ) || [] ).filter( f => f !== fn )
+          rest.length ? listeners.set( event, rest ) : listeners.delete( event )
+        }
         return self
       }
     }
@@ -1006,12 +1069,14 @@ class IRRenderer {
     try { typeof self.onCreate === 'function' && self.onCreate() }
     catch( error ){ hooks.onError( error ) }
 
-    try { Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput() }
+    // Handlers receive the input object (Modela: onInput({ host, settings }))
+    try { Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
     catch( error ){ hooks.onError( error ) }
 
     const cenv: RunEnv = { state, input, context: benv.context, static: def.statics, self, scope: undefined }
     const renderer = new IRRenderer( def.ir, this.options, hooks )
     const inst = renderer.renderBlock( def.ir.root, cenv )
+    selfInst = inst // backs self.node
 
     // Scoped stylesheet — stamp rel before the nodes go live
     const clearStyles = def.stylesheet
@@ -1024,6 +1089,7 @@ class IRRenderer {
     try {
       typeof self.onMount === 'function' && self.onMount()
       typeof self.onRender === 'function' && self.onRender()
+      self.emit('component:mount')
     }
     catch( error ){ hooks.onError( error ) }
 
@@ -1038,13 +1104,21 @@ class IRRenderer {
         catch( error ){ hooks.onError( error ) }
       })
 
+    /**
+     * Attachment is always tracked (not only when onAttach is
+     * defined): external controls subscribe via the event bus with
+     * `self.on('component:attached', …)`.
+     */
     let attached = false
-    if( typeof self.onAttach === 'function' || typeof self.onDetach === 'function' ){
+    {
       PENDING_ATTACH.push({
         node: () => inst.start,
         fn: () => {
           attached = true
-          try { typeof self.onAttach === 'function' && self.onAttach() }
+          try {
+            typeof self.onAttach === 'function' && self.onAttach()
+            self.emit('component:attached')
+          }
           catch( error ){ hooks.onError( error ) }
         }
       })
@@ -1057,8 +1131,12 @@ class IRRenderer {
       clearStyles?.()
       destroy( inst )
       try {
-        attached && typeof self.onDetach === 'function' && self.onDetach()
+        if( attached ){
+          typeof self.onDetach === 'function' && self.onDetach()
+          self.emit('component:detached')
+        }
         typeof self.onDestroy === 'function' && self.onDestroy()
+        self.emit('component:destroy')
       }
       catch( error ){ hooks.onError( error ) }
     })
@@ -1137,7 +1215,48 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
   const
   state = reactive( setup.state || {}, setup.deep ?? false ),
   input = setup.input ? reactive( setup.input, setup.deep ?? false ) : undefined,
-  self: any = { state, input, static: setup.static, ...( setup.expose || {} ) }
+  listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
+
+  /** Set after the first render — backs `self.node` */
+  let rootInst: BlockInstance | null = null
+
+  const self: any = {
+    state, input, static: setup.static,
+    /** Live element nodes — the handle external controls bind to */
+    get node(){
+      return rootInst
+        ? nodesOf( rootInst ).filter( n => n.nodeType === 1 ) as Element[]
+        : []
+    },
+    emit( event: string, ...args: any[] ){
+      listeners.get( event )?.forEach( fn => fn( ...args ) )
+    },
+    /** Always the runtime-local bus — a host `emit` chains into it */
+    emitLocal( event: string, ...args: any[] ){
+      listeners.get( event )?.forEach( fn => fn( ...args ) )
+    },
+    on( event: string, fn: ( ...args: any[] ) => void ){
+      listeners.set( event, [ ...( listeners.get( event ) || [] ), fn ])
+      return self
+    },
+    once( event: string, fn: ( ...args: any[] ) => void ){
+      const wrapped = ( ...args: any[] ) => {
+        self.off( event, wrapped )
+        fn( ...args )
+      }
+      return self.on( event, wrapped )
+    },
+    off( event: string, fn?: ( ...args: any[] ) => void ){
+      if( !fn ) listeners.delete( event )
+      else {
+        const rest = ( listeners.get( event ) || [] ).filter( f => f !== fn )
+        rest.length ? listeners.set( event, rest ) : listeners.delete( event )
+      }
+      return self
+    },
+    // Host-provided members (e.g. the facade's emit → Events) win
+    ...( setup.expose || {} )
+  }
 
   setup.handlers && Object.entries( setup.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 
@@ -1159,11 +1278,12 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
   try { typeof self.onCreate === 'function' && self.onCreate() }
   catch( error ){ hooks.onError( error ) }
 
-  try { input && Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput() }
+  try { input && Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
   catch( error ){ hooks.onError( error ) }
 
   let renderer = new IRRenderer( ir, options, hooks )
   let current = renderer.renderBlock( ir.root, env )
+  rootInst = current // backs self.node
   hooks.ready()
 
   // Scoped stylesheet for the root component
@@ -1181,7 +1301,10 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
   const attachSelf = () => {
     if( attached ) return
     attached = true
-    try { typeof self.onAttach === 'function' && self.onAttach() }
+    try {
+      typeof self.onAttach === 'function' && self.onAttach()
+      self.emit('component:attached')
+    }
     catch( error ){ hooks.onError( error ) }
   }
 
@@ -1205,13 +1328,17 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
       const changes: SwapChange[] = []
       renderer = new IRRenderer( newIR, options, hooks )
       current = renderer.swapBlock( current, newIR.root, changes, 'root' )
+      rootInst = current // a rebuild replaces the instance
       return { changes }
     },
     dispose(){
       clearStyles?.()
       destroy( current )
       try {
-        attached && typeof self.onDetach === 'function' && self.onDetach()
+        if( attached ){
+          typeof self.onDetach === 'function' && self.onDetach()
+          self.emit('component:detached')
+        }
         typeof self.onDestroy === 'function' && self.onDestroy()
       }
       catch( error ){ hooks.onError( error ) }

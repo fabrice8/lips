@@ -86,6 +86,13 @@ export function untrack<T>( fn: () => T ): T {
 }
 
 const IS_REACTIVE = Symbol('lips.reactive')
+/** Marks a collection proxy and exposes its notifier + raw target */
+const COLLECTION_META = Symbol('lips.collection')
+
+interface CollectionMeta {
+  raw: Map<any, any> | Set<any>
+  notify: Set<() => void>
+}
 
 /**
  * Per-key reactive facade over a plain object:
@@ -98,6 +105,13 @@ const IS_REACTIVE = Symbol('lips.reactive')
  * lazily proxied, and any nested write force-notifies that top
  * key's subscribers (coarse but O(subscribers-of-key)).
  */
+/**
+ * Shared across every reactive store: a collection reached from two
+ * stores (parent `state.x`, child `input.x`) must resolve to ONE
+ * proxy, so a mutation through either notifies both.
+ */
+const COLLECTION_PROXIES = new WeakMap<object, any>()
+
 export function reactive<T extends object>( obj: T, deep = false ): T {
   if( ( obj as any )[ IS_REACTIVE ] ) return obj
 
@@ -113,10 +127,14 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
     return s
   }
 
-  /** Only plain objects/arrays are deep-wrapped (Map/Date/etc. pass through) */
+  /** Plain objects/arrays/Maps/Sets are deep-wrapped (Date/class instances pass through) */
   const isPlain = ( v: any ) =>
     v !== null && typeof v === 'object'
     && ( Array.isArray( v ) || Object.getPrototypeOf( v ) === Object.prototype )
+
+  const isCollection = ( v: any ) =>
+    v instanceof Map || v instanceof Set
+    || !!( v && typeof v === 'object' && v[ COLLECTION_META ] )
 
   /**
    * Array mutators write several times (push sets an index AND
@@ -124,9 +142,77 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
    * notification, not one per internal write.
    */
   const ARRAY_MUTATORS = new Set([ 'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin' ])
+  /** Map/Set methods that mutate — each notifies once */
+  const COLLECTION_MUTATORS = new Set([ 'set', 'delete', 'clear', 'add' ])
+
+  /**
+   * Map/Set proxies break internal-slot access ([[MapData]]), so
+   * collections are wrapped by BINDING their methods to the target:
+   * reads work natively; mutators notify. Values read out of the
+   * collection are deep-wrapped in turn, so nested trees of Maps
+   * (e.g. a recursive layers tree) stay reactive at the top key.
+   */
+  const wrapCollection = ( coll: any, touch: () => void ): any => {
+    /**
+     * Identity-stable wrapping. The same Map can be reached from
+     * several reactive stores — a parent's `state.layers` and the
+     * child's `input.list` are the same object. Re-wrapping would
+     * give each store a private proxy whose mutations only notify
+     * its own subscribers, so a `.set()` through one would be
+     * invisible to the other. Instead ONE proxy is reused and every
+     * interested store adds its notifier.
+     */
+    const existing: CollectionMeta | undefined = coll[ COLLECTION_META ]
+    if( existing ){
+      existing.notify.add( touch )
+      return coll
+    }
+
+    const hit = COLLECTION_PROXIES.get( coll )
+    if( hit ){
+      ;( hit as any )[ COLLECTION_META ].notify.add( touch )
+      return hit
+    }
+
+    const meta: CollectionMeta = { raw: coll, notify: new Set([ touch ]) }
+    const notifyAll = () => meta.notify.forEach( fn => fn() )
+
+    const proxy = new Proxy( coll, {
+      get( t: any, k ){
+        if( k === COLLECTION_META ) return meta
+
+        // size and other data properties
+        const v = ( t as any )[ k ]
+        if( typeof v !== 'function' ) return v
+
+        if( typeof k === 'string' && COLLECTION_MUTATORS.has( k ) )
+          return ( ...args: any[] ) => {
+            const result = v.apply( t, args )
+            notifyAll()
+            return result
+          }
+
+        // Readers: bind to the raw target, deep-wrap returned values
+        if( k === 'get' )
+          return ( key: any ) => {
+            const out = ( t as Map<any, any> ).get( key )
+            return isPlain( out ) ? deepWrap( out, notifyAll )
+                  : isCollection( out ) ? wrapCollection( out, notifyAll )
+                  : out
+          }
+
+        return v.bind( t )
+      }
+    })
+
+    COLLECTION_PROXIES.set( coll, proxy )
+    return proxy
+  }
 
   const deepWrap = ( value: any, touch: () => void ): any => {
-    if( !deep || !isPlain( value ) ) return value
+    if( !deep ) return value
+    if( isCollection( value ) ) return wrapCollection( value, touch )
+    if( !isPlain( value ) ) return value
 
     const hit = wrapped!.get( value )
     if( hit ) return hit
@@ -147,7 +233,7 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
             }
           }
 
-        return isPlain( v ) ? deepWrap( v, touch ) : v
+        return isPlain( v ) || isCollection( v ) ? deepWrap( v, touch ) : v
       },
       set( t: any, k, v ){
         t[ k ] = v
@@ -175,8 +261,22 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
       return target[ key ]
     },
     set( target: any, key, value ){
+      const prev = target[ key ]
       target[ key ] = value
-      typeof key === 'string' && sigFor( key, value )[1]( value )
+
+      if( typeof key !== 'string' ) return true
+
+      const sig = sigFor( key, value )
+      /**
+       * Re-assigning the SAME collection is not a no-op: collections
+       * mutate in place, so an unchanged reference can still hold new
+       * contents (a parent's `.set()` reaching a child's input). The
+       * signal's Object.is check would swallow it — touch instead.
+       */
+      Object.is( prev, value ) && isCollection( value )
+        ? sig[2]()
+        : sig[1]( value )
+
       return true
     },
     has( target, key ){ return key in target },

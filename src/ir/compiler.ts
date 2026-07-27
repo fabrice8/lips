@@ -65,8 +65,17 @@ export interface ArmIR {
   block: BlockIR
 }
 
+/**
+ * One macro call-site assignment, in SOURCE ORDER so later
+ * entries override earlier ones (`<option key=k ...each/>` —
+ * the spread wins over `key` for keys it contains).
+ */
+export type MacroSet =
+  | { name: string, ci: CompInput }
+  | { spread: E }
+
 export type ChildIR =
-  | { t: 'macro',   p: Path, name: string, vars: Record<string, CompInput>, args: string[], block: BlockIR }
+  | { t: 'macro',   p: Path, name: string, sets: MacroSet[], args: string[], block: BlockIR }
   | { t: 'if',      p: Path, branches: { when: E | null, block: BlockIR }[] }
   | { t: 'for',     p: Path, of?: E, from?: CompInput, to?: CompInput, by?: CompInput, args: string[], block: BlockIR }
   | { t: 'switch',  p: Path, on: E, cases: { is: CompInput | null, block: BlockIR }[] }
@@ -598,7 +607,21 @@ class Compiler {
       case 'const': {
         const vars: Record<string, CompInput> = {}
 
-        for( const attr of node.attrs )
+        for( const attr of node.attrs ){
+          /**
+           * Spread on <let> cannot work with compiled expressions:
+           * the spread's keys are unknown at compile time, so binds
+           * referencing them as bare identifiers can never resolve.
+           * Assign the object to ONE name instead.
+           */
+          if( attr.k === 'spread' ){
+            this.report( 'LIPS-C013', 'error',
+              `Spread is not supported on <${node.tag}> — scope names must be known at compile time`,
+              attr.loc.offset, attr.loc.length,
+              `Assign it to one variable: <${node.tag} obj={ ${attr.source} }/> and read obj.<key>` )
+            continue
+          }
+
           if( attr.k === 'literal' || attr.k === 'expr' || attr.k === 'interp' || attr.k === 'bool' ){
             vars[ attr.name ] = this.compInput( attr )
             /**
@@ -608,6 +631,7 @@ class Compiler {
             !block.scope.includes( attr.name ) && block.scope.push( attr.name )
             !scope.includes( attr.name ) && scope.push( attr.name )
           }
+        }
 
         block.blocks.push({ t: 'let', p, const: node.tag === 'const', vars })
         break
@@ -651,25 +675,27 @@ class Compiler {
       return null
     }
 
-    const vars: Record<string, CompInput> = {}
-    for( const attr of node.attrs )
-      if( attr.k === 'literal' || attr.k === 'expr' || attr.k === 'interp' || attr.k === 'bool' )
-        vars[ attr.name ] = this.compInput( attr )
-
     /**
-     * Undeclared argv default to `undefined`: falsy in
-     * conditions and attribute-removing like the old engine's
-     * `false` sentinel, but renders as '' in text interpolation
-     * per RFC decision #4 (the old engine printed "false").
+     * Assignments in SOURCE ORDER — spreads participate like any
+     * other set, so `key=k ...each` lets the spread override `key`
+     * while `...each key=k` lets the explicit attr win.
+     *
+     * Undeclared argv default to `undefined` at runtime: falsy in
+     * conditions, attribute-removing, renders '' in text (RFC #4).
      */
-    for( const name of macro.argv )
-      if( !( name in vars ) ) vars[ name ] = { lit: undefined }
+    const sets: MacroSet[] = []
+    for( const attr of node.attrs ){
+      if( attr.k === 'literal' || attr.k === 'expr' || attr.k === 'interp' || attr.k === 'bool' )
+        sets.push({ name: attr.name, ci: this.compInput( attr ) })
+      else if( attr.k === 'spread' )
+        sets.push({ spread: this.expr( attr.source, attr.loc ) })
+    }
 
     this.macroStack.push( macro.name )
     const block = this.block( macro.children, [ ...scope, ...macro.argv ] )
     this.macroStack.pop()
 
-    return { t: 'macro', p, name: macro.name, vars, args: macro.argv, block }
+    return { t: 'macro', p, name: macro.name, sets, args: macro.argv, block }
   }
 
   /** Components and dynamic tags share input/event/spread shape */
