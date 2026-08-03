@@ -182,6 +182,60 @@ of being a bet on whether the loop exists.
 Web export first. Additional hosts when a real target demands them, per
 "Platform posture".
 
+## What is actually differentiated
+
+Worth separating three things that are easy to collapse into one:
+
+- **Substrate** — the mechanism that makes the loop feel alive rather than janky.
+- **Differentiation** — the reason someone cannot get this elsewhere.
+- **Thesis** — the product bet layered on top.
+
+Coherent state under change is the **substrate**, not the differentiation. Nobody
+adopts a tool because state is preserved; they adopt it for what that makes
+possible. Architects did not buy Revit for parametric propagation either — they
+bought "my drawings can no longer disagree with each other." Propagation was the
+mechanism. The innovation was that *the model replaced the drawing set*.
+
+Modela's equivalent claim is therefore not "state survives" but:
+
+> **The design and the running app are one artifact, and both the human and the
+> AI edit it in place.**
+
+Decomposed by strength:
+
+| Property | Status | Defensible? |
+|---|---|---|
+| Coherent state across surfaces | built, verified | Moderate — an engineering lead, not a moat |
+| **Scoped patch revision** — AI edits a region, never regenerates the page | designed (Phase 2) | **Strong** |
+| **Bidirectional round-trip** — hand edits survive; visual edits produce real artifacts | partly real via the IR | **Strong** |
+| Persistent spatial constraint | unproven (Phase 0) | Weak alone, strong combined |
+
+The two strong rows share one root cause: **the IR is the artifact, not the code.**
+Anything that generates code must regenerate a whole component — it has no
+patchable model to revise, and no way to absorb a hand edit without re-parsing.
+That is an architectural position, not a feature gap closable in a sprint.
+
+So the moat is a single decision with three consequences, not three features.
+
+The spatial-prior thesis is the **product layer** on top, and it is the copyable
+part — sketch-to-UI demos already exist. What would be genuinely new is the sketch
+persisting as an *authored constraint that later AI revisions must respect*,
+closer to a parametric constraint in CAD than to a prompt. Phase 0 should be
+framed to test that, not merely "does a sketch help once".
+
+### Not innovative, and worth saying plainly
+
+The canvas and editor chrome (solved space, heavy prior art). The generation
+itself (a rented model). Fine-grained reactivity (Solid got there; a quality bar
+now, not a differentiator). Raw speed (nobody switches frameworks for it).
+
+### The failure case
+
+If coherent state is all that turns out to be true, Modela is a nicer live
+preview — necessary, and not a product. What converts substrate into product is
+what it lets the AI do: **revise one region without disturbing the rest**, and let
+hand edits survive that.
+
 ## Honest horizon
 
 - **Weeks 1–3:** you know whether the thesis holds.
@@ -189,13 +243,9 @@ Web export first. Additional hosts when a real target demands them, per
   scoped AI revision → still running, state intact.
 - **~12 months:** something another person can use for real work.
 - **ArchiCAD:** a decade and a large team. Correct as a north star, wrong as a
-  near-term expectation. Revit did not win on breadth — it won because
-  *parametric change propagation* worked. Modela's equivalent single property is:
-
-> **Change anything from any surface, and everything stays coherent, without
-> losing your work.**
-
-Drive that to undeniable before widening the surface.
+  near-term expectation. Revit did not win on breadth; it won on one property
+  executed to undeniable. Modela's is the artifact claim above — drive that to
+  undeniable before widening the surface.
 
 ## What to guard against
 
