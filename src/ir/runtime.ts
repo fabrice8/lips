@@ -116,6 +116,31 @@ interface ChildHandle {
   dispose: () => void
 }
 
+/**
+ * A live component instance, tracked so a swap can re-home it
+ * instead of destroying and recreating it (RFC-002 §salvage).
+ *
+ * `gen` is the ownership token: whoever wired the instance captures
+ * the current value, and only a holder of the current token may tear
+ * it down. Releasing a component into a salvage pass bumps `gen`, so
+ * the old parent's disposal walks straight past it.
+ */
+interface LiveComp {
+  name: string
+  /** Explicit `key` input — identity across revisions, when given */
+  key: any
+  self: any
+  input: Record<string, any>
+  inst: BlockInstance
+  /** Anchor of the child that currently owns it */
+  anchor: Comment
+  /** Parent-side wiring: input effects + event listeners */
+  wiring: ( () => void )[]
+  gen: number
+  claimed: boolean
+  teardown(): void
+}
+
 /** A rendered block: bracketed range + retained structure for swap */
 interface BlockInstance {
   start: Comment
@@ -239,6 +264,31 @@ function nodesOf( inst: BlockInstance ): Node[] {
   }
   return out
 }
+/**
+ * Does `n` sit between two markers in document order? Position, not
+ * ancestry — a component nested deep in the skeleton's markup still
+ * counts, which is what makes a region-wide sweep possible. Nodes in
+ * another tree compare as disconnected, so both bits fail.
+ */
+const within = ( from: Node, to: Node, n: Node ) =>
+  n === from // a child's own component is anchored on the marker itself
+  || ( !!( from.compareDocumentPosition( n ) & 4 /* FOLLOWING */ )
+       && !!( to.compareDocumentPosition( n ) & 2 /* PRECEDING */ ) )
+
+/**
+ * Hand a live component to a salvage pass: its old owner loses the
+ * right to destroy it, and its nodes are parked in a fragment. The
+ * parking matters — an enclosing block that disposes before the
+ * adoption runs would otherwise sweep those nodes out of the DOM
+ * along with its own range.
+ */
+function release( rec: LiveComp ){
+  rec.gen++
+  for( const d of rec.wiring ) d()
+  rec.wiring = []
+  document.createDocumentFragment().append( ...nodesOf( rec.inst ) as ChildNode[] )
+}
+
 function insertAfter( ref: Node, nodes: Node[] ){
   const parent = ref.parentNode
   if( !parent ) return
@@ -255,15 +305,18 @@ function insertAfter( ref: Node, nodes: Node[] ){
  * then inject via the host factory. The `!rel` guard lets an inner
  * component's scope win on a shared root. Returns a clear disposer.
  */
+function stampScope( inst: BlockInstance, nsp: string ){
+  for( const n of nodesOf( inst ) )
+    if( n.nodeType === 1 /* ELEMENT_NODE */ && !( n as Element ).hasAttribute('rel') )
+      ( n as Element ).setAttribute('rel', nsp )
+}
 function applyScopedStyles(
   options: RuntimeOptions,
   inst: BlockInstance,
   nsp: string,
   css: string
 ): ( () => void ) | undefined {
-  for( const n of nodesOf( inst ) )
-    if( n.nodeType === 1 /* ELEMENT_NODE */ && !( n as Element ).hasAttribute('rel') )
-      ( n as Element ).setAttribute('rel', nsp )
+  stampScope( inst, nsp )
 
   const sheet = options.createStylesheet?.( nsp, css )
   return sheet ? () => sheet.clear() : undefined
@@ -315,7 +368,59 @@ const defineGetter = ( scope: any, name: string, get: () => any ) =>
 
 // ---------------------------------------------------------------- renderer
 class IRRenderer {
-  constructor( readonly ir: TemplateIR, private options: RuntimeOptions, private hooks?: ComponentHooks ){}
+  constructor(
+    readonly ir: TemplateIR,
+    private options: RuntimeOptions,
+    private hooks?: ComponentHooks,
+    /**
+     * Components alive under this renderer. A swap builds a new
+     * renderer over the new IR and inherits this array, so the
+     * instances outlive the IR that first rendered them.
+     */
+    readonly live: LiveComp[] = []
+  ){}
+
+  /** Records offered to the render pass currently running, if any */
+  private pool: LiveComp[] | null = null
+  /** Names salvaged during this renderer's lifetime (read by swap) */
+  readonly salvaged: string[] = []
+
+  /**
+   * Render with `records` offered for adoption. Whatever nobody
+   * claims is destroyed for real once the pass ends — so a component
+   * the revision dropped still runs its teardown.
+   */
+  private withSalvage<T>( records: LiveComp[], fn: () => T ): T {
+    const prev = this.pool
+    this.pool = records
+    try { return fn() }
+    finally {
+      this.pool = prev
+      for( const r of records ) !r.claimed && r.teardown()
+    }
+  }
+
+  /**
+   * Take the record belonging to this call site. An explicit `key`
+   * is identity; without one, position among same-name components
+   * decides — the rule keyless JSX lists already follow.
+   */
+  private claim( name: string, key: any ): LiveComp | undefined {
+    const rec = this.pool?.find( r => !r.claimed && r.name === name && r.key === key )
+    if( !rec ) return
+
+    rec.claimed = true
+    this.salvaged.push( name )
+    return rec
+  }
+
+  /** The `key` input, evaluated off the dependency graph */
+  private keyOf( inputs: Record<string, CompInput>, benv: RunEnv, scopeNames: string[] ){
+    const ci = inputs.key
+    return ci === undefined
+      ? undefined
+      : 'lit' in ci ? ci.lit : untrack( () => this.runner( ci.e, scopeNames )( benv ) )
+  }
 
   /**
    * Bind effects run inside the component's error boundary and
@@ -548,10 +653,21 @@ class IRRenderer {
 
       if( oldH && sameChild( oldH.child, oldH.exprs, newChild, this.ir.exprs ) ) continue
 
+      /**
+       * Components this child rendered survive its re-execution.
+       * The sweep spans the child's whole region, not just its own
+       * anchor: a custom tag like `<mblock>` is itself a child, and
+       * everything the template puts inside it lives under there.
+       */
+      const records = this.live.filter( r =>
+        within( oldH.anchor, inst.childHandles[ i + 1 ]?.anchor ?? inst.end, r.anchor ) )
+      for( const r of records ) release( r )
+
       oldH?.dispose()
       inst.childHandles[ i ] = {
         child: newChild, exprs: this.ir.exprs, anchor: oldH.anchor,
-        dispose: this.execBlock( newChild, oldH.anchor, inst.benv, newBlock.scope )
+        dispose: this.withSalvage( records,
+          () => this.execBlock( newChild, oldH.anchor, inst.benv, newBlock.scope ) )
       }
       report.push({ kind: 'block', path: `${path}/${i}` })
     }
@@ -562,7 +678,17 @@ class IRRenderer {
   }
 
   private rebuild( inst: BlockInstance, newBlock: BlockIR, report: SwapChange[], path: string ): BlockInstance {
-    const fresh = this.renderBlock( newBlock, inst.penv )
+    /**
+     * Salvage: every component living in the region about to be
+     * rebuilt is released from it first and offered to the fresh
+     * render. What the revision still wants keeps its state and its
+     * DOM subtree; what it dropped is destroyed by `withSalvage`.
+     */
+    const records = this.live.filter( r => within( inst.start, inst.end, r.anchor ) )
+    for( const r of records ) release( r )
+
+    const fresh = this.withSalvage( records, () => this.renderBlock( newBlock, inst.penv ) )
+
     insertAfter( inst.end, nodesOf( fresh ) )
     destroy( inst )
     report.push({ kind: 'skeleton', path })
@@ -763,7 +889,7 @@ class IRRenderer {
       case 'comp': {
         const def = this.options.components?.[ child.name ]
         def
-          ? this.execComponent( def, child, anchor, benv, scopeNames, disposers )
+          ? this.execComponent( def, child, anchor, benv, scopeNames, disposers, child.name )
           : this.execElement( child, anchor, benv, scopeNames, disposers )
         break
       }
@@ -810,7 +936,8 @@ class IRRenderer {
                 ? ( verb.ir ? verb as IRComponentDef : this.options.resolveTemplate?.( verb ) )
                 : undefined
 
-            if( def ) this.execComponent( def, child, anchor, benv, scopeNames, inner )
+            if( def ) this.execComponent( def, child, anchor, benv, scopeNames, inner,
+              typeof verb === 'string' ? verb : '#dynamic' )
             else if( typeof verb === 'string' )
               this.execElement( { ...child, name: verb } as any, anchor, benv, scopeNames, inner )
           })
@@ -956,6 +1083,127 @@ class IRRenderer {
     })
   }
 
+  // ------------------------------------------------------- component wiring
+  /**
+   * Parent-side input wiring: call-site expressions write into the
+   * component's reactive `input`. Kept separate from creation so an
+   * adopted instance can be re-wired to a new call site.
+   * `written` collects the keys this call site supplies.
+   */
+  private wireInputs(
+    child: { inputs: Record<string, CompInput>, spreads: E[] },
+    benv: RunEnv,
+    scopeNames: string[],
+    input: Record<string, any>,
+    wiring: ( () => void )[],
+    written?: Set<string>
+  ){
+    for( const [ name, ci ] of Object.entries( child.inputs ) ){
+      written?.add( name )
+
+      if( 'lit' in ci ) input[ name ] = ci.lit
+      else {
+        const run = this.runner( ci.e, scopeNames )
+        wiring.push( effect( () => input[ name ] = run( benv ) ).dispose )
+      }
+    }
+    for( const e of child.spreads ){
+      const run = this.runner( e, scopeNames )
+      wiring.push( effect( () => {
+        const obj = run( benv ) || {}
+        untrack( () => Object.entries( obj ).forEach( ( [ k, v ] ) => {
+          written?.add( k )
+          input[ k ] = v
+        }) )
+      }).dispose )
+    }
+  }
+
+  /** Parent `on-*( … )` instructions → listeners on the child's bus */
+  private wireEvents(
+    events: { name: string, e: E }[] | undefined,
+    benv: RunEnv,
+    scopeNames: string[],
+    self: any,
+    wiring: ( () => void )[]
+  ){
+    events?.forEach( ev => {
+      const dispatch = this.eventDispatcher( this.ir.exprs[ ev.e ], scopeNames, benv )
+      self.on( ev.name, dispatch )
+      wiring.push( () => self.off( ev.name, dispatch ) )
+    })
+  }
+
+  /**
+   * Slotted body → `input.renderer` (old-engine convention):
+   * the child template places it with `<{input.renderer}/>`.
+   * Content renders in the PARENT scope — a slot closes over
+   * where it was written, not where it is placed.
+   */
+  private slotRenderer( contents: ArmIR, penv: RunEnv ): SlotRenderer {
+    const parent = this
+
+    return {
+      [ SLOT ]: true,
+      args: contents.args,
+      render( argvalues?: Record<string, any> ){
+        const scope = Object.create( penv.scope ?? null )
+
+        contents.args.forEach( name => {
+          const [ get ] = signal( argvalues?.[ name ] )
+          defineGetter( scope, name, get )
+        })
+
+        return parent.renderBlock( contents.block, { ...penv, scope } )
+      }
+    }
+  }
+
+  /**
+   * Re-home a salvaged instance: same state, same DOM, same handlers
+   * — only the parent-side wiring is rebuilt, against the new call
+   * site and the new expression table. No lifecycle hook fires: from
+   * the component's point of view nothing happened.
+   */
+  private adoptComponent(
+    rec: LiveComp,
+    child: { inputs: Record<string, CompInput>, spreads: E[], events?: { name: string, e: E }[], contents?: ArmIR },
+    anchor: Comment,
+    benv: RunEnv,
+    scopeNames: string[],
+    disposers: ( () => void )[]
+  ){
+    const
+    wiring: ( () => void )[] = [],
+    written = new Set<string>()
+
+    this.wireInputs( child, benv, scopeNames, rec.input, wiring, written )
+
+    if( child.contents ){
+      rec.input.renderer = this.slotRenderer( child.contents, benv )
+      written.add('renderer')
+    }
+    // Inputs the revision dropped must not linger on the instance
+    for( const k of Object.keys( rec.input ) )
+      !written.has( k ) && delete rec.input[ k ]
+
+    this.wireEvents( child.events, benv, scopeNames, rec.self, wiring )
+
+    rec.wiring = wiring
+    rec.anchor = anchor
+
+    const gen = rec.gen
+    insertAfter( anchor, nodesOf( rec.inst ) )
+
+    disposers.push( () => {
+      if( gen !== rec.gen ) return // salvaged away; wiring already released
+
+      for( const d of rec.wiring ) d()
+      rec.wiring = []
+      rec.teardown()
+    })
+  }
+
   /** Registered component: reactive inputs, slots, events, own env */
   private execComponent(
     def: IRComponentDef,
@@ -963,52 +1211,27 @@ class IRRenderer {
     anchor: Comment,
     benv: RunEnv,
     scopeNames: string[],
-    disposers: ( () => void )[]
+    disposers: ( () => void )[],
+    cname: string
   ){
-    const input = reactive( {} as Record<string, any> )
-
-    for( const [ name, ci ] of Object.entries( child.inputs ) ){
-      if( 'lit' in ci ) input[ name ] = ci.lit
-      else {
-        const run = this.runner( ci.e, scopeNames )
-        disposers.push( effect( () => input[ name ] = run( benv ) ).dispose )
-      }
-    }
-    for( const e of child.spreads ){
-      const run = this.runner( e, scopeNames )
-      disposers.push( effect( () => {
-        const obj = run( benv ) || {}
-        untrack( () => Object.entries( obj ).forEach( ( [ k, v ] ) => input[ k ] = v ) )
-      }).dispose )
-    }
-
     /**
-     * Slotted body → `input.renderer` (old-engine convention):
-     * the child template places it with `<{input.renderer}/>`.
-     * Content renders in the PARENT scope — a slot closes over
-     * where it was written, not where it is placed.
+     * A live instance released by a swap is re-homed here rather
+     * than rebuilt from scratch. Only ever true mid-swap, so a
+     * normal render pays nothing for it.
      */
-    if( child.contents ){
-      const
-      parent = this,
-      contents = child.contents,
-      penv = benv
+    const salvaged = this.pool?.length
+      ? this.claim( cname, this.keyOf( child.inputs, benv, scopeNames ) )
+      : undefined
 
-      input.renderer = {
-        [ SLOT ]: true,
-        args: contents.args,
-        render( argvalues?: Record<string, any> ){
-          const scope = Object.create( penv.scope ?? null )
+    if( salvaged )
+      return this.adoptComponent( salvaged, child, anchor, benv, scopeNames, disposers )
 
-          contents.args.forEach( name => {
-            const [ get ] = signal( argvalues?.[ name ] )
-            defineGetter( scope, name, get )
-          })
+    const
+    input = reactive( {} as Record<string, any> ),
+    wiring: ( () => void )[] = []
 
-          return parent.renderBlock( contents.block, { ...penv, scope } )
-        }
-      }
-    }
+    this.wireInputs( child, benv, scopeNames, input, wiring )
+    if( child.contents ) input.renderer = this.slotRenderer( child.contents, benv )
 
     const state = reactive( { ...( def.state || {} ) }, def.deep ?? false )
 
@@ -1058,10 +1281,7 @@ class IRRenderer {
     }
     def.handlers && Object.entries( def.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 
-    child.events?.forEach( ev => {
-      const dispatch = this.eventDispatcher( this.ir.exprs[ ev.e ], scopeNames, benv )
-      self.on( ev.name, dispatch )
-    })
+    this.wireEvents( child.events, benv, scopeNames, self, wiring )
 
     const hooks = makeHooks( self )
 
@@ -1126,19 +1346,48 @@ class IRRenderer {
       inst.start.isConnected && flushAttach()
     }
 
-    disposers.push( () => {
-      unwatchContext?.()
-      clearStyles?.()
-      destroy( inst )
-      try {
-        if( attached ){
-          typeof self.onDetach === 'function' && self.onDetach()
-          self.emit('component:detached')
+    /**
+     * The instance is now tracked for salvage. `teardown` is the one
+     * real destruction path — idempotent, because an unclaimed
+     * record and its old owner may both reach for it.
+     */
+    let torn = false
+    const rec: LiveComp = {
+      name: cname,
+      key: input.key, // already wired — no second evaluation
+      self, input, inst, anchor, wiring,
+      gen: 0,
+      claimed: false,
+      teardown: () => {
+        if( torn ) return
+        torn = true
+
+        const i = this.live.indexOf( rec )
+        i > -1 && this.live.splice( i, 1 )
+
+        unwatchContext?.()
+        clearStyles?.()
+        destroy( inst )
+        try {
+          if( attached ){
+            typeof self.onDetach === 'function' && self.onDetach()
+            self.emit('component:detached')
+          }
+          typeof self.onDestroy === 'function' && self.onDestroy()
+          self.emit('component:destroy')
         }
-        typeof self.onDestroy === 'function' && self.onDestroy()
-        self.emit('component:destroy')
+        catch( error ){ hooks.onError( error ) }
       }
-      catch( error ){ hooks.onError( error ) }
+    }
+    this.live.push( rec )
+
+    const gen = rec.gen
+    disposers.push( () => {
+      if( gen !== rec.gen ) return // salvaged away; wiring already released
+
+      for( const d of rec.wiring ) d()
+      rec.wiring = []
+      rec.teardown()
     })
   }
 
@@ -1325,11 +1574,30 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
       }
     },
     swap( newIR: TemplateIR ): SwapReport {
-      const changes: SwapChange[] = []
-      renderer = new IRRenderer( newIR, options, hooks )
+      const
+      changes: SwapChange[] = [],
+      /**
+       * Salvaged nodes are detached and re-inserted, which drops
+       * focus. The element survives the move, so put the caret back
+       * where the user left it.
+       */
+      focused = document.activeElement as HTMLElement | null
+
+      // The new renderer inherits the live components: they outlive the IR
+      renderer = new IRRenderer( newIR, options, hooks, renderer.live )
       current = renderer.swapBlock( current, newIR.root, changes, 'root' )
       rootInst = current // a rebuild replaces the instance
-      return { changes }
+
+      /**
+       * A rebuild produces fresh element roots, which arrive without
+       * the `rel` the scoped sheet selects on — re-stamp them, or the
+       * component silently loses its styles on the first revision.
+       */
+      setup.stylesheet && stampScope( current, setup.nsp || 'lips' )
+
+      focused && focused.isConnected && focused !== document.activeElement && focused.focus()
+
+      return { changes, salvaged: renderer.salvaged }
     },
     dispose(){
       clearStyles?.()

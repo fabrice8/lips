@@ -16,6 +16,11 @@ export interface SwapChange {
 }
 export interface SwapReport {
   changes: SwapChange[]
+  /**
+   * Components carried through the swap instead of being remounted —
+   * one entry per instance, by component name.
+   */
+  salvaged: string[]
 }
 
 // ------------------------------------------------------------- normalizers
