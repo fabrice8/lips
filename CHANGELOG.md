@@ -5,8 +5,47 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
-Everything below lands in one release: the engine rewrite plus the
-Phase 0/1 foundation work that made it verifiable.
+### Added — application-readiness (RFC-002)
+Derived from a read of the Modela editor codebase; each item mirrors a
+pattern a real application already relies on. See
+`design/modela-integration.md`.
+
+- **Reactive `Map` / `Set` state**: deep-reactive stores wrap collections —
+  `set`/`delete`/`clear`/`add` notify, values read out of a collection are
+  wrapped in turn (recursive `Map` trees stay reactive at depth). Collection
+  proxies are **identity-stable across stores**, so a parent's
+  `state.items.set(…)` reaches a child rendering the same Map as
+  `input.list`; re-assigning an unchanged collection reference still
+  notifies, because collections mutate in place.
+- **`<for>` iterates `Set`** as `[ value, index ]`.
+- **Spread arguments on macros**: `<option key=k ...each/>`. Call-site
+  assignments apply in source order, so spreads and explicit attributes
+  override each other left to right; every key is exposed through
+  `arguments`; keys dropped from a spread are removed on update.
+- **`self.node`** — live element nodes of a component, the handle external
+  controls (drag/resize/sort) bind to.
+- **Component event bus**: `on` / `once` / `off` / `emit` on every component
+  self, firing `component:mount`, `component:attached`, `component:detached`,
+  `component:destroy`. Attachment is tracked whether or not `onAttach` is
+  defined. Root components emit to both the runtime bus and the facade's
+  `Events`.
+- **`onInput` receives the input object** for root and nested components.
+- Mutually recursive components (`<layerlist>` ↔ `<layeritem>`) verified by
+  spec.
+
+### Changed
+- Spread on `<let>`/`<const>` now reports `LIPS-C013` with a fix hint instead
+  of being silently dropped — scope names must be known at compile time for
+  compiled expressions to resolve them.
+- Size budgets raised once, deliberately: full 22→23 KB, runtime 13→14 KB gz
+  (the above adds ~0.9 KB to the runtime). Rationale recorded in
+  `scripts/size-check.mjs`.
+
+---
+
+## [0.2.0] — 2026-07-24
+
+The engine rewrite plus the Phase 0/1 foundation work that made it verifiable.
 
 ### Changed — BREAKING
 - **The IR engine is the only engine.** `new Lips()` runs the Phase 2

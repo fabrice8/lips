@@ -12,10 +12,20 @@ import { gzipSync } from 'node:zlib'
 
 const KB = 1024
 
-// entry → gzip budget in KB
+/**
+ * entry → gzip budget in KB
+ *
+ * 2026-07-24: full 22→23, runtime 13→14. The application-readiness
+ * pass (reactive Map/Set, macro spread arguments, component
+ * node + lifecycle event bus) added ~0.9 KB to the runtime. These are
+ * load-bearing for real apps rather than optional extras, so the
+ * budget moves once, deliberately, instead of the features being
+ * trimmed. Next lever if this tightens again: split the event bus and
+ * collection reactivity behind opt-in imports.
+ */
 const BUDGETS = {
-  'dist/lips.min.js': 22,        // full: runtime + parser/compiler + stylis + router
-  'dist/runtime.min.js': 13,     // precompiled-only: no compiler, no stylis, no router
+  'dist/lips.min.js': 23,        // full: runtime + parser/compiler + stylis + router
+  'dist/runtime.min.js': 14,     // precompiled-only: no compiler, no stylis, no router
   'dist/precompile.min.js': 10   // build-time: parser + compiler + stylis
 }
 

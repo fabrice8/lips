@@ -103,6 +103,8 @@ export class IRFacadeComponent extends Events {
      * render → mount → attach → destroy) for root and nested
      * components alike — the facade only supplies wiring.
      */
+    const emitExternal = ( event: string, ...args: any[] ) => this.emit( event, ...args )
+
     this.instance = renderIR( ir, {
       state: this.state,
       input: inputR,
@@ -114,7 +116,16 @@ export class IRFacadeComponent extends Events {
       stylesheet: template.stylesheet,
       nsp: name,
       expose: {
-        emit: ( event: string, ...args: any[] ) => this.emit( event, ...args ),
+        /**
+         * Component emissions reach BOTH buses: the facade's Events
+         * (external `component.on(…)`) and the runtime's own bus
+         * (`self.on(…)` inside handlers/controls). `emitLocal` is
+         * installed by the runtime before expose is merged.
+         */
+        emit( this: any, event: string, ...args: any[] ){
+          this.emitLocal?.( event, ...args )
+          emitExternal( event, ...args )
+        },
         context: lips.getContext()
       }
     }, options )
