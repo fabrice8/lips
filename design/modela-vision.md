@@ -95,6 +95,87 @@ contained change *provided nothing else DOM-shaped leaks into the IR first*.
 
 Deferred, not declined. Revisit when a real export target demands it.
 
+## Prior art
+
+Surveyed 2026-08-03. A search snapshot, not an exhaustive review.
+
+### Camp 1 — round-trip visual editors over real code
+
+Onlook, Codux, Plasmic, Builder.io. Method, in Onlook's author's own description:
+inject a build-time attribute that points back to source *like a source map*, then
+"find the code, parse it into an AST, inject the styles, and write it back."
+
+- **Better than us at distribution, decisively.** Works on any existing React
+  codebase; no framework adoption; explicitly no lock-in. This is the real
+  competitive threat, and architectural elegance does not answer it.
+- **Worse at revision mechanics.** Source-map → AST → write-back is fragile
+  exactly where UI gets interesting — loops, conditionals, dynamic props, wrapped
+  components — and edits are non-persistent until written back to code. Live state
+  does not survive the rebuild.
+
+### Camp 2 — AI app generators
+
+v0, Lovable, Bolt, Replit, Magic Patterns, Stitch. Regeneration-based; a revision
+re-emits files. This is the source of the pain in "The observation" above, and it
+is documented from the outside: *"Getting a design from MidJourney or Vercel's V0
+is amazing, but the real work begins with the day of editing that follows"*
+(designer quoted in the PrototypeFlow formative study). The sameness symptom has
+been named publicly too — "AI design isn't ugly. It's fluent — and that's the
+problem," UX Collective, June 2026.
+
+### Camp 3 — HCI research (most relevant)
+
+**PrototypeFlow** — Yuan, Chen, Hu, Feng, Xie, Mohammadi, Xing, Quigley.
+ACM TOCHI, [10.1145/3773035](https://dl.acm.org/doi/full/10.1145/3773035).
+Formative study with 10 professional designers; 3 user studies, 16 participants.
+
+Their finding **F2** is this RFC's thesis, already validated:
+
+> "Text-only or image-only input doesn't fully capture what I'm imagining" —
+> combining wireframes with text "allows for greater control over functionality
+> and layout, while preserving creativity."
+
+Their **F4** is scoped revision: "transparent, editable checkpoints throughout the
+generation process" rather than trial-and-error re-prompting.
+
+**Consequence for us, both directions:**
+
+- A1 is **no longer an open question**. Do not spend Phase 0 re-proving that
+  sketch + text beats text alone. It is established and peer-reviewed.
+- The idea is therefore **not novel**. Spatial conditioning is prior art.
+
+**Where they stop:** PrototypeFlow emits **editable SVG prototypes** — design
+artifacts that do not run. No logic, no state, no interactivity; the walkthrough
+ends with exporting a prototype "ready to circulate for team feedback." Its
+revision mechanism is regeneration (whole-prototype for layout/theme, component
+level for smaller edits) — which is free for them precisely *because SVG has no
+live state to lose*.
+
+Table 1 of that paper is a ready-made competitive matrix of input/output
+modalities across the leading tools. Read it before Phase 0.
+
+### The gap that remains
+
+| | Spatial constraint in | Running, stateful artifact | Revision by patching, not regenerating |
+|---|---|---|---|
+| Onlook / Codux / Plasmic | ✗ | ✓ | ✗ — AST write-back, state lost on rebuild |
+| v0 / Lovable / Bolt | ✗ | ✓ | ✗ — regeneration is the model |
+| PrototypeFlow | ✓ | ✗ — SVG | partial, by regeneration |
+| **Lips + Modela** | Phase 0 | ✓ | ✓ |
+
+Nobody combines all three. That intersection is the position, and it is the one
+the IR makes available.
+
+### What this changes
+
+1. **Phase 0 is re-scoped** (see below): test constraint *persistence across
+   successive revisions of a running artifact*, not sketch-vs-prompt.
+2. **The rival is Camp 1, not Camp 2.** v0 and Lovable make apps from prompts —
+   a different product. Onlook/Plasmic/Codux occupy this space and win on
+   distribution. The wedge must therefore be where AST surgery is weakest:
+   **dynamic, stateful, data-driven UI**, where source-mapping degrades and
+   losing live state on every edit actually hurts.
+
 ## Assumption ledger
 
 Ordered by risk, not by appeal. The natural instinct is to build A4 first because
@@ -102,7 +183,8 @@ it is the exciting part; that is the trap.
 
 | | Assumption | Cost to test | Order |
 |---|---|---|---|
-| A1 | A human spatial constraint measurably breaks AI sameness | **days** | 1st |
+| ~~A1~~ | ~~A human spatial constraint measurably breaks AI sameness~~ | — | **settled by prior art** (PrototypeFlow F2) |
+| A1′ | A spatial constraint **persists across successive AI revisions** of a running artifact | **days** | 1st |
 | A2 | Canvas ↔ IR ↔ code round-trips stay coherent under real editing | weeks | 2nd |
 | A3 | Scoped patches beat whole-page regeneration for refinement | weeks | 3rd |
 | A4 | Pen/sketch input can be made to work well | **months** | 4th |
@@ -113,23 +195,33 @@ it is the exciting part; that is the trap.
 Durations assume one developer with AI assistance and uninterrupted focus. Each
 phase has an exit that is checkable and a kill criterion that is honest.
 
-### Phase 0 — Thesis probe · ~2–3 weeks
+### Phase 0 — Constraint-persistence probe · ~2 weeks
 
 Not a product. A rig, thrown away afterwards.
 
-Draw crude regions on a grid (boxes, no pen, no beauty). Hand the layout skeleton
-plus a one-line prompt to a model. Get IR back. Render through Lips.
+**Re-scoped after the prior-art survey.** The original probe tested whether a
+sketch beats a prompt — PrototypeFlow already answered that with professional
+designers, so re-running it would buy nothing. What nobody has tested is the
+combination this architecture uniquely enables.
 
-**Exit:** for a fixed prompt, outputs conditioned on *different* sketches diverge
-measurably more than outputs from the prompt alone — and land closer to stated
-intent. Judge on layout distance and a blind ranking, not on vibes.
+Draw crude regions on a grid (boxes, no pen, no beauty). Condition generation on
+them. Render through Lips as a **running, stateful** component. Then issue three
+to five successive revision requests — content, styling, an added element.
 
-**Kill criterion:** if sketch-conditioned output is not measurably more diverse
-and more on-intent than prompt-only, **the thesis is wrong** — and you have spent
-three weeks rather than nine months. Reconsider before building anything else.
+**Exit:** the spatial constraint still holds after N revisions — the layout has
+not drifted back toward the model's default — *and* live component state survives
+every revision. Measure drift as layout distance from the original constraint at
+each step; measure survival with `SwapReport.salvaged` and observed state.
 
-This is the highest-value work available right now. Nothing later matters if this
-does not hold.
+**Kill criterion:** if the constraint erodes over successive revisions — if by
+revision four it looks like every other generated dashboard — then scoped patching
+does not buy authorship, and the differentiation collapses to "a nicer live
+preview." Reconsider before building anything else.
+
+**Why this is the right probe:** every competitor either regenerates (Camp 1 and
+2, so constraint and state both reset) or has no live state to lose (Camp 3). The
+persistence question is only askable on a patchable, stateful substrate — which is
+exactly what exists.
 
 ### Phase 1 — The model spine · ~6–10 weeks
 
