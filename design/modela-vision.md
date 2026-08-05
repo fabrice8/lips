@@ -190,10 +190,59 @@ it is the exciting part; that is the trap.
 | A4 | Pen/sketch input can be made to work well | **months** | 4th |
 | A5 | Non-DOM export targets | months | last |
 
+## How to read the kill criteria
+
+They are **learning gates, not stop signs** — and the distinction matters enough
+to state before the phases.
+
+Kill gates are the right instrument when the question is "does this work at all"
+and resources are tight. They are the wrong instrument for anything whose value
+only appears after substrate exists. Figma is the standing counterexample: Evan
+Wallace spent years on a browser renderer with no product validation and no metric
+to hit, in a market a 2012 survey would have called closed — Adobe entrenched,
+Sketch rising. Every gate in this document would have terminated it in month two.
+
+Three corrections that follow, and they apply directly to this project:
+
+1. **"Not novel" is the normal condition, not a warning.** Collaborative editing
+   was solved prior art before Figma — CSCW research from the 1980s, Google Docs
+   in 2006. Figma is "Photoshop in a browser" plus "Google Docs multiplayer";
+   both halves existed. The invention was making the combination work at
+   professional quality. PrototypeFlow validating the thesis is the same shape of
+   fact, and carries the same weight: little.
+2. **Latent demand does not show up in formative studies.** Nobody in 2012 asked
+   to co-edit design files; they asked for a better Photoshop. Stated needs are a
+   lagging indicator, so their absence is not evidence against.
+3. **Distribution is not an objection, it is a forcing question.** Incumbent reach
+   is beaten by a capability gap large enough that users route around it — which
+   is what Figma did to Adobe. So the question is never "can we out-distribute
+   Onlook" but **"is the gap big enough that people will pay adoption cost to
+   cross it."** If yes, distribution follows. If no, no architectural argument
+   rescues it.
+
+What survives the correction: knowing the landscape cold. Figma's founders were
+not naive about Adobe — that knowledge is exactly what let them aim at the one
+thing Adobe's architecture forbade. The prior-art survey above serves the same
+purpose here.
+
+So: run each phase to **learn what you are actually building**. Treat a missed
+exit as information about the shape of the problem, not as an instruction to
+stop — unless it invalidates the capability gap itself.
+
+**The one genuine stop condition:** the gap turns out to be small. If patch-based
+revision of a running artifact ends up only marginally better than AST write-back
+or regeneration, then there is nothing for a user to route around distribution
+for, and this becomes a nicer live preview.
+
+**Standing hedge:** Lips stands alone regardless. Wallace's renderer was worthless
+outside Figma; this substrate is a published runtime with its own niche. That is
+what makes conviction-time affordable for a solo builder, and it should be
+protected — do not let Modela's needs compromise Lips as an independent library.
+
 ## Phases
 
 Durations assume one developer with AI assistance and uninterrupted focus. Each
-phase has an exit that is checkable and a kill criterion that is honest.
+phase has a checkable exit. Read them per "How to read the kill criteria" above.
 
 ### Phase 0 — Constraint-persistence probe · ~2 weeks
 
