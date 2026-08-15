@@ -124,11 +124,42 @@ When Modela's canvas/sketch board resumes, the pieces it needs already exist:
 | Render untrusted generated UI in a preview | `mode: 'interpreted'` — no `eval`/`Function` |
 | Report a bad generation back to the assistant | parser/compiler diagnostics with `line`/`col`/`code`/`hint` |
 
-**Known limitation to design around:** a `swap()` that changes a block's static
-skeleton rebuilds that block, remounting components inside it and resetting
-their internal state. Bind-level and sibling-block revisions preserve
-everything. Instance salvage across skeleton rebuilds is the next engine
-milestone and the main dependency for a fluid sketch loop.
+### Instance salvage
+
+A revision that changes a block's static skeleton has to rebuild that block.
+Rather than destroy what lives inside it, the engine **salvages** the component
+instances: each one is released from the region being rebuilt, offered to the
+fresh render, and re-homed there — same state, same DOM nodes, same handlers.
+Only its parent-side wiring (input expressions, event instructions) is rebuilt,
+against the new call site. No lifecycle hook fires: from the component's point
+of view nothing happened. Components the revision dropped are destroyed
+normally, `onDestroy` and all.
+
+The same applies when only a component's own call site changes
+(`<panel list=state.a/>` → `<panel list=state.b/>`): the instance stays, the
+new binding is wired onto it, and inputs the revision removed are cleared.
+
+**Identity rule.** A `key` input decides which live instance a call site
+claims:
+
+```html
+<layer key=layer.id .../>   <!-- follows the key, wherever it moves -->
+<layer .../>                <!-- follows position among same-name siblings -->
+```
+
+Keyless components match by position among same-name components in render
+order — the rule keyless JSX lists already follow. For a sketch board that
+regenerates whole templates, **give regenerated components a stable `key`**;
+that is what lets an instance survive being moved somewhere else in the tree.
+
+`SwapReport.salvaged` lists what carried over, so a board can report "kept 4
+components, rebuilt 2".
+
+**What still resets.** Salvage preserves state and node identity, not DOM
+attachment: the nodes are detached and re-inserted, so anything that reacts to
+being re-parented (an `<iframe>` reloads, CSS transitions restart) still does.
+Focus is restored automatically. `<if>` / `<for>` bodies are not salvaged as
+blocks — only the components inside them are.
 
 ## Open questions for when Modela resumes
 

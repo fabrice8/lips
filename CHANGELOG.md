@@ -33,6 +33,30 @@ pattern a real application already relies on. See
 - Mutually recursive components (`<layerlist>` ↔ `<layeritem>`) verified by
   spec.
 
+### Added — instance salvage across `swap()` (RFC-002)
+- **Component instances survive a skeleton rebuild.** A revision that changes
+  a block's static markup releases the components inside it, offers them to
+  the fresh render, and re-homes whichever the new template still wants:
+  same state, same DOM nodes, same handlers, no lifecycle hook fired. Only
+  parent-side wiring (input expressions, event instructions) is rebuilt,
+  against the new call site. Components the revision dropped are destroyed
+  normally.
+- The same applies when only a component's **own call site** changes — the
+  instance is kept and re-wired instead of remounted; inputs the revision
+  removed are cleared from it.
+- **Identity rule**: a `key` input decides which live instance a call site
+  claims; without one, position among same-name components decides (the rule
+  keyless JSX lists follow).
+- **`SwapReport.salvaged`** lists the components carried through the swap.
+- Focus is restored after a swap, so a revision landing mid-typing doesn't
+  steal the caret.
+
+### Fixed
+- A `swap()` that rebuilt the root block dropped the scoped stylesheet: the
+  rebuilt element roots were created without the `rel` marker the injected
+  `[rel="<nsp>"] { … }` sheet selects on, so the component silently lost its
+  styles on the first revision.
+
 ### Changed
 - Spread on `<let>`/`<const>` now reports `LIPS-C013` with a fix hint instead
   of being silently dropped — scope names must be known at compile time for
@@ -158,8 +182,6 @@ Bundle: 13.0 KB gzip including parser and compiler (legacy: 95.6 KB min).
   `src/dws.ts` used the Node-only `NodeJS.Timeout` type
 
 ### Known issues (tracked in ROADMAP.md)
-- Components inside a region rebuilt by `swap()` remount (internal state
-  resets); instance salvage across skeleton rebuilds is a follow-up
 - `<for>` reconciliation uses a pointer walk, not LIS — swap-heavy
   workloads have headroom
 - `appendTo()` silently renders `[object Object]` when passed a raw DOM

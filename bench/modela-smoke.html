@@ -7,7 +7,7 @@
 <pre id="out">running…</pre>
 
 <script type="module">
-import Lips from '../dist/lips.min.js'
+import Lips, { compileTemplate } from '../dist/lips.min.js'
 
 const results = []
 const check = ( name, cond, detail = '' ) => results.push({ name, pass: !!cond, detail })
@@ -72,7 +72,10 @@ const app = lips.render('layers-panel', {
       this.on('component:detached', () => busEvents.push('detached') )
     },
     onMount(){ controlNode = this.node },
-    addLayer(){ this.state.layers.set('c', { name: 'Layer C' }) }
+    addLayer(){
+      const key = `n${this.state.layers.size}`
+      this.state.layers.set( key, { name: `Layer ${key}` })
+    }
   },
   stylesheet: `.item { padding-left: 4px } .selected { color: rgb(3, 2, 1) }`,
   default: `
@@ -114,6 +117,45 @@ check('context selection applies', !!selected && selected.textContent.includes('
 // scoped stylesheet actually applies through the cascade
 check('scoped style applies', selected && getComputedStyle( selected ).color === 'rgb(3, 2, 1)',
   selected ? getComputedStyle( selected ).color : 'n/a')
+
+// --- instance salvage across a swap (the sketch-board loop)
+// A revision changes the panel skeleton around the layer tree.
+const REVISED = `
+  <mblock class="panel" data-rev="2">
+    <mheader class="bar">Layers</mheader>
+    <mul class="toolbar">
+      <for [key, each] in=state.tools>
+        <option type="tool" key=key ...each/>
+      </for>
+    </mul>
+
+    <layerlist list=state.layers depth=0/>
+
+    <button class="add" on-click( addLayer )>add</button>
+  </mblock>`
+
+const treeBefore = qa('.item')
+const selectedBefore = qa('.item').find( e => e.className.includes('selected') )
+const { ir: revIR, diagnostics } = compileTemplate( REVISED, { macros } )
+
+check('revision compiles clean', diagnostics.length === 0, JSON.stringify( diagnostics ))
+
+const report = app.swap( revIR )
+await tick()
+
+check('revision applied', q('.panel')?.getAttribute('data-rev') === '2')
+check('salvaged the layer components', report.salvaged.length > 0, report.salvaged.join(','))
+check('layer nodes kept their identity',
+  qa('.item').length === treeBefore.length && qa('.item').every( ( n, i ) => n === treeBefore[ i ] ),
+  `${qa('.item').length} vs ${treeBefore.length}`)
+check('salvaged component keeps context styling',
+  selectedBefore && getComputedStyle( selectedBefore ).color === 'rgb(3, 2, 1)',
+  selectedBefore ? getComputedStyle( selectedBefore ).color : 'n/a')
+
+// The salvaged tree is still reactive where it landed
+q('.add').click()
+await tick()
+check('salvaged tree still reacts to Map .set()', qa('.item').length === 5, `${qa('.item').length} items`)
 
 // teardown
 app.destroy()

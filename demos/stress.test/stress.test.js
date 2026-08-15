@@ -1,0 +1,4657 @@
+// node_modules/stylis/src/Enum.js
+var COMMENT = "comm";
+var RULESET = "rule";
+var DECLARATION = "decl";
+var IMPORT = "@import";
+var NAMESPACE = "@namespace";
+var KEYFRAMES = "@keyframes";
+var LAYER = "@layer";
+
+// node_modules/stylis/src/Utility.js
+var abs = Math.abs;
+var from = String.fromCharCode;
+function trim(value) {
+  return value.trim();
+}
+function replace(value, pattern, replacement) {
+  return value.replace(pattern, replacement);
+}
+function indexof(value, search, position) {
+  return value.indexOf(search, position);
+}
+function charat(value, index) {
+  return value.charCodeAt(index) | 0;
+}
+function substr(value, begin, end) {
+  return value.slice(begin, end);
+}
+function strlen(value) {
+  return value.length;
+}
+function sizeof(value) {
+  return value.length;
+}
+function append(value, array) {
+  return array.push(value), value;
+}
+
+// node_modules/stylis/src/Tokenizer.js
+var line = 1;
+var column = 1;
+var length = 0;
+var position = 0;
+var character = 0;
+var characters = "";
+function node(value, root, parent, type, props, children, length2, siblings) {
+  return { value, root, parent, type, props, children, line, column, length: length2, return: "", siblings };
+}
+function char() {
+  return character;
+}
+function prev() {
+  character = position > 0 ? charat(characters, --position) : 0;
+  if (column--, character === 10)
+    column = 1, line--;
+  return character;
+}
+function next() {
+  character = position < length ? charat(characters, position++) : 0;
+  if (column++, character === 10)
+    column = 1, line++;
+  return character;
+}
+function peek() {
+  return charat(characters, position);
+}
+function caret() {
+  return position;
+}
+function slice(begin, end) {
+  return substr(characters, begin, end);
+}
+function token(type) {
+  switch (type) {
+    case 0:
+    case 9:
+    case 10:
+    case 13:
+    case 32:
+      return 5;
+    case 33:
+    case 43:
+    case 44:
+    case 47:
+    case 62:
+    case 64:
+    case 126:
+    case 59:
+    case 123:
+    case 125:
+      return 4;
+    case 58:
+      return 3;
+    case 34:
+    case 39:
+    case 40:
+    case 91:
+      return 2;
+    case 41:
+    case 93:
+      return 1;
+  }
+  return 0;
+}
+function alloc(value) {
+  return line = column = 1, length = strlen(characters = value), position = 0, [];
+}
+function dealloc(value) {
+  return characters = "", value;
+}
+function delimit(type) {
+  return trim(slice(position - 1, delimiter(type === 91 ? type + 2 : type === 40 ? type + 1 : type)));
+}
+function whitespace(type) {
+  while (character = peek())
+    if (character < 33)
+      next();
+    else
+      break;
+  return token(type) > 2 || token(character) > 3 ? "" : " ";
+}
+function escaping(index, count) {
+  while (--count && next())
+    if (character < 48 || character > 102 || character > 57 && character < 65 || character > 70 && character < 97)
+      break;
+  return slice(index, caret() + (count < 6 && peek() == 32 && next() == 32));
+}
+function delimiter(type) {
+  while (next())
+    switch (character) {
+      case type:
+        return position;
+      case 34:
+      case 39:
+        if (type !== 34 && type !== 39)
+          delimiter(character);
+        break;
+      case 40:
+        if (type === 41)
+          delimiter(type);
+        break;
+      case 92:
+        next();
+        break;
+    }
+  return position;
+}
+function commenter(type, index) {
+  while (next())
+    if (type + character === 47 + 10)
+      break;
+    else if (type + character === 42 + 42 && peek() === 47)
+      break;
+  return "/*" + slice(index, position - 1) + "*" + from(type === 47 ? type : next());
+}
+function identifier(index) {
+  while (!token(peek()))
+    next();
+  return slice(index, position);
+}
+
+// node_modules/stylis/src/Parser.js
+function compile(value) {
+  return dealloc(parse("", null, null, null, [""], value = alloc(value), 0, [0], value));
+}
+function parse(value, root, parent, rule, rules, rulesets, pseudo, points, declarations) {
+  var index = 0;
+  var offset = 0;
+  var length2 = pseudo;
+  var atrule = 0;
+  var property = 0;
+  var previous = 0;
+  var variable = 1;
+  var scanning = 1;
+  var ampersand = 1;
+  var character2 = 0;
+  var type = "";
+  var props = rules;
+  var children = rulesets;
+  var reference = rule;
+  var characters2 = type;
+  while (scanning)
+    switch (previous = character2, character2 = next()) {
+      case 40:
+        if (previous != 108 && charat(characters2, length2 - 1) == 58) {
+          if (indexof(characters2 += replace(delimit(character2), "&", "&\f"), "&\f", abs(index ? points[index - 1] : 0)) != -1)
+            ampersand = -1;
+          break;
+        }
+      case 34:
+      case 39:
+      case 91:
+        characters2 += delimit(character2);
+        break;
+      case 9:
+      case 10:
+      case 13:
+      case 32:
+        characters2 += whitespace(previous);
+        break;
+      case 92:
+        characters2 += escaping(caret() - 1, 7);
+        continue;
+      case 47:
+        switch (peek()) {
+          case 42:
+          case 47:
+            append(comment(commenter(next(), caret()), root, parent, declarations), declarations);
+            if ((token(previous || 1) == 5 || token(peek() || 1) == 5) && strlen(characters2) && substr(characters2, -1, undefined) !== " ")
+              characters2 += " ";
+            break;
+          default:
+            characters2 += "/";
+        }
+        break;
+      case 123 * variable:
+        points[index++] = strlen(characters2) * ampersand;
+      case 125 * variable:
+      case 59:
+      case 0:
+        switch (character2) {
+          case 0:
+          case 125:
+            scanning = 0;
+          case 59 + offset:
+            if (ampersand == -1)
+              characters2 = replace(characters2, /\f/g, "");
+            if (property > 0 && (strlen(characters2) - length2 || variable === 0 && previous === 47))
+              append(property > 32 ? declaration(characters2 + ";", rule, parent, length2 - 1, declarations) : declaration(replace(characters2, " ", "") + ";", rule, parent, length2 - 2, declarations), declarations);
+            break;
+          case 59:
+            characters2 += ";";
+          default:
+            append(reference = ruleset(characters2, root, parent, index, offset, rules, points, type, props = [], children = [], length2, rulesets), rulesets);
+            if (character2 === 123)
+              if (offset === 0)
+                parse(characters2, root, reference, reference, props, rulesets, length2, points, children);
+              else {
+                switch (atrule) {
+                  case 99:
+                    if (charat(characters2, 3) === 110)
+                      break;
+                  case 108:
+                    if (charat(characters2, 2) === 97)
+                      break;
+                  default:
+                    offset = 0;
+                  case 100:
+                  case 109:
+                  case 115:
+                }
+                if (offset)
+                  parse(value, reference, reference, rule && append(ruleset(value, reference, reference, 0, 0, rules, points, type, rules, props = [], length2, children), children), rules, children, length2, points, rule ? props : children);
+                else
+                  parse(characters2, reference, reference, reference, [""], children, 0, points, children);
+              }
+        }
+        index = offset = property = 0, variable = ampersand = 1, type = characters2 = "", length2 = pseudo;
+        break;
+      case 58:
+        length2 = 1 + strlen(characters2), property = previous;
+      default:
+        if (variable < 1) {
+          if (character2 == 123)
+            --variable;
+          else if (character2 == 125 && variable++ == 0 && prev() == 125)
+            continue;
+        }
+        switch (characters2 += from(character2), character2 * variable) {
+          case 38:
+            ampersand = offset > 0 ? 1 : (characters2 += "\f", -1);
+            break;
+          case 44:
+            points[index++] = (strlen(characters2) - 1) * ampersand, ampersand = 1;
+            break;
+          case 64:
+            if (peek() === 45)
+              characters2 += delimit(next());
+            atrule = peek(), offset = length2 = strlen(type = characters2 += identifier(caret())), character2++;
+            break;
+          case 45:
+            if (previous === 45 && strlen(characters2) == 2)
+              variable = 0;
+        }
+    }
+  return rulesets;
+}
+function ruleset(value, root, parent, index, offset, rules, points, type, props, children, length2, siblings) {
+  var post = offset - 1;
+  var rule = offset === 0 ? rules : [""];
+  var size = sizeof(rule);
+  for (var i = 0, j = 0, k = 0;i < index; ++i)
+    for (var x = 0, y = substr(value, post + 1, post = abs(j = points[i])), z = value;x < size; ++x)
+      if (z = trim(j > 0 ? rule[x] + " " + y : replace(y, /&\f/g, rule[x])))
+        props[k++] = z;
+  return node(value, root, parent, offset === 0 ? RULESET : type, props, children, length2, siblings);
+}
+function comment(value, root, parent, siblings) {
+  return node(value, root, parent, COMMENT, from(char()), substr(value, 2, -2), 0, siblings);
+}
+function declaration(value, root, parent, length2, siblings) {
+  return node(value, root, parent, DECLARATION, substr(value, 0, length2), substr(value, length2 + 1, -1), length2, siblings);
+}
+
+// node_modules/stylis/src/Serializer.js
+function serialize(children, callback) {
+  var output = "";
+  for (var i = 0;i < children.length; i++)
+    output += callback(children[i], i, children, callback) || "";
+  return output;
+}
+function stringify(element, index, children, callback) {
+  switch (element.type) {
+    case LAYER:
+      if (element.children.length)
+        break;
+    case IMPORT:
+    case NAMESPACE:
+    case DECLARATION:
+      return element.return = element.return || element.value;
+    case COMMENT:
+      return "";
+    case KEYFRAMES:
+      return element.return = element.value + "{" + serialize(element.children, callback) + "}";
+    case RULESET:
+      if (!strlen(element.value = element.props.join(",")))
+        return "";
+  }
+  return strlen(children = serialize(element.children, callback)) ? element.return = element.value + "{" + children + "}" : "";
+}
+
+// node_modules/stylis/src/Middleware.js
+function middleware(collection) {
+  var length2 = sizeof(collection);
+  return function(element, index, children, callback) {
+    var output = "";
+    for (var i = 0;i < length2; i++)
+      output += collection[i](element, index, children, callback) || "";
+    return output;
+  };
+}
+
+// src/ir/expression.ts
+var PUNCTS = [
+  "===",
+  "!==",
+  "...",
+  "=>",
+  "==",
+  "!=",
+  "<=",
+  ">=",
+  "&&",
+  "||",
+  "??",
+  "?.",
+  "++",
+  "--",
+  "+=",
+  "-=",
+  "*=",
+  "/=",
+  "%=",
+  "+",
+  "-",
+  "*",
+  "/",
+  "%",
+  "<",
+  ">",
+  "!",
+  "?",
+  ":",
+  ".",
+  ",",
+  "(",
+  ")",
+  "[",
+  "]",
+  "{",
+  "}",
+  "="
+];
+function tokenize(src, diagnostics) {
+  const tokens = [];
+  let i = 0;
+  const isIdStart = (c) => /[A-Za-z_$]/.test(c);
+  const isIdChar = (c) => /[A-Za-z0-9_$]/.test(c);
+  while (i < src.length) {
+    const c = src[i];
+    if (/\s/.test(c)) {
+      i++;
+      continue;
+    }
+    if (/[0-9]/.test(c) || c === "." && /[0-9]/.test(src[i + 1])) {
+      const start = i;
+      while (i < src.length && /[0-9]/.test(src[i]))
+        i++;
+      if (src[i] === ".") {
+        i++;
+        while (i < src.length && /[0-9]/.test(src[i]))
+          i++;
+      }
+      if (src[i] === "e" || src[i] === "E") {
+        i++;
+        if (src[i] === "+" || src[i] === "-")
+          i++;
+        while (i < src.length && /[0-9]/.test(src[i]))
+          i++;
+      }
+      tokens.push({ t: "num", value: src.slice(start, i), start, end: i });
+      continue;
+    }
+    if (c === "'" || c === '"') {
+      const start = i;
+      i++;
+      let value = "";
+      let closed = false;
+      while (i < src.length) {
+        const ch = src[i];
+        if (ch === "\\") {
+          const next2 = src[i + 1];
+          const escapes = { n: `
+`, t: "\t", r: "\r", b: "\b", f: "\f", v: "\v", "0": "\x00" };
+          if (next2 === "u") {
+            const hex = src.slice(i + 2, i + 6);
+            value += String.fromCharCode(parseInt(hex, 16) || 0);
+            i += 6;
+          } else {
+            value += escapes[next2] ?? next2;
+            i += 2;
+          }
+          continue;
+        }
+        if (ch === c) {
+          closed = true;
+          i++;
+          break;
+        }
+        value += ch;
+        i++;
+      }
+      if (!closed)
+        diagnostics.push({ code: "LIPS-E001", message: "Unterminated string literal", loc: { offset: start, length: i - start } });
+      tokens.push({ t: "str", value, start, end: i });
+      continue;
+    }
+    if (isIdStart(c)) {
+      const start = i;
+      while (i < src.length && isIdChar(src[i]))
+        i++;
+      tokens.push({ t: "id", value: src.slice(start, i), start, end: i });
+      continue;
+    }
+    let punct = PUNCTS.find((p) => src.startsWith(p, i));
+    if (punct === "?." && /[0-9]/.test(src[i + 2] ?? ""))
+      punct = "?";
+    if (punct) {
+      tokens.push({ t: "punct", value: punct, start: i, end: i + punct.length });
+      i += punct.length;
+      continue;
+    }
+    diagnostics.push({ code: "LIPS-E002", message: `Unexpected character '${c}'`, loc: { offset: i, length: 1 } });
+    i++;
+  }
+  tokens.push({ t: "eof", value: "", start: src.length, end: src.length });
+  return tokens;
+}
+
+class Parser {
+  tokens;
+  diagnostics;
+  pos = 0;
+  constructor(tokens, diagnostics) {
+    this.tokens = tokens;
+    this.diagnostics = diagnostics;
+  }
+  peek(offset = 0) {
+    return this.tokens[Math.min(this.pos + offset, this.tokens.length - 1)];
+  }
+  next() {
+    return this.tokens[this.pos++] ?? this.tokens[this.tokens.length - 1];
+  }
+  at(value) {
+    const t = this.peek();
+    return t.t === "punct" && t.value === value;
+  }
+  eat(value) {
+    if (this.at(value)) {
+      this.pos++;
+      return true;
+    }
+    return false;
+  }
+  error(code, message, token2 = this.peek()) {
+    this.diagnostics.push({ code, message, loc: { offset: token2.start, length: Math.max(1, token2.end - token2.start) } });
+    return { t: "error" };
+  }
+  expect(value, code) {
+    if (!this.eat(value))
+      this.error(code, `Expected '${value}'`);
+  }
+  parse() {
+    const expr = this.assign();
+    if (this.peek().t !== "eof")
+      this.error("LIPS-E003", `Unexpected token '${this.peek().value}' after expression`);
+    return expr;
+  }
+  isArrowAhead() {
+    const t = this.peek();
+    if (t.t === "id") {
+      const n = this.peek(1);
+      return n.t === "punct" && n.value === "=>";
+    }
+    if (t.t === "punct" && t.value === "(") {
+      let depth = 0, k = 0;
+      while (true) {
+        const tok = this.peek(k);
+        if (tok.t === "eof")
+          return false;
+        if (tok.t === "punct" && tok.value === "(")
+          depth++;
+        if (tok.t === "punct" && tok.value === ")") {
+          depth--;
+          if (depth === 0) {
+            const after = this.peek(k + 1);
+            return after.t === "punct" && after.value === "=>";
+          }
+        }
+        k++;
+      }
+    }
+    return false;
+  }
+  assign() {
+    if (this.isArrowAhead()) {
+      const params = [];
+      if (this.peek().t === "id")
+        params.push(this.next().value);
+      else {
+        this.expect("(", "LIPS-E004");
+        while (!this.at(")") && this.peek().t !== "eof") {
+          const p = this.next();
+          if (p.t !== "id")
+            return this.error("LIPS-E005", "Invalid arrow parameter", p);
+          params.push(p.value);
+          if (!this.eat(","))
+            break;
+        }
+        this.expect(")", "LIPS-E004");
+      }
+      this.expect("=>", "LIPS-E004");
+      return { t: "arrow", params, body: this.assign() };
+    }
+    const target = this.conditional();
+    const op = this.peek();
+    if (op.t === "punct" && ["=", "+=", "-=", "*=", "/=", "%="].includes(op.value)) {
+      if (target.t !== "id" && target.t !== "member")
+        return this.error("LIPS-E006", "Invalid assignment target", op);
+      this.next();
+      return { t: "assign", op: op.value, target, value: this.assign() };
+    }
+    return target;
+  }
+  conditional() {
+    const test = this.nullish();
+    if (this.eat("?")) {
+      const cons = this.assign();
+      this.expect(":", "LIPS-E007");
+      return { t: "cond", test, cons, alt: this.assign() };
+    }
+    return test;
+  }
+  nullish() {
+    let l = this.or();
+    while (this.at("??")) {
+      this.next();
+      l = { t: "logic", op: "??", l, r: this.or() };
+    }
+    return l;
+  }
+  or() {
+    let l = this.and();
+    while (this.at("||")) {
+      this.next();
+      l = { t: "logic", op: "||", l, r: this.and() };
+    }
+    return l;
+  }
+  and() {
+    let l = this.equality();
+    while (this.at("&&")) {
+      this.next();
+      l = { t: "logic", op: "&&", l, r: this.equality() };
+    }
+    return l;
+  }
+  equality() {
+    let l = this.relational();
+    while (["===", "!==", "==", "!="].some((op) => this.at(op))) {
+      const op = this.next().value;
+      l = { t: "bin", op, l, r: this.relational() };
+    }
+    return l;
+  }
+  relational() {
+    let l = this.additive();
+    while (["<=", ">=", "<", ">"].some((op) => this.at(op))) {
+      const op = this.next().value;
+      l = { t: "bin", op, l, r: this.additive() };
+    }
+    return l;
+  }
+  additive() {
+    let l = this.multiplicative();
+    while (this.at("+") || this.at("-")) {
+      const op = this.next().value;
+      l = { t: "bin", op, l, r: this.multiplicative() };
+    }
+    return l;
+  }
+  multiplicative() {
+    let l = this.unary();
+    while (this.at("*") || this.at("/") || this.at("%")) {
+      const op = this.next().value;
+      l = { t: "bin", op, l, r: this.unary() };
+    }
+    return l;
+  }
+  unary() {
+    if (this.at("!") || this.at("-") || this.at("+")) {
+      const op = this.next().value;
+      return { t: "unary", op, arg: this.unary() };
+    }
+    if (this.at("++") || this.at("--")) {
+      const op = this.next().value;
+      const arg = this.unary();
+      if (arg.t !== "id" && arg.t !== "member")
+        return this.error("LIPS-E006", "Invalid update target");
+      return { t: "update", op, arg, prefix: true };
+    }
+    return this.postfix();
+  }
+  postfix() {
+    let expr = this.callMember();
+    if (this.at("++") || this.at("--")) {
+      const op = this.next().value;
+      if (expr.t !== "id" && expr.t !== "member")
+        return this.error("LIPS-E006", "Invalid update target");
+      expr = { t: "update", op, arg: expr, prefix: false };
+    }
+    return expr;
+  }
+  callMember() {
+    let expr = this.primary();
+    while (true) {
+      if (this.eat(".")) {
+        const prop = this.next();
+        if (prop.t !== "id")
+          return this.error("LIPS-E008", "Expected property name", prop);
+        expr = { t: "member", obj: expr, prop: prop.value, computed: false, optional: false };
+      } else if (this.eat("?.")) {
+        if (this.at("(")) {
+          expr = { t: "call", callee: expr, args: this.argList(), optional: true };
+        } else if (this.eat("[")) {
+          const idx = this.assign();
+          this.expect("]", "LIPS-E009");
+          expr = { t: "member", obj: expr, prop: idx, computed: true, optional: true };
+        } else {
+          const prop = this.next();
+          if (prop.t !== "id")
+            return this.error("LIPS-E008", "Expected property name", prop);
+          expr = { t: "member", obj: expr, prop: prop.value, computed: false, optional: true };
+        }
+      } else if (this.eat("[")) {
+        const idx = this.assign();
+        this.expect("]", "LIPS-E009");
+        expr = { t: "member", obj: expr, prop: idx, computed: true, optional: false };
+      } else if (this.at("(")) {
+        expr = { t: "call", callee: expr, args: this.argList(), optional: false };
+      } else
+        break;
+    }
+    return expr;
+  }
+  argList() {
+    this.expect("(", "LIPS-E010");
+    const args = [];
+    while (!this.at(")") && this.peek().t !== "eof") {
+      args.push(this.assign());
+      if (!this.eat(","))
+        break;
+    }
+    this.expect(")", "LIPS-E010");
+    return args;
+  }
+  primary() {
+    const t = this.peek();
+    if (t.t === "num") {
+      this.next();
+      return { t: "lit", v: parseFloat(t.value) };
+    }
+    if (t.t === "str") {
+      this.next();
+      return { t: "lit", v: t.value };
+    }
+    if (t.t === "id") {
+      this.next();
+      switch (t.value) {
+        case "true":
+          return { t: "lit", v: true };
+        case "false":
+          return { t: "lit", v: false };
+        case "null":
+          return { t: "lit", v: null };
+        case "undefined":
+          return { t: "lit", v: undefined };
+        case "NaN":
+          return { t: "lit", v: NaN };
+        case "Infinity":
+          return { t: "lit", v: Infinity };
+        default:
+          return { t: "id", name: t.value };
+      }
+    }
+    if (this.eat("(")) {
+      const expr = this.assign();
+      this.expect(")", "LIPS-E010");
+      return expr;
+    }
+    if (this.eat("[")) {
+      const items = [];
+      while (!this.at("]") && this.peek().t !== "eof") {
+        const spread = this.eat("...");
+        items.push({ spread: spread || undefined, value: this.assign() });
+        if (!this.eat(","))
+          break;
+      }
+      this.expect("]", "LIPS-E009");
+      return { t: "arr", items };
+    }
+    if (this.eat("{")) {
+      const props = [];
+      while (!this.at("}") && this.peek().t !== "eof") {
+        if (this.eat("...")) {
+          props.push({ spread: true, value: this.assign() });
+        } else {
+          const key = this.next();
+          if (key.t !== "id" && key.t !== "str" && key.t !== "num")
+            return this.error("LIPS-E011", "Invalid object key", key);
+          if (this.eat(":"))
+            props.push({ key: String(key.value), value: this.assign() });
+          else if (key.t === "id")
+            props.push({ key: key.value, value: { t: "id", name: key.value } });
+          else
+            return this.error("LIPS-E011", "Invalid shorthand property", key);
+        }
+        if (!this.eat(","))
+          break;
+      }
+      this.expect("}", "LIPS-E011");
+      return { t: "obj", props };
+    }
+    this.next();
+    return this.error("LIPS-E012", t.t === "eof" ? "Unexpected end of expression" : `Unexpected token '${t.value}'`, t);
+  }
+}
+function parseExpression(src) {
+  const diagnostics = [];
+  const tokens = tokenize(src, diagnostics);
+  const ast = new Parser(tokens, diagnostics).parse();
+  return { ast, diagnostics };
+}
+var METAVAR_ROOTS = new Set(["state", "input", "context", "self", "arguments"]);
+var ID_RENAMES = { static: "__static", arguments: "__args__" };
+function gen(node2) {
+  switch (node2.t) {
+    case "lit":
+      if (typeof node2.v === "string")
+        return JSON.stringify(node2.v);
+      if (node2.v === undefined)
+        return "undefined";
+      if (Number.isNaN(node2.v))
+        return "NaN";
+      return String(node2.v);
+    case "id":
+      return ID_RENAMES[node2.name] ?? node2.name;
+    case "member": {
+      const obj = gen(node2.obj);
+      if (node2.computed)
+        return `(${obj})${node2.optional ? "?." : ""}[${gen(node2.prop)}]`;
+      return `(${obj})${node2.optional ? "?." : "."}${node2.prop}`;
+    }
+    case "call":
+      return `(${gen(node2.callee)})${node2.optional ? "?." : ""}(${node2.args.map(gen).join(",")})`;
+    case "unary":
+      return `(${node2.op}(${gen(node2.arg)}))`;
+    case "update":
+      return node2.prefix ? `(${node2.op}${genTarget(node2.arg)})` : `(${genTarget(node2.arg)}${node2.op})`;
+    case "bin":
+      return `((${gen(node2.l)})${node2.op}(${gen(node2.r)}))`;
+    case "logic":
+      return `((${gen(node2.l)})${node2.op}(${gen(node2.r)}))`;
+    case "cond":
+      return `((${gen(node2.test)})?(${gen(node2.cons)}):(${gen(node2.alt)}))`;
+    case "assign":
+      return `(${genTarget(node2.target)}${node2.op}(${gen(node2.value)}))`;
+    case "arrow":
+      return `((${node2.params.join(",")})=>(${gen(node2.body)}))`;
+    case "arr":
+      return `[${node2.items.map((i) => (i.spread ? "..." : "") + gen(i.value)).join(",")}]`;
+    case "obj":
+      return `({${node2.props.map((p) => p.spread ? `...${gen(p.value)}` : `${JSON.stringify(p.key)}:${gen(p.value)}`).join(",")}})`;
+    case "error":
+      return "undefined";
+  }
+}
+function genTarget(node2) {
+  if (node2.t === "id")
+    return ID_RENAMES[node2.name] ?? node2.name;
+  if (node2.t === "member") {
+    const obj = gen(node2.obj);
+    return node2.computed ? `${obj}[${gen(node2.prop)}]` : `${obj}.${node2.prop}`;
+  }
+  return gen(node2);
+}
+var COMPILE_CACHE = new Map;
+var ROOT_PARAMS = ["state", "input", "context", "__static", "self"];
+function compileExpression(src, scopeNames = []) {
+  const key = `${scopeNames.join(",")}\x00${src}`;
+  const cached = COMPILE_CACHE.get(key);
+  if (cached)
+    return cached;
+  const { ast, diagnostics } = parseExpression(src);
+  if (diagnostics.length)
+    console.warn(`[lips-ir] expression diagnostics for "${src}":`, diagnostics);
+  const code = `return (${gen(ast)});`, params = [...ROOT_PARAMS, "__args__", ...scopeNames], fn = new Function(...params, code);
+  const compiled = {
+    source: src,
+    run(env) {
+      const scope = env.scope || {};
+      return fn(env.state, env.input, env.context, env.static, env.self, env.arguments, ...scopeNames.map((name) => scope[name]));
+    }
+  };
+  COMPILE_CACHE.set(key, compiled);
+  return compiled;
+}
+var SAFE_GLOBALS = {
+  Math,
+  JSON,
+  Object,
+  Array,
+  String,
+  Number,
+  Boolean,
+  Date,
+  parseInt,
+  parseFloat,
+  isNaN,
+  isFinite,
+  encodeURIComponent,
+  decodeURIComponent,
+  console
+};
+function interpretExpression(ast, env) {
+  const scope = env.scope || {};
+  const resolveId = (name, locals) => {
+    for (const frame of locals)
+      if (name in frame)
+        return frame[name];
+    if (name in scope)
+      return scope[name];
+    switch (name) {
+      case "state":
+        return env.state;
+      case "input":
+        return env.input;
+      case "context":
+        return env.context;
+      case "static":
+        return env.static;
+      case "self":
+        return env.self;
+      case "arguments":
+        return env.arguments;
+    }
+    if (name in SAFE_GLOBALS)
+      return SAFE_GLOBALS[name];
+    return;
+  };
+  const assignId = (name, value, locals) => {
+    for (const frame of locals)
+      if (name in frame) {
+        frame[name] = value;
+        return value;
+      }
+    scope[name] = value;
+    return value;
+  };
+  const ev = (node2, locals) => {
+    switch (node2.t) {
+      case "lit":
+        return node2.v;
+      case "id":
+        return resolveId(node2.name, locals);
+      case "member": {
+        const obj = ev(node2.obj, locals);
+        if (node2.optional && obj == null)
+          return;
+        const prop = node2.computed ? ev(node2.prop, locals) : node2.prop;
+        return obj?.[prop];
+      }
+      case "call": {
+        if (node2.callee.t === "member") {
+          const obj = ev(node2.callee.obj, locals);
+          if ((node2.callee.optional || node2.optional) && obj == null)
+            return;
+          const prop = node2.callee.computed ? ev(node2.callee.prop, locals) : node2.callee.prop;
+          const fn2 = obj?.[prop];
+          if (node2.optional && fn2 == null)
+            return;
+          return fn2.apply(obj, node2.args.map((a) => ev(a, locals)));
+        }
+        const fn = ev(node2.callee, locals);
+        if (node2.optional && fn == null)
+          return;
+        return fn(...node2.args.map((a) => ev(a, locals)));
+      }
+      case "unary": {
+        const v = ev(node2.arg, locals);
+        switch (node2.op) {
+          case "!":
+            return !v;
+          case "-":
+            return -v;
+          case "+":
+            return +v;
+        }
+      }
+      case "update": {
+        const cur = ev(node2.arg, locals);
+        const nextVal = node2.op === "++" ? cur + 1 : cur - 1;
+        setTarget(node2.arg, nextVal, locals);
+        return node2.prefix ? nextVal : cur;
+      }
+      case "bin": {
+        const l = ev(node2.l, locals), r = ev(node2.r, locals);
+        switch (node2.op) {
+          case "+":
+            return l + r;
+          case "-":
+            return l - r;
+          case "*":
+            return l * r;
+          case "/":
+            return l / r;
+          case "%":
+            return l % r;
+          case "<":
+            return l < r;
+          case ">":
+            return l > r;
+          case "<=":
+            return l <= r;
+          case ">=":
+            return l >= r;
+          case "==":
+            return l == r;
+          case "!=":
+            return l != r;
+          case "===":
+            return l === r;
+          case "!==":
+            return l !== r;
+        }
+        return;
+      }
+      case "logic": {
+        const l = ev(node2.l, locals);
+        switch (node2.op) {
+          case "&&":
+            return l ? ev(node2.r, locals) : l;
+          case "||":
+            return l ? l : ev(node2.r, locals);
+          case "??":
+            return l != null ? l : ev(node2.r, locals);
+        }
+      }
+      case "cond":
+        return ev(node2.test, locals) ? ev(node2.cons, locals) : ev(node2.alt, locals);
+      case "assign": {
+        let value = ev(node2.value, locals);
+        if (node2.op !== "=") {
+          const cur = ev(node2.target, locals);
+          switch (node2.op) {
+            case "+=":
+              value = cur + value;
+              break;
+            case "-=":
+              value = cur - value;
+              break;
+            case "*=":
+              value = cur * value;
+              break;
+            case "/=":
+              value = cur / value;
+              break;
+            case "%=":
+              value = cur % value;
+              break;
+          }
+        }
+        return setTarget(node2.target, value, locals);
+      }
+      case "arrow":
+        return (...args) => {
+          const frame = {};
+          node2.params.forEach((p, k) => frame[p] = args[k]);
+          return ev(node2.body, [frame, ...locals]);
+        };
+      case "arr": {
+        const out = [];
+        for (const item of node2.items) {
+          const v = ev(item.value, locals);
+          item.spread ? out.push(...v) : out.push(v);
+        }
+        return out;
+      }
+      case "obj": {
+        const out = {};
+        for (const p of node2.props) {
+          if (p.spread)
+            Object.assign(out, ev(p.value, locals));
+          else
+            out[p.key] = ev(p.value, locals);
+        }
+        return out;
+      }
+      case "error":
+        return;
+    }
+  };
+  const setTarget = (target, value, locals) => {
+    if (target.t === "id")
+      return assignId(target.name, value, locals);
+    if (target.t === "member") {
+      const obj = ev(target.obj, locals);
+      const prop = target.computed ? ev(target.prop, locals) : target.prop;
+      if (obj != null)
+        obj[prop] = value;
+      return value;
+    }
+    return value;
+  };
+  return ev(ast, []);
+}
+
+// src/ir/signal.ts
+var CURRENT = null;
+function signal(value) {
+  const subs = new Set;
+  const notify = () => {
+    for (const e of [...subs])
+      !e.disposed && e.run();
+  };
+  const read = () => {
+    if (CURRENT && !CURRENT.disposed) {
+      subs.add(CURRENT);
+      CURRENT.deps.add(subs);
+    }
+    return value;
+  };
+  const write = (next2) => {
+    if (Object.is(next2, value))
+      return;
+    value = next2;
+    notify();
+  };
+  const touch = () => notify();
+  return [read, write, touch];
+}
+function effect(fn) {
+  const e = {
+    deps: new Set,
+    disposed: false,
+    run() {
+      if (e.disposed)
+        return;
+      for (const subs of e.deps)
+        subs.delete(e);
+      e.deps.clear();
+      const prev2 = CURRENT;
+      CURRENT = e;
+      try {
+        fn();
+      } finally {
+        CURRENT = prev2;
+      }
+    }
+  };
+  e.run();
+  return {
+    dispose() {
+      e.disposed = true;
+      for (const subs of e.deps)
+        subs.delete(e);
+      e.deps.clear();
+    }
+  };
+}
+function untrack(fn) {
+  const prev2 = CURRENT;
+  CURRENT = null;
+  try {
+    return fn();
+  } finally {
+    CURRENT = prev2;
+  }
+}
+var IS_REACTIVE = Symbol("lips.reactive");
+var COLLECTION_META = Symbol("lips.collection");
+var COLLECTION_PROXIES = new WeakMap;
+function reactive(obj, deep = false) {
+  if (obj[IS_REACTIVE])
+    return obj;
+  const sigs = new Map;
+  const wrapped = deep ? new WeakMap : null;
+  const sigFor = (key, initial) => {
+    let s = sigs.get(key);
+    if (!s) {
+      s = signal(initial);
+      sigs.set(key, s);
+    }
+    return s;
+  };
+  const isPlain = (v) => v !== null && typeof v === "object" && (Array.isArray(v) || Object.getPrototypeOf(v) === Object.prototype);
+  const isCollection = (v) => v instanceof Map || v instanceof Set || !!(v && typeof v === "object" && v[COLLECTION_META]);
+  const ARRAY_MUTATORS = new Set(["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]);
+  const COLLECTION_MUTATORS = new Set(["set", "delete", "clear", "add"]);
+  const wrapCollection = (coll, touch) => {
+    const existing = coll[COLLECTION_META];
+    if (existing) {
+      existing.notify.add(touch);
+      return coll;
+    }
+    const hit = COLLECTION_PROXIES.get(coll);
+    if (hit) {
+      hit[COLLECTION_META].notify.add(touch);
+      return hit;
+    }
+    const meta = { raw: coll, notify: new Set([touch]) };
+    const notifyAll = () => meta.notify.forEach((fn) => fn());
+    const proxy = new Proxy(coll, {
+      get(t, k) {
+        if (k === COLLECTION_META)
+          return meta;
+        const v = t[k];
+        if (typeof v !== "function")
+          return v;
+        if (typeof k === "string" && COLLECTION_MUTATORS.has(k))
+          return (...args) => {
+            const result = v.apply(t, args);
+            notifyAll();
+            return result;
+          };
+        if (k === "get")
+          return (key) => {
+            const out = t.get(key);
+            return isPlain(out) ? deepWrap(out, notifyAll) : isCollection(out) ? wrapCollection(out, notifyAll) : out;
+          };
+        return v.bind(t);
+      }
+    });
+    COLLECTION_PROXIES.set(coll, proxy);
+    return proxy;
+  };
+  const deepWrap = (value, touch) => {
+    if (!deep)
+      return value;
+    if (isCollection(value))
+      return wrapCollection(value, touch);
+    if (!isPlain(value))
+      return value;
+    const hit = wrapped.get(value);
+    if (hit)
+      return hit;
+    let muted = false;
+    const proxy = new Proxy(value, {
+      get(t, k) {
+        const v = t[k];
+        if (Array.isArray(t) && typeof k === "string" && ARRAY_MUTATORS.has(k) && typeof v === "function")
+          return (...args) => {
+            muted = true;
+            try {
+              return v.apply(t, args);
+            } finally {
+              muted = false;
+              touch();
+            }
+          };
+        return isPlain(v) || isCollection(v) ? deepWrap(v, touch) : v;
+      },
+      set(t, k, v) {
+        t[k] = v;
+        !muted && touch();
+        return true;
+      },
+      deleteProperty(t, k) {
+        delete t[k];
+        !muted && touch();
+        return true;
+      }
+    });
+    wrapped.set(value, proxy);
+    return proxy;
+  };
+  return new Proxy(obj, {
+    get(target, key) {
+      if (key === IS_REACTIVE)
+        return true;
+      if (typeof key === "string") {
+        const s = sigFor(key, target[key]);
+        return deepWrap(s[0](), s[2]);
+      }
+      return target[key];
+    },
+    set(target, key, value) {
+      const prev2 = target[key];
+      target[key] = value;
+      if (typeof key !== "string")
+        return true;
+      const sig = sigFor(key, value);
+      Object.is(prev2, value) && isCollection(value) ? sig[2]() : sig[1](value);
+      return true;
+    },
+    has(target, key) {
+      return key in target;
+    },
+    deleteProperty(target, key) {
+      delete target[key];
+      typeof key === "string" && sigs.get(key)?.[1](undefined);
+      return true;
+    }
+  });
+}
+
+// src/ir/swap.ts
+var normInput = (ci, x) => ci == null ? ci : ("e" in ci) ? { $: x[ci.e] } : ci;
+var normBind = (b, x) => ({ ...b, e: x[b.e] });
+function normChild(c, x) {
+  switch (c.t) {
+    case "macro":
+      return {
+        t: c.t,
+        name: c.name,
+        args: c.args,
+        sets: c.sets.map((s) => ("spread" in s) ? { spread: x[s.spread] } : { name: s.name, ci: normInput(s.ci, x) }),
+        block: normBlock(c.block, x)
+      };
+    case "if":
+      return { t: c.t, branches: c.branches.map((b) => ({
+        when: b.when == null ? null : x[b.when],
+        block: normBlock(b.block, x)
+      })) };
+    case "for":
+      return {
+        t: c.t,
+        args: c.args,
+        of: c.of === undefined ? undefined : x[c.of],
+        from: normInput(c.from, x),
+        to: normInput(c.to, x),
+        by: normInput(c.by, x),
+        block: normBlock(c.block, x)
+      };
+    case "switch":
+      return { t: c.t, on: x[c.on], cases: c.cases.map((k) => ({
+        is: k.is === null ? null : normInput(k.is, x),
+        block: normBlock(k.block, x)
+      })) };
+    case "async":
+      return {
+        t: c.t,
+        awaitE: x[c.awaitE],
+        then: c.then && { args: c.then.args, block: normBlock(c.then.block, x) },
+        catch: c.catch && { args: c.catch.args, block: normBlock(c.catch.block, x) },
+        loading: c.loading && normBlock(c.loading, x)
+      };
+    case "let":
+      return {
+        t: c.t,
+        const: c.const,
+        vars: Object.fromEntries(Object.entries(c.vars).map(([k, v]) => [k, normInput(v, x)]))
+      };
+    case "log":
+      return { t: c.t, e: x[c.e] };
+    case "comp":
+    case "dynamic":
+      return {
+        t: c.t,
+        name: c.t === "comp" ? c.name : undefined,
+        tag: c.t === "dynamic" ? x[c.tag] : undefined,
+        inputs: Object.fromEntries(Object.entries(c.inputs).map(([k, v]) => [k, normInput(v, x)])),
+        spreads: c.spreads.map((e) => x[e]),
+        events: c.events.map((ev) => ({ name: ev.name, e: x[ev.e] })),
+        contents: c.contents && { args: c.contents.args, block: normBlock(c.contents.block, x) }
+      };
+  }
+}
+var normBlock = (b, x) => ({
+  html: b.html,
+  scope: b.scope,
+  binds: b.binds.map((bind) => normBind(bind, x)),
+  blocks: b.blocks.map((c) => normChild(c, x))
+});
+var sameChild = (a, ax, b, bx) => a.t === b.t && JSON.stringify(normChild(a, ax)) === JSON.stringify(normChild(b, bx));
+var sameBinds = (a, ax, b, bx) => JSON.stringify(a.map((x) => normBind(x, ax))) === JSON.stringify(b.map((x) => normBind(x, bx)));
+var sameLets = (a, ax, b, bx) => {
+  const lets = (blk, x) => JSON.stringify(blk.blocks.filter((c) => c.t === "let").map((c) => normChild(c, x)));
+  return lets(a, ax) === lets(b, bx);
+};
+
+// src/ir/runtime.ts
+var SLOT = Symbol("lips.slot");
+var isSlot = (v) => !!v && typeof v === "object" && v[SLOT] === true;
+function makeHooks(self) {
+  let scheduled = false;
+  let isReady = false;
+  const onError = (error) => typeof self.onError === "function" ? self.onError(error) : console.error("[lips:ir]", error);
+  return {
+    onError,
+    ready() {
+      isReady = true;
+    },
+    notifyUpdate() {
+      if (!isReady || scheduled)
+        return;
+      scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        try {
+          typeof self.onUpdate === "function" && self.onUpdate();
+          typeof self.onRender === "function" && self.onRender();
+        } catch (error) {
+          onError(error);
+        }
+      });
+    }
+  };
+}
+var PENDING_ATTACH = [];
+function flushAttach() {
+  for (let i = PENDING_ATTACH.length - 1;i >= 0; i--) {
+    const entry = PENDING_ATTACH[i];
+    const node2 = entry.node();
+    if (node2 && node2.isConnected) {
+      PENDING_ATTACH.splice(i, 1);
+      entry.fn();
+    }
+  }
+}
+var AST_CACHE = new Map;
+function astOf(src) {
+  let ast = AST_CACHE.get(src);
+  if (!ast) {
+    ast = parseExpression(src).ast;
+    AST_CACHE.set(src, ast);
+  }
+  return ast;
+}
+var SKELETONS = new WeakMap;
+function skeleton(block) {
+  let tpl = SKELETONS.get(block);
+  if (!tpl) {
+    tpl = document.createElement("template");
+    tpl.innerHTML = block.html;
+    SKELETONS.set(block, tpl);
+  }
+  return tpl;
+}
+var pathKey = (p) => p.join(",");
+function resolvePath(root, p) {
+  let node2 = root;
+  for (const i of p)
+    node2 = node2.childNodes[i];
+  return node2;
+}
+function nodesOf(inst) {
+  const out = [];
+  let n = inst.start;
+  while (n) {
+    out.push(n);
+    if (n === inst.end)
+      break;
+    n = n.nextSibling;
+  }
+  return out;
+}
+function insertAfter(ref, nodes) {
+  const parent = ref.parentNode;
+  if (!parent)
+    return;
+  let anchor = ref;
+  for (const n of nodes) {
+    parent.insertBefore(n, anchor.nextSibling);
+    anchor = n;
+  }
+}
+function applyScopedStyles(options, inst, nsp, css) {
+  for (const n of nodesOf(inst))
+    if (n.nodeType === 1 && !n.hasAttribute("rel"))
+      n.setAttribute("rel", nsp);
+  const sheet = options.createStylesheet?.(nsp, css);
+  return sheet ? () => sheet.clear() : undefined;
+}
+function disposeInstance(inst) {
+  for (const h of inst.bindHandles)
+    h.dispose();
+  for (const h of inst.childHandles)
+    h.dispose();
+}
+function destroy(inst) {
+  if (!inst)
+    return;
+  disposeInstance(inst);
+  for (const n of nodesOf(inst))
+    n.remove();
+}
+function splitTopLevel(src) {
+  const out = [];
+  let depth = 0, start = 0;
+  for (let i = 0;i < src.length; i++) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === "`") {
+      i++;
+      while (i < src.length && src[i] !== c) {
+        if (src[i] === "\\")
+          i++;
+        i++;
+      }
+      continue;
+    }
+    if (c === "(" || c === "[" || c === "{")
+      depth++;
+    else if (c === ")" || c === "]" || c === "}")
+      depth--;
+    else if (c === "," && depth === 0) {
+      out.push(src.slice(start, i));
+      start = i + 1;
+    }
+  }
+  out.push(src.slice(start));
+  return out.map((s) => s.trim()).filter(Boolean);
+}
+var applyAttr = (el, name, v) => {
+  v === false || v == null ? el.removeAttribute(name) : el.setAttribute(name, v === true ? "" : String(v));
+};
+var defineGetter = (scope, name, get) => Object.defineProperty(scope, name, { get, enumerable: true, configurable: true });
+
+class IRRenderer {
+  ir;
+  options;
+  hooks;
+  constructor(ir, options, hooks) {
+    this.ir = ir;
+    this.options = options;
+    this.hooks = hooks;
+  }
+  guarded(fn) {
+    let first = true;
+    return effect(() => {
+      try {
+        fn();
+      } catch (error) {
+        this.hooks ? this.hooks.onError(error) : console.error("[lips:ir]", error);
+      }
+      first ? first = false : this.hooks?.notifyUpdate();
+    });
+  }
+  runner(e, scopeNames) {
+    return this.srcRunner(this.ir.exprs[e], scopeNames);
+  }
+  srcRunner(src, scopeNames) {
+    if (this.options.mode === "interpreted") {
+      const ast = astOf(src);
+      return (env) => interpretExpression(ast, env);
+    }
+    const compiled = compileExpression(src, scopeNames);
+    return (env) => compiled.run(env);
+  }
+  renderBlock(block, env) {
+    const frag = skeleton(block).content.cloneNode(true);
+    const pathNodes = new Map;
+    const bindNodes = block.binds.map((b) => {
+      const node2 = resolvePath(frag, b.p);
+      pathNodes.set(pathKey(b.p), node2);
+      return node2;
+    });
+    const anchorNodes = block.blocks.map((b) => {
+      const node2 = resolvePath(frag, b.p);
+      pathNodes.set(pathKey(b.p), node2);
+      return node2;
+    });
+    const start = document.createComment("^");
+    const end = document.createComment("$");
+    frag.insertBefore(start, frag.firstChild);
+    frag.appendChild(end);
+    const scope = Object.create(env.scope ?? null);
+    const benv = { ...env, scope };
+    const inst = {
+      start,
+      end,
+      block,
+      exprs: this.ir.exprs,
+      penv: env,
+      benv,
+      pathNodes,
+      bindHandles: [],
+      childHandles: []
+    };
+    block.blocks.forEach((child, i) => {
+      if (child.t !== "let")
+        return;
+      const letDisposers = [];
+      for (const [name, input] of Object.entries(child.vars)) {
+        if ("lit" in input) {
+          const [get] = signal(input.lit);
+          defineGetter(scope, name, get);
+        } else {
+          const [get, set] = signal(undefined);
+          defineGetter(scope, name, get);
+          const run = this.runner(input.e, block.scope);
+          letDisposers.push(effect(() => set(run(benv))).dispose);
+        }
+      }
+      inst.childHandles[i] = {
+        child,
+        exprs: this.ir.exprs,
+        anchor: anchorNodes[i],
+        dispose: () => letDisposers.forEach((d) => d())
+      };
+    });
+    inst.bindHandles = block.binds.map((bind, i) => this.bindOne(bind, bindNodes[i], benv, block.scope));
+    block.blocks.forEach((child, i) => {
+      if (child.t === "let")
+        return;
+      inst.childHandles[i] = {
+        child,
+        exprs: this.ir.exprs,
+        anchor: anchorNodes[i],
+        dispose: this.execBlock(child, anchorNodes[i], benv, block.scope)
+      };
+    });
+    return inst;
+  }
+  bindOne(bind, node2, benv, scopeNames, reuseText) {
+    switch (bind.t) {
+      case "text": {
+        const textNode = reuseText ?? document.createTextNode("");
+        !reuseText && insertAfter(node2, [textNode]);
+        const run = this.runner(bind.e, scopeNames);
+        const i18n = bind.i18n ? this.options.i18n : undefined;
+        const h = this.guarded(() => {
+          const v = run(benv);
+          const text = v == null ? "" : String(v);
+          textNode.data = i18n ? i18n.translate(text) : text;
+        });
+        return { bind, node: node2, textNode, dispose: h.dispose };
+      }
+      case "attr": {
+        const run = this.runner(bind.e, scopeNames);
+        const i18n = bind.i18n ? this.options.i18n : undefined;
+        const h = this.guarded(() => {
+          const v = run(benv);
+          applyAttr(node2, bind.name, i18n && v != null ? i18n.translate(String(v)) : v);
+        });
+        return { bind, node: node2, dispose: h.dispose };
+      }
+      case "prop": {
+        const run = this.runner(bind.e, scopeNames);
+        if (bind.name === "format") {
+          const ref = bind.ref || "";
+          const h2 = this.guarded(() => {
+            const params = run(benv);
+            const text = this.options.i18n?.format(ref, params);
+            node2.textContent = text == null ? "" : String(text);
+          });
+          return { bind, node: node2, dispose: h2.dispose };
+        }
+        const h = this.guarded(() => {
+          const v = run(benv);
+          bind.name === "html" ? node2.innerHTML = v == null ? "" : String(v) : node2.textContent = v == null ? "" : String(v);
+        });
+        return { bind, node: node2, dispose: h.dispose };
+      }
+      case "event": {
+        const handler = this.eventDispatcher(this.ir.exprs[bind.e], scopeNames, benv);
+        node2.addEventListener(bind.name, handler);
+        return { bind, node: node2, dispose: () => node2.removeEventListener(bind.name, handler) };
+      }
+      case "spread": {
+        const run = this.runner(bind.e, scopeNames);
+        let prev2 = new Set;
+        const h = this.guarded(() => {
+          const obj = run(benv) || {};
+          const next2 = new Set(Object.keys(obj));
+          for (const k of prev2)
+            !next2.has(k) && node2.removeAttribute(k);
+          for (const k of next2)
+            applyAttr(node2, k, obj[k]);
+          prev2 = next2;
+        });
+        return { bind, node: node2, dispose: h.dispose };
+      }
+    }
+  }
+  swapBlock(inst, newBlock, report, path) {
+    if (inst.block.html !== newBlock.html || JSON.stringify(inst.block.scope) !== JSON.stringify(newBlock.scope) || !sameLets(inst.block, inst.exprs, newBlock, this.ir.exprs))
+      return this.rebuild(inst, newBlock, report, path);
+    if (!sameBinds(inst.block.binds, inst.exprs, newBlock.binds, this.ir.exprs)) {
+      const nodes = newBlock.binds.map((b) => inst.pathNodes.get(pathKey(b.p)));
+      if (nodes.some((n) => !n))
+        return this.rebuild(inst, newBlock, report, path);
+      const oldTexts = new Map;
+      inst.bindHandles.forEach((h) => h.textNode && oldTexts.set(pathKey(h.bind.p), h.textNode));
+      inst.bindHandles.forEach((h) => h.dispose());
+      const reused = new Set;
+      inst.bindHandles = newBlock.binds.map((b, i) => {
+        const key = pathKey(b.p);
+        const reuse = b.t === "text" ? oldTexts.get(key) : undefined;
+        reuse && reused.add(key);
+        return this.bindOne(b, nodes[i], inst.benv, newBlock.scope, reuse);
+      });
+      oldTexts.forEach((tn, key) => !reused.has(key) && tn.remove());
+      report.push({ kind: "binds", path });
+    }
+    for (let i = 0;i < newBlock.blocks.length; i++) {
+      const newChild = newBlock.blocks[i];
+      const oldH = inst.childHandles[i];
+      if (newChild.t === "let")
+        continue;
+      if (oldH && sameChild(oldH.child, oldH.exprs, newChild, this.ir.exprs))
+        continue;
+      oldH?.dispose();
+      inst.childHandles[i] = {
+        child: newChild,
+        exprs: this.ir.exprs,
+        anchor: oldH.anchor,
+        dispose: this.execBlock(newChild, oldH.anchor, inst.benv, newBlock.scope)
+      };
+      report.push({ kind: "block", path: `${path}/${i}` });
+    }
+    inst.block = newBlock;
+    inst.exprs = this.ir.exprs;
+    return inst;
+  }
+  rebuild(inst, newBlock, report, path) {
+    const fresh = this.renderBlock(newBlock, inst.penv);
+    insertAfter(inst.end, nodesOf(fresh));
+    destroy(inst);
+    report.push({ kind: "skeleton", path });
+    return fresh;
+  }
+  execBlock(child, anchor, benv, scopeNames) {
+    const disposers = [];
+    switch (child.t) {
+      case "if": {
+        const runs = child.branches.map((b) => b.when != null ? this.runner(b.when, scopeNames) : null);
+        let current = null;
+        let activeIdx = -2;
+        const h = effect(() => {
+          let idx = -1;
+          for (let i = 0;i < child.branches.length; i++) {
+            const run = runs[i];
+            if (!run || run(benv)) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx === activeIdx)
+            return;
+          activeIdx = idx;
+          untrack(() => {
+            destroy(current);
+            current = null;
+            if (idx >= 0) {
+              current = this.renderBlock(child.branches[idx].block, benv);
+              insertAfter(anchor, nodesOf(current));
+            }
+          });
+        });
+        disposers.push(() => {
+          h.dispose();
+          destroy(current);
+        });
+        break;
+      }
+      case "switch": {
+        const onRun = this.runner(child.on, scopeNames);
+        const caseRuns = child.cases.map((c) => c.is && ("e" in c.is) ? this.runner(c.is.e, scopeNames) : null);
+        let current = null;
+        let activeIdx = -2;
+        const h = effect(() => {
+          const value = onRun(benv);
+          let idx = -1, defaultIdx = -1;
+          for (let i = 0;i < child.cases.length; i++) {
+            const c = child.cases[i];
+            if (c.is === null) {
+              defaultIdx = i;
+              continue;
+            }
+            const is = "lit" in c.is ? c.is.lit : caseRuns[i](benv);
+            if (Array.isArray(is) ? is.includes(value) : is === value) {
+              idx = i;
+              break;
+            }
+          }
+          if (idx === -1)
+            idx = defaultIdx;
+          if (idx === activeIdx)
+            return;
+          activeIdx = idx;
+          untrack(() => {
+            destroy(current);
+            current = null;
+            if (idx >= 0) {
+              current = this.renderBlock(child.cases[idx].block, benv);
+              insertAfter(anchor, nodesOf(current));
+            }
+          });
+        });
+        disposers.push(() => {
+          h.dispose();
+          destroy(current);
+        });
+        break;
+      }
+      case "macro": {
+        const scope = Object.create(benv.scope ?? null);
+        const args = reactive({});
+        const argSignals = {};
+        for (const name of child.args) {
+          argSignals[name] = signal(undefined);
+          defineGetter(scope, name, argSignals[name][0]);
+        }
+        const runners = child.sets.map((s) => {
+          if ("spread" in s)
+            return { kind: "spread", run: this.runner(s.spread, scopeNames) };
+          if ("lit" in s.ci) {
+            const lit = s.ci.lit;
+            return { kind: "value", name: s.name, value: () => lit };
+          }
+          const run = this.runner(s.ci.e, scopeNames);
+          return { kind: "value", name: s.name, value: () => run(benv) };
+        });
+        let prevKeys = new Set;
+        disposers.push(effect(() => {
+          const next2 = {};
+          for (const r of runners) {
+            if (r.kind === "spread") {
+              const obj = r.run(benv);
+              if (obj && typeof obj === "object")
+                for (const [k, v] of obj instanceof Map ? obj : Object.entries(obj))
+                  next2[k] = v;
+            } else
+              next2[r.name] = r.value();
+          }
+          untrack(() => {
+            for (const name of child.args)
+              argSignals[name][1](next2[name]);
+            const nextKeys = new Set(Object.keys(next2));
+            for (const k of prevKeys)
+              !nextKeys.has(k) && delete args[k];
+            for (const k of nextKeys)
+              args[k] = next2[k];
+            prevKeys = nextKeys;
+          });
+        }).dispose);
+        const inst = this.renderBlock(child.block, { ...benv, arguments: args, scope });
+        insertAfter(anchor, nodesOf(inst));
+        disposers.push(() => destroy(inst));
+        break;
+      }
+      case "for":
+        this.execFor(child, anchor, benv, scopeNames, disposers);
+        break;
+      case "async": {
+        const awaitRun = this.runner(child.awaitE, scopeNames);
+        let current = null;
+        let token2 = 0;
+        const swapTo = (arm, value) => {
+          destroy(current);
+          current = null;
+          if (!arm)
+            return;
+          const isArm = "block" in arm;
+          const scope2 = Object.create(benv.scope ?? null);
+          if (isArm && arm.args[0] !== undefined) {
+            const [get] = signal(value);
+            defineGetter(scope2, arm.args[0], get);
+          }
+          current = this.renderBlock(isArm ? arm.block : arm, { ...benv, scope: scope2 });
+          insertAfter(anchor, nodesOf(current));
+        };
+        const h = effect(() => {
+          const p = awaitRun(benv);
+          const my = ++token2;
+          untrack(() => {
+            child.loading ? swapTo(child.loading) : swapTo(undefined);
+            Promise.resolve(p).then((v) => my === token2 && untrack(() => swapTo(child.then, v)), (err) => my === token2 && untrack(() => swapTo(child.catch, err)));
+          });
+        });
+        disposers.push(() => {
+          token2++;
+          h.dispose();
+          destroy(current);
+        });
+        break;
+      }
+      case "log": {
+        const segs = splitTopLevel(this.ir.exprs[child.e]).map((s) => this.srcRunner(s, scopeNames));
+        disposers.push(effect(() => console.log(...segs.map((run) => run(benv)))).dispose);
+        break;
+      }
+      case "comp": {
+        const def = this.options.components?.[child.name];
+        def ? this.execComponent(def, child, anchor, benv, scopeNames, disposers) : this.execElement(child, anchor, benv, scopeNames, disposers);
+        break;
+      }
+      case "dynamic": {
+        const tagRun = this.runner(child.tag, scopeNames);
+        let inner = [];
+        let activeVerb = Symbol("init");
+        const h = effect(() => {
+          const verb = tagRun(benv);
+          if (verb === activeVerb)
+            return;
+          activeVerb = verb;
+          untrack(() => {
+            for (const d of inner)
+              d();
+            inner = [];
+            if (verb == null)
+              return;
+            if (isSlot(verb)) {
+              const argvalues = {};
+              for (const [name, ci] of Object.entries(child.inputs))
+                argvalues[name] = "lit" in ci ? ci.lit : this.runner(ci.e, scopeNames)(benv);
+              const slotInst = verb.render(argvalues);
+              insertAfter(anchor, nodesOf(slotInst));
+              inner.push(() => destroy(slotInst));
+              return;
+            }
+            const def = typeof verb === "string" ? this.options.components?.[verb] : verb && typeof verb === "object" ? verb.ir ? verb : this.options.resolveTemplate?.(verb) : undefined;
+            if (def)
+              this.execComponent(def, child, anchor, benv, scopeNames, inner);
+            else if (typeof verb === "string")
+              this.execElement({ ...child, name: verb }, anchor, benv, scopeNames, inner);
+          });
+        });
+        disposers.push(() => {
+          h.dispose();
+          for (const d of inner)
+            d();
+        });
+        break;
+      }
+    }
+    return () => disposers.forEach((d) => d());
+  }
+  execFor(child, anchor, benv, scopeNames, disposers) {
+    const ofRun = child.of !== undefined ? this.runner(child.of, scopeNames) : null, byRun = child.by && "e" in child.by ? this.runner(child.by.e, scopeNames) : null, byPath = child.by && "lit" in child.by ? String(child.by.lit).split(".") : null, inputVal = (ci, env) => ci === undefined ? undefined : ("lit" in ci) ? ci.lit : this.runner(ci.e, scopeNames)(env);
+    let items = [];
+    const byKey = new Map;
+    const tuples = () => {
+      if (ofRun === null) {
+        const from2 = Number(inputVal(child.from, benv) ?? 0);
+        const to = Number(inputVal(child.to, benv) ?? from2);
+        const asc = from2 <= to;
+        const out = [];
+        for (let v = from2;asc ? v <= to : v >= to; asc ? v++ : v--)
+          out.push({ key: v, values: [v] });
+        return out;
+      }
+      const src = ofRun(benv);
+      const keyFor = (item, fallback, index) => {
+        if (byRun) {
+          const fn = byRun(benv);
+          return typeof fn === "function" ? fn(item, index) : fallback;
+        }
+        if (byPath)
+          return byPath.reduce((v, k) => v?.[k], item);
+        return fallback;
+      };
+      if (Array.isArray(src))
+        return src.map((item, i) => ({ key: keyFor(item, i, i), values: [item, i] }));
+      if (src instanceof Map)
+        return [...src.entries()].map(([k, v], i) => ({ key: k, values: [k, v, i] }));
+      if (src instanceof Set)
+        return [...src].map((item, i) => ({ key: keyFor(item, item, i), values: [item, i] }));
+      if (src && typeof src === "object")
+        return Object.entries(src).map(([k, v], i) => ({ key: k, values: [k, v, i] }));
+      return [];
+    };
+    const h = effect(() => {
+      const next2 = tuples();
+      untrack(() => {
+        const seen = new Set;
+        const ordered = [];
+        for (const t of next2) {
+          let key = t.key;
+          if (seen.has(key)) {
+            console.warn(`<for> duplicate key '${String(key)}' — falling back to positional identity`);
+            key = `#dup:${ordered.length}`;
+          }
+          seen.add(key);
+          const existing = byKey.get(key);
+          if (existing) {
+            existing.sigs.forEach(([get, set, touch], j) => {
+              const nv = t.values[j];
+              Object.is(get(), nv) && typeof nv === "object" && nv !== null ? touch() : set(nv);
+            });
+            ordered.push(existing);
+          } else {
+            const scope2 = Object.create(benv.scope ?? null);
+            const sigs = t.values.map((v) => signal(v));
+            child.args.forEach((name, j) => sigs[j] && defineGetter(scope2, name, sigs[j][0]));
+            const inst = this.renderBlock(child.block, { ...benv, scope: scope2 });
+            const item = { key, sigs, inst };
+            byKey.set(key, item);
+            ordered.push(item);
+          }
+        }
+        for (const item of items)
+          if (!ordered.includes(item)) {
+            byKey.delete(item.key);
+            destroy(item.inst);
+          }
+        let pointer = anchor;
+        for (const item of ordered) {
+          if (pointer.nextSibling !== item.inst.start)
+            insertAfter(pointer, nodesOf(item.inst));
+          pointer = item.inst.end;
+        }
+        items = ordered;
+      });
+    });
+    disposers.push(() => {
+      h.dispose();
+      for (const item of items)
+        destroy(item.inst);
+      items = [];
+      byKey.clear();
+    });
+  }
+  execComponent(def, child, anchor, benv, scopeNames, disposers) {
+    const input = reactive({});
+    for (const [name, ci] of Object.entries(child.inputs)) {
+      if ("lit" in ci)
+        input[name] = ci.lit;
+      else {
+        const run = this.runner(ci.e, scopeNames);
+        disposers.push(effect(() => input[name] = run(benv)).dispose);
+      }
+    }
+    for (const e of child.spreads) {
+      const run = this.runner(e, scopeNames);
+      disposers.push(effect(() => {
+        const obj = run(benv) || {};
+        untrack(() => Object.entries(obj).forEach(([k, v]) => input[k] = v));
+      }).dispose);
+    }
+    if (child.contents) {
+      const parent = this, contents = child.contents, penv = benv;
+      input.renderer = {
+        [SLOT]: true,
+        args: contents.args,
+        render(argvalues) {
+          const scope = Object.create(penv.scope ?? null);
+          contents.args.forEach((name) => {
+            const [get] = signal(argvalues?.[name]);
+            defineGetter(scope, name, get);
+          });
+          return parent.renderBlock(contents.block, { ...penv, scope });
+        }
+      };
+    }
+    const state = reactive({ ...def.state || {} }, def.deep ?? false);
+    const listeners = new Map;
+    let selfInst = null;
+    const self = {
+      ...this.options.expose || {},
+      state,
+      input,
+      static: def.statics,
+      context: benv.context,
+      get node() {
+        return selfInst ? nodesOf(selfInst).filter((n) => n.nodeType === 1) : [];
+      },
+      emit(event, ...args) {
+        listeners.get(event)?.forEach((fn) => fn(...args));
+      },
+      on(event, fn) {
+        listeners.set(event, [...listeners.get(event) || [], fn]);
+        return self;
+      },
+      once(event, fn) {
+        const wrapped = (...args) => {
+          self.off(event, wrapped);
+          fn(...args);
+        };
+        return self.on(event, wrapped);
+      },
+      off(event, fn) {
+        if (!fn)
+          listeners.delete(event);
+        else {
+          const rest = (listeners.get(event) || []).filter((f) => f !== fn);
+          rest.length ? listeners.set(event, rest) : listeners.delete(event);
+        }
+        return self;
+      }
+    };
+    def.handlers && Object.entries(def.handlers).forEach(([k, fn]) => self[k] = fn.bind(self));
+    child.events?.forEach((ev) => {
+      const dispatch = this.eventDispatcher(this.ir.exprs[ev.e], scopeNames, benv);
+      self.on(ev.name, dispatch);
+    });
+    const hooks = makeHooks(self);
+    try {
+      typeof self.onCreate === "function" && self.onCreate();
+    } catch (error) {
+      hooks.onError(error);
+    }
+    try {
+      Object.keys(input).length && typeof self.onInput === "function" && self.onInput(input);
+    } catch (error) {
+      hooks.onError(error);
+    }
+    const cenv = { state, input, context: benv.context, static: def.statics, self, scope: undefined };
+    const renderer = new IRRenderer(def.ir, this.options, hooks);
+    const inst = renderer.renderBlock(def.ir.root, cenv);
+    selfInst = inst;
+    const clearStyles = def.stylesheet ? applyScopedStyles(this.options, inst, def.nsp || "lips", def.stylesheet) : undefined;
+    insertAfter(anchor, nodesOf(inst));
+    hooks.ready();
+    try {
+      typeof self.onMount === "function" && self.onMount();
+      typeof self.onRender === "function" && self.onRender();
+      self.emit("component:mount");
+    } catch (error) {
+      hooks.onError(error);
+    }
+    let unwatchContext;
+    if (def.context?.length && typeof self.onContext === "function" && this.options.watchContext)
+      unwatchContext = this.options.watchContext(def.context, () => {
+        try {
+          self.onContext();
+        } catch (error) {
+          hooks.onError(error);
+        }
+      });
+    let attached = false;
+    {
+      PENDING_ATTACH.push({
+        node: () => inst.start,
+        fn: () => {
+          attached = true;
+          try {
+            typeof self.onAttach === "function" && self.onAttach();
+            self.emit("component:attached");
+          } catch (error) {
+            hooks.onError(error);
+          }
+        }
+      });
+      inst.start.isConnected && flushAttach();
+    }
+    disposers.push(() => {
+      unwatchContext?.();
+      clearStyles?.();
+      destroy(inst);
+      try {
+        if (attached) {
+          typeof self.onDetach === "function" && self.onDetach();
+          self.emit("component:detached");
+        }
+        typeof self.onDestroy === "function" && self.onDestroy();
+        self.emit("component:destroy");
+      } catch (error) {
+        hooks.onError(error);
+      }
+    });
+  }
+  execElement(child, anchor, benv, scopeNames, disposers) {
+    const el = document.createElement(child.name);
+    for (const [name, ci] of Object.entries(child.inputs)) {
+      if ("lit" in ci)
+        applyAttr(el, name, ci.lit);
+      else {
+        const run = this.runner(ci.e, scopeNames);
+        disposers.push(effect(() => applyAttr(el, name, run(benv))).dispose);
+      }
+    }
+    for (const ev of child.events) {
+      const handler = this.eventDispatcher(this.ir.exprs[ev.e], scopeNames, benv);
+      el.addEventListener(ev.name, handler);
+      disposers.push(() => el.removeEventListener(ev.name, handler));
+    }
+    if (child.contents) {
+      const inst = this.renderBlock(child.contents.block, benv);
+      el.append(...nodesOf(inst));
+      disposers.push(() => destroy(inst));
+    }
+    insertAfter(anchor, [el]);
+    disposers.push(() => el.remove());
+  }
+  eventDispatcher(instruction, scopeNames, benv) {
+    const segs = splitTopLevel(instruction);
+    return (...params) => untrack(() => {
+      const resolveFn = (src) => {
+        let v;
+        try {
+          v = this.srcRunner(src, scopeNames)(benv);
+        } catch (e) {
+          v = undefined;
+        }
+        if (typeof v !== "function" && benv.self && typeof benv.self[src] === "function")
+          v = benv.self[src];
+        return v;
+      };
+      if (!segs.length)
+        return;
+      const fn = resolveFn(segs[0]);
+      if (typeof fn !== "function")
+        return;
+      const args = segs.slice(1).map((src) => this.srcRunner(src, scopeNames)(benv));
+      fn(...args, ...params);
+    });
+  }
+}
+function renderIR(ir, setup = {}, options = {}) {
+  const state = reactive(setup.state || {}, setup.deep ?? false), input = setup.input ? reactive(setup.input, setup.deep ?? false) : undefined, listeners = new Map;
+  let rootInst = null;
+  const self = {
+    state,
+    input,
+    static: setup.static,
+    get node() {
+      return rootInst ? nodesOf(rootInst).filter((n) => n.nodeType === 1) : [];
+    },
+    emit(event, ...args) {
+      listeners.get(event)?.forEach((fn) => fn(...args));
+    },
+    emitLocal(event, ...args) {
+      listeners.get(event)?.forEach((fn) => fn(...args));
+    },
+    on(event, fn) {
+      listeners.set(event, [...listeners.get(event) || [], fn]);
+      return self;
+    },
+    once(event, fn) {
+      const wrapped = (...args) => {
+        self.off(event, wrapped);
+        fn(...args);
+      };
+      return self.on(event, wrapped);
+    },
+    off(event, fn) {
+      if (!fn)
+        listeners.delete(event);
+      else {
+        const rest = (listeners.get(event) || []).filter((f) => f !== fn);
+        rest.length ? listeners.set(event, rest) : listeners.delete(event);
+      }
+      return self;
+    },
+    ...setup.expose || {}
+  };
+  setup.handlers && Object.entries(setup.handlers).forEach(([k, fn]) => self[k] = fn.bind(self));
+  const env = {
+    state,
+    input,
+    context: setup.context,
+    static: setup.static,
+    self,
+    scope: undefined
+  };
+  const hooks = makeHooks(self);
+  try {
+    typeof self.onCreate === "function" && self.onCreate();
+  } catch (error) {
+    hooks.onError(error);
+  }
+  try {
+    input && Object.keys(input).length && typeof self.onInput === "function" && self.onInput(input);
+  } catch (error) {
+    hooks.onError(error);
+  }
+  let renderer = new IRRenderer(ir, options, hooks);
+  let current = renderer.renderBlock(ir.root, env);
+  rootInst = current;
+  hooks.ready();
+  const clearStyles = setup.stylesheet ? applyScopedStyles(options, current, setup.nsp || "lips", setup.stylesheet) : undefined;
+  try {
+    typeof self.onMount === "function" && self.onMount();
+    typeof self.onRender === "function" && self.onRender();
+  } catch (error) {
+    hooks.onError(error);
+  }
+  let attached = false;
+  const attachSelf = () => {
+    if (attached)
+      return;
+    attached = true;
+    try {
+      typeof self.onAttach === "function" && self.onAttach();
+      self.emit("component:attached");
+    } catch (error) {
+      hooks.onError(error);
+    }
+  };
+  return {
+    state,
+    self,
+    get nodes() {
+      return nodesOf(current);
+    },
+    mount(container) {
+      container.append(...nodesOf(current));
+      if (current.start.isConnected) {
+        attachSelf();
+        flushAttach();
+      }
+    },
+    swap(newIR) {
+      const changes = [];
+      renderer = new IRRenderer(newIR, options, hooks);
+      current = renderer.swapBlock(current, newIR.root, changes, "root");
+      rootInst = current;
+      return { changes };
+    },
+    dispose() {
+      clearStyles?.();
+      destroy(current);
+      try {
+        if (attached) {
+          typeof self.onDetach === "function" && self.onDetach();
+          self.emit("component:detached");
+        }
+        typeof self.onDestroy === "function" && self.onDestroy();
+      } catch (error) {
+        hooks.onError(error);
+      }
+    }
+  };
+}
+
+// src/events.ts
+class Events {
+  options = {
+    emit: true
+  };
+  __events = {};
+  __once_events = {};
+  constructor(options) {
+    if (options)
+      this.options = options;
+  }
+  on(_event, fn) {
+    if (!Array.isArray(this.__events[_event]))
+      this.__events[_event] = [];
+    this.__events[_event].push(fn);
+    return this;
+  }
+  once(_event, fn) {
+    if (!Array.isArray(this.__once_events[_event]))
+      this.__once_events[_event] = [];
+    this.__once_events[_event].push(fn);
+    return this;
+  }
+  off(_event, fn) {
+    if (fn) {
+      if (Array.isArray(this.__events[_event])) {
+        this.__events[_event] = this.__events[_event].filter((each) => each !== fn);
+        !this.__events[_event].length && delete this.__events[_event];
+      }
+      if (Array.isArray(this.__once_events[_event])) {
+        this.__once_events[_event] = this.__once_events[_event].filter((each) => each !== fn);
+        !this.__once_events[_event].length && delete this.__once_events[_event];
+      }
+    } else {
+      delete this.__events[_event];
+      delete this.__once_events[_event];
+    }
+    return this;
+  }
+  emit(_event, ...params) {
+    if (!this.options.emit)
+      return;
+    const deepclean = (each) => {
+      if (!each || typeof each !== "object")
+        return each;
+      if (typeof each.toJSON === "function")
+        return each.toJSON();
+      if (Array.isArray(each))
+        return each.map(deepclean);
+      if (each.constructor === Object || each.constructor === undefined) {
+        const clone = {};
+        for (const key in each)
+          clone[key] = deepclean(each[key]);
+        return clone;
+      }
+      return each;
+    }, serialized = params.map(deepclean);
+    this.__events[_event]?.forEach((fn) => fn(...serialized));
+    this.__once_events[_event]?.forEach((fn) => fn(...serialized));
+    delete this.__once_events[_event];
+  }
+}
+
+// src/stylesheet.ts
+var STYLE_COMPILER = null;
+function setStyleCompiler(fn) {
+  STYLE_COMPILER = fn;
+}
+
+class Stylesheet {
+  nsp;
+  settings;
+  constructor(nsp, settings) {
+    if (typeof nsp !== "string" || !nsp)
+      throw new Error("Undefined or invalid stylesheet namespace");
+    this.nsp = nsp;
+    this.settings = settings || {};
+    this.settings.sheet && this.load(this.settings);
+  }
+  get rel() {
+    return `${this.settings.meta ? "@" : ""}${this.nsp}`;
+  }
+  get styleElement() {
+    return document.head.querySelector(`style[rel="${this.rel}"]`);
+  }
+  load(settings) {
+    this.settings = settings;
+    if (!settings.sheet)
+      return;
+    if (!STYLE_COMPILER) {
+      console.warn(`[lips] <${this.nsp}> stylesheet skipped — this build has no CSS preprocessor. ` + 'Use "@lipsjs/lips" (not "@lipsjs/lips/runtime") for source stylesheets.');
+      return;
+    }
+    const existing = this.styleElement;
+    if (existing) {
+      existing.setAttribute("dindex", String(Number(existing.getAttribute("dindex") || 0) + 1));
+      return existing;
+    }
+    const source = settings.meta ? settings.sheet : `[rel="${this.nsp}"] { ${settings.sheet} }`;
+    let sheet;
+    try {
+      sheet = STYLE_COMPILER(source);
+    } catch (error) {
+      throw new Error(`Style compilation failed: ${error.message}`);
+    }
+    if (!sheet)
+      throw new Error(`<${this.nsp}> stylesheet compilation produced no output`);
+    const element = document.createElement("style");
+    element.setAttribute("rel", this.rel);
+    element.setAttribute("dindex", "0");
+    element.textContent = sheet;
+    settings.meta ? document.head.prepend(element) : document.head.appendChild(element);
+    return element;
+  }
+  clear() {
+    const element = this.styleElement;
+    if (!element)
+      return;
+    const dindex = Number(element.getAttribute("dindex") || 0);
+    dindex <= 0 ? element.remove() : element.setAttribute("dindex", String(dindex - 1));
+  }
+}
+
+// src/i18n/formatters.ts
+function injectParams(text, params) {
+  if (typeof text !== "string")
+    return "";
+  if (!params)
+    return text;
+  return text.replace(/{(\w+)}/g, (_, key) => {
+    return params[key] !== undefined ? params[key].toString() : `{${key}}`;
+  });
+}
+var formatters_default = (type, reference, value, params, variant) => {
+  switch (type) {
+    case "plural": {
+      if (typeof value === "string") {
+        console.warn(`Plural format value cannot be a string`);
+        return;
+      }
+      if (params.count === undefined) {
+        console.warn(`Plural format requires <count> parameter or use * by default.`);
+        let formText2 = value["*"];
+        if (typeof formText2 === "object")
+          formText2 = formText2[variant || "*"];
+        return injectParams(formText2, params);
+      }
+      if (typeof params.count === "string")
+        params.count = Number(params.count);
+      let form = "*";
+      if (params.count.toString() in value)
+        form = params.count.toString();
+      let formText = value[form] || value["*"];
+      if (typeof formText === "object")
+        formText = formText[variant || "*"];
+      return injectParams(formText, params);
+    }
+    case "condition": {
+      if (typeof value === "string") {
+        console.warn(`Condition format value cannot be a string`);
+        return;
+      }
+      let text;
+      for (const expr in value)
+        try {
+          const fn = new Function("params", `with( params ){ return ${expr}; }`);
+          if (fn(params || {})) {
+            text = value[expr];
+            break;
+          }
+        } catch (error) {
+          console.warn(`Invalid <${reference}(${expr})> condition expression`);
+        }
+      if (text === undefined)
+        return;
+      if (typeof text === "object")
+        text = text[variant || "*"];
+      return injectParams(text, params);
+    }
+    case "variable":
+    default: {
+      const text = typeof value === "object" ? value[variant || "*"] : value;
+      if (typeof text === "object") {
+        console.warn(`Invalid <${reference}> variable variant definition`);
+        return;
+      }
+      return injectParams(text, params);
+    }
+  }
+};
+
+// src/i18n/index.ts
+class I18N {
+  currentLang = window.navigator.language;
+  DICTIONARIES = {};
+  set lang(value) {
+    if (this.currentLang === value)
+      return;
+    this.currentLang = value;
+  }
+  get lang() {
+    return this.currentLang;
+  }
+  setDictionary(id, dico) {
+    this.DICTIONARIES[id] = dico;
+  }
+  translate(text, lang) {
+    if (lang && this.currentLang === lang)
+      return { text, lang: this.currentLang };
+    lang = lang || this.currentLang;
+    const [id, variant] = lang.split("-");
+    if (this.DICTIONARIES[id] && text in this.DICTIONARIES[id]) {
+      if (typeof this.DICTIONARIES[id][text] === "object") {
+        const variants = this.DICTIONARIES[id][text];
+        text = variants[variant || "*"] || variants["*"];
+      } else if (typeof this.DICTIONARIES[id][text] === "string")
+        text = this.DICTIONARIES[id][text];
+    }
+    return { text, lang };
+  }
+  format(reference, params, local) {
+    local = local || this.currentLang;
+    const [id, variant] = local.split("-");
+    if (!this.DICTIONARIES[id]) {
+      console.warn(`Undefined <${local}> format dictionary`);
+      return;
+    }
+    if (!this.DICTIONARIES[id][reference]) {
+      console.warn(`Undefined <${local}[${reference}]> format reference`);
+      return;
+    }
+    const format = this.DICTIONARIES[id][reference];
+    if (typeof format === "string") {
+      console.warn(`Invalid <${local}[${reference}]> format reference. Expected object`);
+      return;
+    }
+    if (typeof format !== "object" || format === null || Array.isArray(format)) {
+      console.warn(`Invalid <${local}[${reference}]> format value`);
+      return;
+    }
+    return formatters_default(format.type, reference, format.value, params, variant);
+  }
+}
+
+// src/ir/facade.ts
+var COMPILER = null;
+function setCompiler(fn) {
+  COMPILER = fn;
+}
+var BUILTINS = {};
+function registerBuiltin(name, template) {
+  BUILTINS[name] = template;
+}
+var RESERVED_MEMBERS = new Set([
+  "state",
+  "input",
+  "static",
+  "context",
+  "emit",
+  "on",
+  "once",
+  "off",
+  "node",
+  "destroy",
+  "appendTo",
+  "prependTo",
+  "replaceWith",
+  "render",
+  "swap"
+]);
+function guardHandlers(handler) {
+  if (!handler)
+    return;
+  for (const name of Object.keys(handler))
+    if (RESERVED_MEMBERS.has(name))
+      throw new Error(`Handler <${name}> is a reserved component member name`);
+  return handler;
+}
+
+class IRFacadeComponent extends Events {
+  lips;
+  template;
+  state;
+  instance;
+  contextWatcher;
+  destroyed = false;
+  constructor(lips, name, template, input, ir, options) {
+    super();
+    this.lips = lips;
+    this.template = template;
+    const handlers = guardHandlers(template.handler);
+    this.state = reactive({ ...template.state || {} }, true);
+    const inputR = input ? reactive({ ...input }, true) : undefined;
+    const emitExternal = (event, ...args) => this.emit(event, ...args);
+    this.instance = renderIR(ir, {
+      state: this.state,
+      input: inputR,
+      context: lips.getContext(),
+      static: template._static,
+      handlers,
+      deep: true,
+      stylesheet: template.stylesheet,
+      nsp: name,
+      expose: {
+        emit(event, ...args) {
+          this.emitLocal?.(event, ...args);
+          emitExternal(event, ...args);
+        },
+        context: lips.getContext()
+      }
+    }, options);
+    if (template.context?.length && typeof handlers?.onContext === "function")
+      this.contextWatcher = lips.watchContext(template.context, () => {
+        try {
+          handlers.onContext.call(this.instance.self);
+        } catch (error) {
+          console.error("[lips:ir]", error);
+        }
+      });
+    this.emit("component:mount");
+  }
+  get node() {
+    return this.instance.nodes;
+  }
+  appendTo(selector) {
+    const target = typeof selector === "string" ? document.querySelector(selector) : selector;
+    target && this.instance.mount(target);
+    return this;
+  }
+  swap(newIR) {
+    return this.instance.swap(newIR);
+  }
+  destroy() {
+    if (this.destroyed)
+      return;
+    this.destroyed = true;
+    this.contextWatcher?.();
+    this.instance.dispose();
+    this.emit("component:destroy");
+  }
+}
+
+class IRLips {
+  config;
+  debug;
+  store = new Map;
+  irCache = new WeakMap;
+  defCache = new WeakMap;
+  context;
+  __root;
+  i18n = new I18N;
+  getLang;
+  setLang;
+  componentsProxy;
+  constructor(config) {
+    this.config = config;
+    this.debug = !!config?.debug;
+    this.context = reactive({ ...config?.context || {} }, true);
+    const [getLang, setLang] = signal(this.i18n.lang);
+    this.getLang = getLang;
+    this.setLang = setLang;
+    COMPILER && Object.entries(BUILTINS).forEach(([name, template]) => this.register(name, template));
+    const self = this;
+    this.componentsProxy = new Proxy({}, {
+      get(_, name) {
+        const template = self.store.get(name);
+        return template ? self.defFor(name, template) : undefined;
+      },
+      has(_, name) {
+        return self.store.has(name);
+      }
+    });
+  }
+  register(name, template) {
+    this.store.set(name, template);
+    return this;
+  }
+  unregister(name) {
+    this.store.delete(name);
+    return this;
+  }
+  has(name) {
+    return this.store.has(name);
+  }
+  compile(template) {
+    if (template.ir)
+      return template.ir;
+    let ir = this.irCache.get(template);
+    if (!ir) {
+      if (!COMPILER)
+        throw new Error("This build has no template compiler — templates must be precompiled to `ir` " + '(import from "@lipsjs/lips" instead of "@lipsjs/lips/runtime")');
+      const result = COMPILER(template.default || "", { macros: template.macros });
+      result.diagnostics.length && console.warn("[lips:ir] template diagnostics —", result.diagnostics);
+      ir = result.ir;
+      this.irCache.set(template, ir);
+    }
+    return ir;
+  }
+  defFor(name, template) {
+    let def = this.defCache.get(template);
+    if (!def) {
+      def = {
+        ir: this.compile(template),
+        state: template.state,
+        statics: template._static,
+        context: template.context,
+        stylesheet: template.stylesheet,
+        nsp: name,
+        handlers: guardHandlers(template.handler),
+        deep: true
+      };
+      this.defCache.set(template, def);
+    }
+    return def;
+  }
+  render(name, template, input) {
+    return new IRFacadeComponent(this, name, template, input, this.compile(template), {
+      mode: this.config?.mode,
+      components: this.componentsProxy,
+      watchContext: (fields, fn) => this.watchContext(fields, fn),
+      resolveTemplate: (value) => value && (typeof value.default === "string" || value.ir) ? this.defFor(value.name || "dynamic", value) : undefined,
+      expose: {
+        setContext: (arg, value) => this.setContext(arg, value)
+      },
+      createStylesheet: (nsp, css) => {
+        const sheet = new Stylesheet(nsp, { sheet: css });
+        return { clear: () => sheet.clear() };
+      },
+      i18n: {
+        translate: (text) => {
+          this.getLang();
+          return this.i18n.translate(text).text;
+        },
+        format: (reference, params) => {
+          this.getLang();
+          return this.i18n.format(reference, params) ?? "";
+        }
+      }
+    });
+  }
+  root(template, selector) {
+    this.__root = this.render("__ROOT__", template);
+    this.__root.appendTo(selector);
+    return this.__root;
+  }
+  setLanguage(lang) {
+    this.i18n.lang = lang;
+    this.setLang(lang);
+  }
+  getLanguage() {
+    return this.getLang();
+  }
+  useTranslator(support, fn) {
+    let first = true;
+    const { dispose } = effect(() => {
+      const lang = this.getLang();
+      if (first) {
+        first = false;
+        return;
+      }
+      (support === "*" || Array.isArray(support) && support.includes(lang)) && fn(lang);
+    });
+    return dispose;
+  }
+  getContext() {
+    return this.context;
+  }
+  setContext(arg, value) {
+    typeof arg === "string" ? this.context[arg] = value : Object.entries(arg).forEach(([k, v]) => this.context[k] = v);
+  }
+  watchContext(fields, fn) {
+    let first = true;
+    const { dispose } = effect(() => {
+      fields.forEach((f) => this.context[f]);
+      first ? first = false : fn();
+    });
+    return dispose;
+  }
+  useContext(fields, fn) {
+    return this.watchContext(fields, () => fn(Object.fromEntries(fields.map((f) => [f, this.context[f]]))));
+  }
+  dispose() {
+    this.__root?.destroy();
+  }
+}
+
+// src/ir/parser.ts
+var VOID_ELEMENTS = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr"
+]);
+var RAW_WHITESPACE_TAGS = new Set(["pre", "textarea"]);
+var HEAD_SUGAR_TAGS = new Set(["if", "else-if", "switch", "log"]);
+var NAMED_ENTITIES = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+  "&nbsp;": " "
+};
+function decodeEntities(text) {
+  return text.replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, (m) => NAMED_ENTITIES[m]);
+}
+
+class TemplateParser {
+  src;
+  pos = 0;
+  lineStarts = null;
+  diagnostics = [];
+  constructor(src) {
+    this.src = src;
+  }
+  locate(offset) {
+    if (!this.lineStarts) {
+      this.lineStarts = [0];
+      for (let i = 0;i < this.src.length; i++)
+        if (this.src[i] === `
+`)
+          this.lineStarts.push(i + 1);
+    }
+    let lo = 0, hi = this.lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = lo + hi + 1 >> 1;
+      this.lineStarts[mid] <= offset ? lo = mid : hi = mid - 1;
+    }
+    return { line: lo + 1, col: offset - this.lineStarts[lo] + 1 };
+  }
+  report(code, severity, message, offset, length2 = 1, hint) {
+    const { line: line2, col } = this.locate(offset);
+    this.diagnostics.push({ code, severity, message, hint, loc: { line: line2, col, offset, length: length2 } });
+  }
+  eof() {
+    return this.pos >= this.src.length;
+  }
+  peek(offset = 0) {
+    return this.src[this.pos + offset];
+  }
+  startsWith(str) {
+    return this.src.startsWith(str, this.pos);
+  }
+  skipSpace() {
+    while (!this.eof() && /\s/.test(this.src[this.pos]))
+      this.pos++;
+  }
+  scanBalanced(closer, code) {
+    const start = this.pos;
+    let depth = 0;
+    while (!this.eof()) {
+      const c = this.src[this.pos];
+      if (c === "'" || c === '"' || c === "`") {
+        this.pos++;
+        while (!this.eof() && this.src[this.pos] !== c) {
+          if (this.src[this.pos] === "\\")
+            this.pos++;
+          this.pos++;
+        }
+        this.pos++;
+        continue;
+      }
+      if (depth === 0 && c === closer) {
+        const content = this.src.slice(start, this.pos);
+        this.pos++;
+        return { content, loc: { offset: start, length: content.length } };
+      }
+      if (c === "(" || c === "[" || c === "{")
+        depth++;
+      else if (c === ")" || c === "]" || c === "}") {
+        if (depth === 0 && c !== closer) {
+          this.report(code, "error", `Unbalanced '${c}'`, this.pos);
+          this.pos++;
+          continue;
+        }
+        depth--;
+      }
+      this.pos++;
+    }
+    this.report(code, "error", `Unterminated — expected '${closer}'`, start, this.pos - start);
+    return null;
+  }
+  parse() {
+    const children = [];
+    while (!this.eof()) {
+      children.push(...this.parseNodes([]));
+      if (this.startsWith("</")) {
+        const closeStart = this.pos;
+        this.pos += 2;
+        while (!this.eof() && this.peek() !== ">")
+          this.pos++;
+        !this.eof() && this.pos++;
+        this.report("LIPS-P005", "error", `Stray closing tag ${this.src.slice(closeStart, this.pos)}`, closeStart, this.pos - closeStart);
+      }
+    }
+    return {
+      root: { t: "fragment", children, loc: { offset: 0, length: this.src.length } },
+      diagnostics: this.diagnostics
+    };
+  }
+  parseNodes(stack) {
+    const nodes = [];
+    while (!this.eof()) {
+      if (this.startsWith("</"))
+        break;
+      const before = this.pos;
+      if (this.peek() === "<" && this.peek(1) !== undefined) {
+        const node2 = this.parseTag(stack);
+        node2 && nodes.push(node2);
+      } else {
+        const text = this.parseText(stack);
+        text && nodes.push(text);
+      }
+      if (this.pos === before)
+        this.pos++;
+    }
+    return nodes;
+  }
+  parseText(stack) {
+    const start = this.pos;
+    const parts = [];
+    let buffer = "";
+    while (!this.eof() && this.peek() !== "<") {
+      if (this.peek() === "{") {
+        this.pos++;
+        const region = this.scanBalanced("}", "LIPS-P007");
+        if (region) {
+          buffer && parts.push(buffer);
+          buffer = "";
+          parts.push({ expr: region.content.trim(), loc: region.loc });
+        }
+        continue;
+      }
+      buffer += this.peek();
+      this.pos++;
+    }
+    buffer && parts.push(buffer);
+    const loc = { offset: start, length: this.pos - start };
+    if (parts.some((p) => typeof p !== "string"))
+      return {
+        t: "interp",
+        parts: parts.map((p) => typeof p === "string" ? decodeEntities(p) : p),
+        loc
+      };
+    const raw = parts.length ? parts[0] : "";
+    const inRaw = stack.some((tag) => RAW_WHITESPACE_TAGS.has(tag));
+    if (!raw || !inRaw && !raw.trim())
+      return null;
+    return { t: "text", value: decodeEntities(raw), loc };
+  }
+  parseTag(stack) {
+    const start = this.pos;
+    if (this.startsWith("<!--")) {
+      const end = this.src.indexOf("-->", this.pos + 4);
+      if (end === -1) {
+        this.report("LIPS-P003", "error", "Unterminated comment", start, this.src.length - start);
+        this.pos = this.src.length;
+        return null;
+      }
+      const value = this.src.slice(this.pos + 4, end);
+      this.pos = end + 3;
+      return { t: "comment", value, loc: { offset: start, length: this.pos - start } };
+    }
+    if (this.startsWith("<>")) {
+      this.pos += 2;
+      const children = [];
+      while (true) {
+        children.push(...this.parseNodes([...stack, "#fragment"]));
+        if (this.closeStatus("#fragment", start, stack) !== "stray")
+          break;
+      }
+      return { t: "fragment", children, loc: { offset: start, length: this.pos - start } };
+    }
+    if (this.startsWith("<{")) {
+      this.pos += 2;
+      const region = this.scanBalanced("}", "LIPS-P008");
+      if (!region)
+        return null;
+      const el2 = {
+        t: "element",
+        tag: "#dynamic",
+        dynamicTag: { expr: region.content.trim(), loc: region.loc },
+        attrs: [],
+        children: [],
+        selfClosed: false,
+        loc: { offset: start, length: 0 }
+      };
+      this.finishTag(el2, stack, start);
+      return el2;
+    }
+    this.pos++;
+    const nameStart = this.pos;
+    while (!this.eof() && /[A-Za-z0-9_-]/.test(this.peek()))
+      this.pos++;
+    const tag = this.src.slice(nameStart, this.pos);
+    if (!tag || !/^[A-Za-z]/.test(tag)) {
+      this.report("LIPS-P002", "error", "Invalid tag name", start, this.pos - start + 1);
+      return { t: "text", value: "<", loc: { offset: start, length: 1 } };
+    }
+    const el = {
+      t: "element",
+      tag: tag.toLowerCase(),
+      attrs: [],
+      children: [],
+      selfClosed: false,
+      loc: { offset: start, length: 0 }
+    };
+    if (this.peek() === "(") {
+      if (HEAD_SUGAR_TAGS.has(el.tag)) {
+        this.pos++;
+        const region = this.scanBalanced(")", "LIPS-P012");
+        region && (el.head = { expr: region.content.trim(), loc: region.loc });
+      } else
+        this.report("LIPS-P011", "error", `Head expression is not allowed on <${el.tag}>`, this.pos, 1, `Only ${[...HEAD_SUGAR_TAGS].map((t) => `<${t}(…)>`).join(", ")} take a head`);
+    }
+    this.finishTag(el, stack, start);
+    return el;
+  }
+  finishTag(el, stack, start) {
+    this.parseAttrs(el);
+    if (el.selfClosed || VOID_ELEMENTS.has(el.tag)) {
+      el.selfClosed = true;
+      el.loc = { offset: start, length: this.pos - start };
+      return;
+    }
+    const stackName = el.tag === "#dynamic" ? "#dynamic" : el.tag;
+    el.children = [];
+    while (true) {
+      el.children.push(...this.parseNodes([...stack, stackName]));
+      if (this.closeStatus(stackName, start, stack) !== "stray")
+        break;
+    }
+    el.loc = { offset: start, length: this.pos - start };
+  }
+  closeStatus(tag, openOffset, stack) {
+    if (this.eof()) {
+      this.report("LIPS-P006", "error", `Unclosed <${tag === "#fragment" ? "" : tag}> — reached end of template`, openOffset, 1, `Add </${tag === "#fragment" || tag === "#dynamic" ? "" : tag}>`);
+      return "eof";
+    }
+    if (!this.startsWith("</"))
+      return "closed";
+    const closeStart = this.pos;
+    this.pos += 2;
+    if (this.peek() === ">") {
+      this.pos++;
+      if (tag !== "#fragment" && tag !== "#dynamic")
+        this.report("LIPS-P004", "warning", `Generic '</>' closes <${tag}>`, closeStart, 3, `Prefer </${tag}>`);
+      return "closed";
+    }
+    const nameStart = this.pos;
+    while (!this.eof() && /[A-Za-z0-9_-]/.test(this.peek()))
+      this.pos++;
+    const closeTag = this.src.slice(nameStart, this.pos).toLowerCase();
+    this.skipSpace();
+    this.peek() === ">" ? this.pos++ : this.report("LIPS-P001", "error", `Malformed closing tag`, closeStart, this.pos - closeStart);
+    if (closeTag === tag)
+      return "closed";
+    if (stack.includes(closeTag)) {
+      this.report("LIPS-P004", "warning", `</${closeTag}> auto-closes <${tag}>`, closeStart, this.pos - closeStart, `Add the missing </${tag}> before </${closeTag}>`);
+      this.pos = closeStart;
+      return "ancestor";
+    }
+    this.report("LIPS-P005", "error", `Stray closing tag </${closeTag}> — <${tag}> is open`, closeStart, this.pos - closeStart);
+    return "stray";
+  }
+  parseAttrs(el) {
+    while (true) {
+      this.skipSpace();
+      if (this.eof()) {
+        this.report("LIPS-P001", "error", "Unexpected end of template inside tag", el.loc.offset);
+        return;
+      }
+      if (this.startsWith("/>")) {
+        this.pos += 2;
+        el.selfClosed = true;
+        return;
+      }
+      if (this.peek() === ">") {
+        this.pos++;
+        return;
+      }
+      const attrStart = this.pos;
+      if (this.startsWith("...")) {
+        this.pos += 3;
+        const source = this.readUnquotedValue();
+        el.attrs.push({ k: "spread", source, loc: { offset: attrStart, length: this.pos - attrStart } });
+        continue;
+      }
+      if (this.peek() === "[") {
+        this.pos++;
+        const region = this.scanBalanced("]", "LIPS-P009");
+        if (region) {
+          const names = region.content.split(",").map((s) => s.trim()).filter(Boolean);
+          el.attrs.push({ k: "args", names, loc: { offset: attrStart, length: this.pos - attrStart } });
+        }
+        continue;
+      }
+      let negated = false;
+      if (this.peek() === "!") {
+        negated = true;
+        this.pos++;
+      }
+      const nameStart = this.pos;
+      while (!this.eof() && /[^\s=/>()]/.test(this.peek()))
+        this.pos++;
+      const name = this.src.slice(nameStart, this.pos);
+      if (!name) {
+        this.report("LIPS-P009", "error", `Invalid attribute syntax at '${this.peek()}'`, this.pos);
+        this.pos++;
+        continue;
+      }
+      if (this.peek() === "(") {
+        this.pos++;
+        const region = this.scanBalanced(")", "LIPS-P010");
+        const source = region ? region.content.trim() : "";
+        const loc = { offset: attrStart, length: this.pos - attrStart };
+        name.startsWith("on-") ? el.attrs.push({ k: "event", name: name.slice(3), source, loc }) : el.attrs.push({ k: "fn", name, source, loc });
+        continue;
+      }
+      if (this.peek() === "=") {
+        this.pos++;
+        this.parseAttrValue(el, name, attrStart);
+        continue;
+      }
+      el.attrs.push({ k: "bool", name, value: !negated, loc: { offset: attrStart, length: this.pos - attrStart } });
+    }
+  }
+  parseAttrValue(el, name, attrStart) {
+    const q = this.peek();
+    if (q === '"' || q === "'") {
+      this.pos++;
+      const valueStart = this.pos;
+      const parts = [];
+      let buffer = "";
+      while (!this.eof() && this.peek() !== q) {
+        if (this.peek() === "{") {
+          this.pos++;
+          const region = this.scanBalanced("}", "LIPS-P007");
+          if (region) {
+            buffer && parts.push(buffer);
+            buffer = "";
+            parts.push({ expr: region.content.trim(), loc: region.loc });
+          }
+          continue;
+        }
+        buffer += this.peek();
+        this.pos++;
+      }
+      buffer && parts.push(buffer);
+      this.eof() ? this.report("LIPS-P010", "error", `Unterminated value for '${name}'`, valueStart, this.pos - valueStart) : this.pos++;
+      const loc = { offset: attrStart, length: this.pos - attrStart };
+      parts.some((p) => typeof p !== "string") ? el.attrs.push({ k: "interp", name, parts: parts.map((p) => typeof p === "string" ? decodeEntities(p) : p), loc }) : el.attrs.push({ k: "literal", name, value: decodeEntities(parts[0] ?? ""), loc });
+      return;
+    }
+    if (q === "{") {
+      this.pos++;
+      const region = this.scanBalanced("}", "LIPS-P007");
+      el.attrs.push({
+        k: "expr",
+        name,
+        source: region ? region.content.trim() : "",
+        loc: { offset: attrStart, length: this.pos - attrStart }
+      });
+      return;
+    }
+    const source = this.readUnquotedValue();
+    source ? el.attrs.push({ k: "expr", name, source, loc: { offset: attrStart, length: this.pos - attrStart } }) : this.report("LIPS-P010", "error", `Missing value for attribute '${name}'`, attrStart);
+  }
+  readUnquotedValue() {
+    const start = this.pos;
+    let depth = 0;
+    while (!this.eof()) {
+      const c = this.peek();
+      if (c === "'" || c === '"' || c === "`") {
+        this.pos++;
+        while (!this.eof() && this.peek() !== c) {
+          if (this.peek() === "\\")
+            this.pos++;
+          this.pos++;
+        }
+        this.pos++;
+        continue;
+      }
+      if (depth === 0) {
+        if (/\s/.test(c) || c === ">")
+          break;
+        if (c === "/" && this.peek(1) === ">")
+          break;
+      }
+      if (c === "(" || c === "[" || c === "{")
+        depth++;
+      else if (c === ")" || c === "]" || c === "}")
+        depth--;
+      this.pos++;
+    }
+    return this.src.slice(start, this.pos).trim();
+  }
+}
+function parseTemplate(src) {
+  return new TemplateParser(src || "").parse();
+}
+
+// src/ir/compiler.ts
+var ANCHOR = "<!--$-->";
+var CONTROL_TAGS = new Set(["if", "else-if", "else", "for", "switch", "async", "let", "const", "log"]);
+var ARM_TAGS = new Set(["case", "default", "then", "catch", "loading"]);
+var HTML_TAGS = new Set([
+  "a",
+  "abbr",
+  "address",
+  "area",
+  "article",
+  "aside",
+  "audio",
+  "b",
+  "base",
+  "bdi",
+  "bdo",
+  "blockquote",
+  "body",
+  "br",
+  "button",
+  "canvas",
+  "caption",
+  "cite",
+  "code",
+  "col",
+  "colgroup",
+  "data",
+  "datalist",
+  "dd",
+  "del",
+  "details",
+  "dfn",
+  "dialog",
+  "div",
+  "dl",
+  "dt",
+  "em",
+  "embed",
+  "fieldset",
+  "figcaption",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "head",
+  "header",
+  "hgroup",
+  "hr",
+  "html",
+  "i",
+  "iframe",
+  "img",
+  "input",
+  "ins",
+  "kbd",
+  "label",
+  "legend",
+  "li",
+  "link",
+  "main",
+  "map",
+  "mark",
+  "menu",
+  "meta",
+  "meter",
+  "nav",
+  "noscript",
+  "object",
+  "ol",
+  "optgroup",
+  "option",
+  "output",
+  "p",
+  "picture",
+  "pre",
+  "progress",
+  "q",
+  "rp",
+  "rt",
+  "ruby",
+  "s",
+  "samp",
+  "script",
+  "section",
+  "select",
+  "slot",
+  "small",
+  "source",
+  "span",
+  "strong",
+  "style",
+  "sub",
+  "summary",
+  "sup",
+  "table",
+  "tbody",
+  "td",
+  "template",
+  "textarea",
+  "tfoot",
+  "th",
+  "thead",
+  "time",
+  "title",
+  "tr",
+  "track",
+  "u",
+  "ul",
+  "var",
+  "video",
+  "wbr",
+  "svg",
+  "circle",
+  "clippath",
+  "defs",
+  "ellipse",
+  "foreignobject",
+  "g",
+  "image",
+  "line",
+  "lineargradient",
+  "marker",
+  "mask",
+  "path",
+  "pattern",
+  "polygon",
+  "polyline",
+  "radialgradient",
+  "rect",
+  "stop",
+  "symbol",
+  "text",
+  "tspan",
+  "use"
+]);
+var VOID_ELEMENTS2 = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr"
+]);
+var escText = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+var escAttr = (s) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+var isNumeric = (s) => s !== "" && !isNaN(Number(s));
+
+class Compiler {
+  src;
+  macros;
+  exprs = [];
+  exprIndex = new Map;
+  lineStarts = null;
+  macroStack = [];
+  diagnostics = [];
+  constructor(src, macros = new Map) {
+    this.src = src;
+    this.macros = macros;
+  }
+  locate(offset) {
+    if (!this.lineStarts) {
+      this.lineStarts = [0];
+      for (let i = 0;i < this.src.length; i++)
+        if (this.src[i] === `
+`)
+          this.lineStarts.push(i + 1);
+    }
+    let lo = 0, hi = this.lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = lo + hi + 1 >> 1;
+      this.lineStarts[mid] <= offset ? lo = mid : hi = mid - 1;
+    }
+    return { line: lo + 1, col: offset - this.lineStarts[lo] + 1 };
+  }
+  report(code, severity, message, offset, length2 = 1, hint) {
+    const { line: line2, col } = this.locate(offset);
+    this.diagnostics.push({ code, severity, message, hint, loc: { line: line2, col, offset, length: length2 } });
+  }
+  expr(source, at) {
+    const cached = this.exprIndex.get(source);
+    if (cached !== undefined)
+      return cached;
+    const { diagnostics } = parseExpression(source);
+    for (const d of diagnostics) {
+      const offset = (at?.offset ?? 0) + d.loc.offset;
+      this.report(d.code, "error", d.message, offset, d.loc.length);
+    }
+    const idx = this.exprs.length;
+    this.exprs.push(source);
+    this.exprIndex.set(source, idx);
+    return idx;
+  }
+  synth(source) {
+    const cached = this.exprIndex.get(source);
+    if (cached !== undefined)
+      return cached;
+    const idx = this.exprs.length;
+    this.exprs.push(source);
+    this.exprIndex.set(source, idx);
+    return idx;
+  }
+  concat(parts) {
+    parts.filter((p) => typeof p !== "string").forEach((p) => {
+      const { diagnostics } = parseExpression(p.expr);
+      for (const d of diagnostics)
+        this.report(d.code, "error", d.message, p.loc.offset + d.loc.offset, d.loc.length);
+    });
+    const source = parts.map((p) => typeof p === "string" ? JSON.stringify(p) : `((${p.expr})??"")`).join("+");
+    return this.synth(source);
+  }
+  compInput(attr) {
+    switch (attr.k) {
+      case "literal":
+        return { lit: attr.value };
+      case "bool":
+        return { lit: attr.value };
+      case "expr":
+        return { e: this.expr(attr.source, attr.loc) };
+      case "interp":
+        return { e: this.concat(attr.parts) };
+    }
+  }
+  compile(children) {
+    return { v: 1, exprs: this.exprs, root: this.block(children, []) };
+  }
+  block(children, scope) {
+    const block = { html: "", scope: [...scope], binds: [], blocks: [] };
+    const html = [];
+    const emitSiblings = (nodes, path, i18nParent = false) => {
+      let index = 0;
+      let lastWasText = false;
+      const anchor = () => {
+        html.push(ANCHOR);
+        lastWasText = false;
+        return [...path, index++];
+      };
+      for (let i = 0;i < nodes.length; i++) {
+        const node2 = nodes[i];
+        switch (node2.t) {
+          case "text": {
+            if (i18nParent) {
+              block.binds.push({ t: "text", p: anchor(), e: this.synth(JSON.stringify(node2.value)), i18n: 1 });
+              break;
+            }
+            html.push(escText(node2.value));
+            if (!lastWasText)
+              index++;
+            lastWasText = true;
+            break;
+          }
+          case "comment": {
+            html.push(`<!--${node2.value.replace(/--/g, "- -")}-->`);
+            lastWasText = false;
+            index++;
+            break;
+          }
+          case "interp": {
+            const bind = { t: "text", p: anchor(), e: this.concat(node2.parts) };
+            if (i18nParent)
+              bind.i18n = 1;
+            block.binds.push(bind);
+            break;
+          }
+          case "fragment": {
+            nodes = [...nodes.slice(0, i), ...node2.children, ...nodes.slice(i + 1)];
+            i--;
+            break;
+          }
+          case "element": {
+            if (CONTROL_TAGS.has(node2.tag)) {
+              this.controlBlock(node2, nodes, i, anchor(), block, scope);
+              if (node2.tag === "if") {
+                let j = i + 1;
+                while (j < nodes.length) {
+                  const sib = nodes[j];
+                  if (sib.t === "element" && (sib.tag === "else-if" || sib.tag === "else"))
+                    j++;
+                  else
+                    break;
+                }
+                nodes = [...nodes.slice(0, i + 1), ...nodes.slice(j)];
+              }
+              break;
+            }
+            if (ARM_TAGS.has(node2.tag)) {
+              this.report("LIPS-C002", "error", `<${node2.tag}> is only valid inside its parent construct`, node2.loc.offset, node2.loc.length);
+              break;
+            }
+            if (node2.tag === "#dynamic") {
+              block.blocks.push(this.compLike(node2, anchor(), scope, "dynamic"));
+              break;
+            }
+            if (this.macros.has(node2.tag)) {
+              const macroBlock = this.macroCall(node2, anchor(), scope);
+              macroBlock && block.blocks.push(macroBlock);
+              break;
+            }
+            if (!HTML_TAGS.has(node2.tag)) {
+              block.blocks.push(this.compLike(node2, anchor(), scope, "comp"));
+              break;
+            }
+            this.emitElement(node2, path, index++, html, block, emitSiblings);
+            lastWasText = false;
+            break;
+          }
+        }
+      }
+    };
+    emitSiblings(children, []);
+    block.html = html.join("");
+    return block;
+  }
+  emitElement(node2, path, index, html, block, emitSiblings) {
+    const p = [...path, index];
+    let open = `<${node2.tag}`;
+    const i18n = node2.attrs.some((a) => a.k === "bool" && a.name === "i18n" && a.value);
+    const translatableAttr = (name) => i18n && (name === "title" || name === "placeholder");
+    for (const attr of node2.attrs) {
+      switch (attr.k) {
+        case "literal":
+          if (attr.name === "@format") {
+            block.binds.push(this.formatBind(p, attr));
+            break;
+          }
+          if (attr.name.startsWith("@")) {
+            block.binds.push({ t: "prop", p, name: attr.name.slice(1), e: this.synth(JSON.stringify(attr.value)) });
+            break;
+          }
+          if (translatableAttr(attr.name)) {
+            block.binds.push({ t: "attr", p, name: attr.name, e: this.synth(JSON.stringify(attr.value)), i18n: 1 });
+            break;
+          }
+          open += ` ${attr.name}="${escAttr(attr.value)}"`;
+          break;
+        case "bool":
+          attr.name !== "i18n" && attr.value && (open += ` ${attr.name}`);
+          break;
+        case "expr": {
+          if (attr.name === "@format") {
+            block.binds.push(this.formatBind(p, attr));
+            break;
+          }
+          if (attr.name.startsWith("@")) {
+            block.binds.push({ t: "prop", p, name: attr.name.slice(1), e: this.expr(attr.source, attr.loc) });
+            break;
+          }
+          const bind = { t: "attr", p, name: attr.name, e: this.expr(attr.source, attr.loc) };
+          if (translatableAttr(attr.name))
+            bind.i18n = 1;
+          block.binds.push(bind);
+          break;
+        }
+        case "interp": {
+          if (attr.name === "@format") {
+            block.binds.push(this.formatBind(p, attr));
+            break;
+          }
+          const bind = { t: "attr", p, name: attr.name, e: this.concat(attr.parts) };
+          if (translatableAttr(attr.name))
+            bind.i18n = 1;
+          block.binds.push(bind);
+          break;
+        }
+        case "event":
+          block.binds.push({ t: "event", p, name: attr.name, e: this.synth(attr.source) });
+          break;
+        case "spread":
+          block.binds.push({ t: "spread", p, e: this.expr(attr.source, attr.loc) });
+          break;
+        case "fn":
+          this.report("LIPS-C007", "warning", `Callable attribute '${attr.name}(…)' has no meaning on <${node2.tag}>`, attr.loc.offset, attr.loc.length);
+          break;
+        case "args":
+          this.report("LIPS-C008", "warning", `Iterator arguments are not applicable to <${node2.tag}>`, attr.loc.offset, attr.loc.length);
+          break;
+      }
+    }
+    if (VOID_ELEMENTS2.has(node2.tag)) {
+      html.push(open + ">");
+      return;
+    }
+    html.push(open + ">");
+    node2.children.length && emitSiblings(node2.children, p, i18n);
+    html.push(`</${node2.tag}>`);
+  }
+  formatBind(p, attr) {
+    const raw = attr.k === "literal" ? attr.value : attr.k === "expr" ? attr.source : attr.parts.map((part) => typeof part === "string" ? part : `{${part.expr}}`).join("");
+    const comma = raw.indexOf(",");
+    if (comma === -1) {
+      this.report("LIPS-C012", "error", `@format expects "reference, { params }"`, attr.loc.offset, attr.loc.length);
+      return { t: "prop", p, name: "format", e: this.synth("({})"), ref: raw.trim() };
+    }
+    const ref = raw.slice(0, comma).trim(), params = raw.slice(comma + 1).trim();
+    return { t: "prop", p, name: "format", e: this.expr(params, attr.loc), ref };
+  }
+  attrsOf(node2) {
+    const byName = new Map, args = [];
+    for (const attr of node2.attrs) {
+      if (attr.k === "args")
+        args.push(...attr.names);
+      else if ("name" in attr)
+        byName.set(attr.name, attr);
+    }
+    return { byName, args };
+  }
+  controlBlock(node2, siblings, i, p, block, scope) {
+    switch (node2.tag) {
+      case "if": {
+        const branches = [{
+          when: node2.head ? this.expr(node2.head.expr, node2.head.loc) : this.missingHead(node2),
+          block: this.block(node2.children, scope)
+        }];
+        for (let j = i + 1;j < siblings.length; j++) {
+          const sib = siblings[j];
+          if (sib.t !== "element")
+            break;
+          if (sib.tag === "else-if")
+            branches.push({
+              when: sib.head ? this.expr(sib.head.expr, sib.head.loc) : this.missingHead(sib),
+              block: this.block(sib.children, scope)
+            });
+          else if (sib.tag === "else") {
+            branches.push({ when: null, block: this.block(sib.children, scope) });
+            break;
+          } else
+            break;
+        }
+        block.blocks.push({ t: "if", p, branches });
+        break;
+      }
+      case "else-if":
+      case "else":
+        this.report("LIPS-C001", "error", `<${node2.tag}> without a preceding <if>`, node2.loc.offset, node2.loc.length);
+        break;
+      case "for": {
+        const { byName, args } = this.attrsOf(node2);
+        const inAttr = byName.get("in"), fromAttr = byName.get("from"), toAttr = byName.get("to"), byAttr = byName.get("by");
+        if (!inAttr && !fromAttr) {
+          this.report("LIPS-C004", "error", `<for> requires 'in' or 'from'/'to'`, node2.loc.offset, node2.loc.length);
+          break;
+        }
+        const child = {
+          t: "for",
+          p,
+          args,
+          block: this.block(node2.children, [...scope, ...args])
+        };
+        if (inAttr && inAttr.k === "expr")
+          child.of = this.expr(inAttr.source, inAttr.loc);
+        if (fromAttr)
+          child.from = this.numInput(fromAttr);
+        if (toAttr)
+          child.to = this.numInput(toAttr);
+        if (byAttr && (byAttr.k === "literal" || byAttr.k === "expr"))
+          child.by = byAttr.k === "literal" ? { lit: byAttr.value } : { e: this.expr(byAttr.source, byAttr.loc) };
+        block.blocks.push(child);
+        break;
+      }
+      case "switch": {
+        const on = node2.head ? this.expr(node2.head.expr, node2.head.loc) : this.missingHead(node2);
+        const cases = [];
+        for (const child of node2.children) {
+          if (child.t !== "element")
+            continue;
+          if (child.tag === "case") {
+            const { byName } = this.attrsOf(child);
+            const isAttr = byName.get("is");
+            if (!isAttr || isAttr.k !== "literal" && isAttr.k !== "expr") {
+              this.report("LIPS-C004", "error", `<case> requires an 'is' attribute`, child.loc.offset, child.loc.length);
+              continue;
+            }
+            cases.push({
+              is: isAttr.k === "literal" ? { lit: isAttr.value } : { e: this.expr(isAttr.source, isAttr.loc) },
+              block: this.block(child.children, scope)
+            });
+          } else if (child.tag === "default")
+            cases.push({ is: null, block: this.block(child.children, scope) });
+          else
+            this.report("LIPS-C003", "error", `Only <case>/<default> are valid inside <switch>`, child.loc.offset, child.loc.length);
+        }
+        block.blocks.push({ t: "switch", p, on, cases });
+        break;
+      }
+      case "async": {
+        const awaitAttr = node2.attrs.find((a) => a.k === "fn" && a.name === "await");
+        if (!awaitAttr) {
+          this.report("LIPS-C004", "error", `<async> requires await(…)`, node2.loc.offset, node2.loc.length);
+          break;
+        }
+        const child = { t: "async", p, awaitE: this.expr(awaitAttr.source, awaitAttr.loc) };
+        for (const arm of node2.children) {
+          if (arm.t !== "element")
+            continue;
+          const { args } = this.attrsOf(arm);
+          if (arm.tag === "then")
+            child.then = { args, block: this.block(arm.children, [...scope, ...args]) };
+          else if (arm.tag === "catch")
+            child.catch = { args, block: this.block(arm.children, [...scope, ...args]) };
+          else if (arm.tag === "loading")
+            child.loading = this.block(arm.children, scope);
+          else
+            this.report("LIPS-C003", "error", `Only <then>/<catch>/<loading> are valid inside <async>`, arm.loc.offset, arm.loc.length);
+        }
+        block.blocks.push(child);
+        break;
+      }
+      case "let":
+      case "const": {
+        const vars = {};
+        for (const attr of node2.attrs) {
+          if (attr.k === "spread") {
+            this.report("LIPS-C013", "error", `Spread is not supported on <${node2.tag}> — scope names must be known at compile time`, attr.loc.offset, attr.loc.length, `Assign it to one variable: <${node2.tag} obj={ ${attr.source} }/> and read obj.<key>`);
+            continue;
+          }
+          if (attr.k === "literal" || attr.k === "expr" || attr.k === "interp" || attr.k === "bool") {
+            vars[attr.name] = this.compInput(attr);
+            !block.scope.includes(attr.name) && block.scope.push(attr.name);
+            !scope.includes(attr.name) && scope.push(attr.name);
+          }
+        }
+        block.blocks.push({ t: "let", p, const: node2.tag === "const", vars });
+        break;
+      }
+      case "log":
+        block.blocks.push({ t: "log", p, e: node2.head ? this.synth(node2.head.expr) : this.missingHead(node2) });
+        break;
+    }
+  }
+  missingHead(node2) {
+    this.report("LIPS-C004", "error", `<${node2.tag}> requires a head expression: <${node2.tag}( … )>`, node2.loc.offset, node2.loc.length);
+    return this.synth("undefined");
+  }
+  numInput(attr) {
+    if (attr.k === "literal")
+      return { lit: isNumeric(attr.value) ? Number(attr.value) : attr.value };
+    if (attr.k === "expr")
+      return isNumeric(attr.source) ? { lit: Number(attr.source) } : { e: this.expr(attr.source, attr.loc) };
+    return { lit: undefined };
+  }
+  macroCall(node2, p, scope) {
+    const macro = this.macros.get(node2.tag);
+    if (this.macroStack.includes(macro.name)) {
+      this.report("LIPS-C009", "error", `Recursive macro <${macro.name}> (${[...this.macroStack, macro.name].join(" → ")})`, node2.loc.offset, node2.loc.length);
+      return null;
+    }
+    const sets = [];
+    for (const attr of node2.attrs) {
+      if (attr.k === "literal" || attr.k === "expr" || attr.k === "interp" || attr.k === "bool")
+        sets.push({ name: attr.name, ci: this.compInput(attr) });
+      else if (attr.k === "spread")
+        sets.push({ spread: this.expr(attr.source, attr.loc) });
+    }
+    this.macroStack.push(macro.name);
+    const block = this.block(macro.children, [...scope, ...macro.argv]);
+    this.macroStack.pop();
+    return { t: "macro", p, name: macro.name, sets, args: macro.argv, block };
+  }
+  compLike(node2, p, scope, kind) {
+    const inputs = {}, spreads = [], events = [];
+    let args = [];
+    for (const attr of node2.attrs) {
+      switch (attr.k) {
+        case "literal":
+        case "bool":
+        case "expr":
+        case "interp":
+          inputs[attr.name] = this.compInput(attr);
+          break;
+        case "event":
+          events.push({ name: attr.name, e: this.synth(attr.source) });
+          break;
+        case "spread":
+          spreads.push(this.expr(attr.source, attr.loc));
+          break;
+        case "args":
+          args = [...args, ...attr.names];
+          break;
+        case "fn":
+          inputs[attr.name] = { e: this.expr(attr.source, attr.loc) };
+          break;
+      }
+    }
+    const contents = node2.children.length ? { args, block: this.block(node2.children, [...scope, ...args]) } : undefined;
+    return kind === "comp" ? { t: "comp", p, name: node2.tag, inputs, spreads, events, contents } : { t: "dynamic", p, tag: this.expr(node2.dynamicTag.expr, node2.dynamicTag.loc), inputs, spreads, events, contents };
+  }
+}
+function parseMacros(src, diagnostics) {
+  const macros = new Map;
+  if (!src?.trim())
+    return macros;
+  const parsed = parseTemplate(src);
+  diagnostics.push(...parsed.diagnostics);
+  for (const node2 of parsed.root.children) {
+    if (node2.t !== "element")
+      continue;
+    if (node2.tag !== "macro") {
+      diagnostics.push({
+        code: "LIPS-C010",
+        severity: "warning",
+        message: `Only <macro> definitions are allowed in the macros source — ignoring <${node2.tag}>`,
+        loc: { line: 1, col: 1, offset: node2.loc.offset, length: node2.loc.length }
+      });
+      continue;
+    }
+    let name = "";
+    const argv = [];
+    for (const attr of node2.attrs) {
+      if (attr.k === "args")
+        argv.push(...attr.names);
+      else if (attr.k === "literal" && attr.name === "name")
+        name = attr.value;
+    }
+    if (!name) {
+      diagnostics.push({
+        code: "LIPS-C011",
+        severity: "error",
+        message: `<macro> requires a name attribute`,
+        loc: { line: 1, col: 1, offset: node2.loc.offset, length: node2.loc.length }
+      });
+      continue;
+    }
+    macros.set(name.toLowerCase(), { name, argv, children: node2.children });
+  }
+  return macros;
+}
+function compileTemplate(src, options) {
+  const diagnostics = [];
+  const macros = parseMacros(options?.macros || "", diagnostics);
+  const parsed = parseTemplate(src);
+  const compiler = new Compiler(src, macros);
+  const ir = compiler.compile(parsed.root.children);
+  return { ir, diagnostics: [...diagnostics, ...parsed.diagnostics, ...compiler.diagnostics] };
+}
+
+// src/ir/router.ts
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch (e) {
+    return value;
+  }
+}
+var parseQuery = (str) => Object.fromEntries(new URLSearchParams(str));
+var routerTemplate = {
+  state: {
+    page: null,
+    params: {},
+    query: {}
+  },
+  handler: {
+    onCreate() {
+      this.__routes = [];
+      this.__defaultPath = null;
+      this.__currentRoute = null;
+      this.__global = false;
+    },
+    onInput() {
+      this.processor(this.input);
+    },
+    processor(options) {
+      if (!options?.routes)
+        return;
+      if (options.global)
+        this.__global = true;
+      this.__routes = options.routes.map(({ path, template, default: _default }) => {
+        if (_default)
+          this.__defaultPath = path;
+        const pathVars = path.match(/:[^\/]*(\/|$)/gi) || [], pathRegex = path.replaceAll("/", "\\/").replaceAll(/:[^\/]*(\/|$)/gi, "([^\\/]+)(?:\\/|$)");
+        return { path, template, default: _default, pathVars, pathRegex: new RegExp(`${pathRegex}$`, "i") };
+      });
+      if (options.global) {
+        const cpathname = window.location.pathname;
+        this.__defaultPath = this.__defaultPath && cpathname === "/" && cpathname !== this.__defaultPath ? this.__defaultPath : cpathname ? cpathname + window.location.search : this.__routes[0]?.path;
+      }
+    },
+    onAttach() {
+      if (this.input?.global) {
+        window.navigate = this.navigate.bind(this);
+        window.addEventListener("popstate", (e) => e.state && this.navigate(e.state.path, true));
+      }
+      typeof this.setContext === "function" && this.setContext("navigate", this.navigate.bind(this));
+      this.__defaultPath && this.navigate(this.__defaultPath);
+    },
+    navigate(path, back) {
+      !back && this.__global && history.pushState({ path }, "", path);
+      const parts = String(path).split("?");
+      path = parts[0];
+      const query = parts[1] ? parseQuery(parts[1]) : {};
+      let fromState = null;
+      if (this.__currentRoute) {
+        fromState = { path: this.__currentRoute.path, params: this.state.params };
+        this.emit("before", { fromState, toState: { path, query } });
+      }
+      const result = this.match(path);
+      if (!result) {
+        this.__currentRoute = null;
+        this.state.params = {};
+        this.state.query = {};
+        this.state.page = null;
+        this.emit("not-found", path);
+        return;
+      }
+      const { route, params } = result;
+      this.emit("after", { fromState, toState: { path: route.path, params, query } });
+      this.__currentRoute = route;
+      this.state.params = params;
+      this.state.query = query;
+      this.state.page = route.template;
+    },
+    match(path) {
+      const params = {};
+      for (const route of this.__routes) {
+        const matches = path.match(route.pathRegex);
+        if (matches === null || matches.index !== 0)
+          continue;
+        for (let x = 0;x + 1 < matches.length && x < route.pathVars.length; x++)
+          params[route.pathVars[x].replaceAll(/[\/:]/g, "")] = safeDecode(matches[x + 1]);
+        return { route, params };
+      }
+      return false;
+    }
+  },
+  default: `<{state.page} params=state.params query=state.query/>`
+};
+// src/lips.ts
+setCompiler(compileTemplate);
+setStyleCompiler((css) => serialize(compile(css), middleware([stringify])));
+registerBuiltin("router", routerTemplate);
+var lips_default = IRLips;
+
+// tests/manual/stress.test.ts
+function createLipsStressTest(targetElement = "body") {
+  const state = {
+    counter: 0,
+    counterHistory: [],
+    updateFrequency: 16,
+    isRunning: false,
+    metrics: {
+      fps: 0,
+      avgRenderTime: 0,
+      totalUpdates: 0,
+      memoryUsageMB: 0,
+      domOperations: 0
+    }
+  };
+  const _static = {
+    updateInterval: null,
+    frameCountInterval: null,
+    frameCount: 0,
+    lastFrameTimestamp: 0,
+    updateTimes: []
+  };
+  const handler = {
+    onCreate() {
+      console.log("Stress test component created");
+    },
+    onMount() {
+      console.log("Stress test component mounted");
+      this.startPerformanceTracking();
+    },
+    onRender() {
+      const now = performance.now();
+      if (this.static.lastFrameTimestamp) {
+        const frameTime = now - this.static.lastFrameTimestamp;
+        if (frameTime < 1000) {
+          this.static.updateTimes.push(frameTime);
+          if (this.static.updateTimes.length > 100) {
+            this.static.updateTimes.shift();
+          }
+        }
+      }
+      this.static.lastFrameTimestamp = now;
+      this.static.frameCount++;
+    },
+    startPerformanceTracking() {
+      this.static.frameCountInterval = setInterval(() => {
+        this.state.metrics.fps = this.static.frameCount;
+        this.static.frameCount = 0;
+        if (this.static.updateTimes.length) {
+          const avgTime = this.static.updateTimes.reduce((a, b) => a + b, 0) / this.static.updateTimes.length;
+          this.state.metrics.avgRenderTime = avgTime;
+        }
+        if (window.performance && window.performance.memory) {
+          this.state.metrics.memoryUsageMB = window.performance.memory.usedJSHeapSize / (1024 * 1024);
+        }
+      }, 1000);
+    },
+    startStressTest() {
+      if (this.state.isRunning)
+        return;
+      this.state.isRunning = true;
+      this.state.counterHistory = [];
+      this.static.updateInterval = setInterval(() => {
+        this.state.counter++;
+        this.state.metrics.totalUpdates++;
+        if (this.state.counterHistory.length > 100) {
+          this.state.counterHistory.shift();
+        }
+        this.state.counterHistory.push(this.state.counter);
+      }, this.state.updateFrequency);
+    },
+    stopStressTest() {
+      if (!this.state.isRunning)
+        return;
+      clearInterval(this.static.updateInterval);
+      this.state.isRunning = false;
+    },
+    setUpdateFrequency(event) {
+      const frequency = parseFloat(event.target.value);
+      this.state.updateFrequency = frequency;
+      if (this.state.isRunning) {
+        this.stopStressTest();
+        this.startStressTest();
+      }
+    },
+    resetCounter() {
+      this.state.counter = 0;
+      this.state.counterHistory = [];
+      this.state.metrics.totalUpdates = 0;
+    },
+    runHeavyComputation() {
+      const start = performance.now();
+      let sum = 0;
+      for (let i = 0;i < 1e7; i++) {
+        sum += Math.sqrt(i);
+      }
+      console.log(`Heavy computation completed in ${performance.now() - start}ms, result: ${sum}`);
+    },
+    onDestroy() {
+      clearInterval(this.static.updateInterval);
+      clearInterval(this.static.frameCountInterval);
+    }
+  };
+  const template = `
+    <div class="stress-test-container">
+      <h2>Lips Framework Stress Test</h2>
+      
+      <div class="controls">
+        <div class="form-group">
+          <label for="update-frequency">Update Frequency (ms):</label>
+          <input 
+            type="range" 
+            id="update-frequency" 
+            min="1" 
+            max="100" 
+            value=state.updateFrequency 
+            on-input(setUpdateFrequency)
+          />
+          <span>{state.updateFrequency}ms</span>
+        </div>
+        
+        <div class="actions">
+          <if( !state.isRunning )>
+            <button class="start-btn" on-click(startStressTest)>Start Stress Test</button>
+          </if>
+          <else>
+            <button class="stop-btn" on-click(stopStressTest)>Stop Stress Test</button>
+          </else>
+          
+          <button class="reset-btn" on-click(resetCounter)>Reset Counter</button>
+          <button class="heavy-btn" on-click(runHeavyComputation)>Run Heavy Computation</button>
+        </div>
+      </div>
+      
+      <div class="counter-display">
+        <h3>Counter Value: <span class="counter-value">{state.counter}</span></h3>
+        
+        <div class="counter-visualization">
+          <for [value, index] in=state.counterHistory>
+            <div 
+              class="history-bar" 
+              style="height: {Math.min(value % 100, 100)}px; background-color: hsl({value % 360}, 80%, 60%);"
+              title="Update #{index}: {value}"
+            ></div>
+          </for>
+        </div>
+      </div>
+      
+      <div class="metrics-panel">
+        <h3>Performance Metrics</h3>
+        <table class="metrics-table">
+          <tr>
+            <td>FPS:</td>
+            <td class="metric-value">{state.metrics.fps}</td>
+          </tr>
+          <tr>
+            <td>Avg Render Time:</td>
+            <td class="metric-value">{state.metrics.avgRenderTime.toFixed(2)} ms</td>
+          </tr>
+          <tr>
+            <td>Total Updates:</td>
+            <td class="metric-value">{state.metrics.totalUpdates}</td>
+          </tr>
+          <tr>
+            <td>Memory Usage:</td>
+            <td class="metric-value">{state.metrics.memoryUsageMB.toFixed(2)} MB</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  `;
+  const stylesheet = `
+    .stress-test-container {
+      font-family: 'Arial', sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f7f7f7;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+    
+    h2, h3 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: #fff;
+      border-radius: 6px;
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.05);
+    }
+    
+    .form-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    
+    label {
+      min-width: 180px;
+      font-weight: bold;
+    }
+    
+    input[type="range"] {
+      flex: 1;
+    }
+    
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: all 0.2s;
+    }
+    
+    .start-btn {
+      background-color: #4caf50;
+      color: white;
+    }
+    
+    .stop-btn {
+      background-color: #f44336;
+      color: white;
+    }
+    
+    .reset-btn {
+      background-color: #2196f3;
+      color: white;
+    }
+    
+    .heavy-btn {
+      background-color: #ff9800;
+      color: white;
+    }
+    
+    button:hover {
+      opacity: 0.9;
+      transform: translateY(-2px);
+    }
+    
+    .counter-display {
+      margin-top: 30px;
+      text-align: center;
+    }
+    
+    .counter-value {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #1976d2;
+    }
+    
+    .counter-visualization {
+      height: 100px;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      overflow-x: auto;
+      padding: 10px;
+      background-color: #fff;
+      border-radius: 6px;
+      margin-top: 20px;
+    }
+    
+    .history-bar {
+      width: 8px;
+      min-width: 8px;
+      background-color: #2196f3;
+      transition: height 0.2s ease;
+    }
+    
+    .metrics-panel {
+      margin-top: 30px;
+      padding: 15px;
+      background-color: #fff;
+      border-radius: 6px;
+      box-shadow: 0 1px 5px rgba(0, 0, 0, 0.05);
+    }
+    
+    .metrics-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    
+    .metrics-table td {
+      padding: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .metrics-table td:first-child {
+      font-weight: bold;
+      width: 50%;
+    }
+    
+    .metric-value {
+      font-family: monospace;
+      font-size: 1.1em;
+      color: #1976d2;
+    }
+  `;
+  const lips = new lips_default({ debug: true });
+  const stressTestApp = lips.render("StressTestApp", {
+    default: template,
+    state,
+    _static,
+    handler,
+    stylesheet
+  }, {});
+  stressTestApp.appendTo(targetElement);
+  return stressTestApp;
+}
+function runHighFrequencyTest(targetElement = "body", duration = 5000) {
+  console.log(`Running high frequency update test for ${duration}ms...`);
+  const state = {
+    counter: 0,
+    elapsedTime: 0,
+    updatesPerSecond: 0,
+    totalUpdates: 0,
+    isRunning: false,
+    testComplete: false,
+    testResults: {
+      totalUpdates: 0,
+      duration: 0,
+      updatesPerSecond: 0,
+      avgUpdateTime: 0
+    }
+  };
+  const _static = {
+    updateIntervalId: null,
+    startTime: 0,
+    updateTimes: []
+  };
+  const handler = {
+    startTest() {
+      if (this.state.isRunning)
+        return;
+      this.state.isRunning = true;
+      this.state.testComplete = false;
+      this.state.counter = 0;
+      this.state.totalUpdates = 0;
+      this.state.elapsedTime = 0;
+      this.static.startTime = performance.now();
+      this.static.updateTimes = [];
+      const runUpdate = () => {
+        if (!this.state.isRunning)
+          return;
+        const beforeUpdate = performance.now();
+        this.state.counter++;
+        this.state.totalUpdates++;
+        this.state.elapsedTime = beforeUpdate - this.static.startTime;
+        if (this.state.elapsedTime > 0) {
+          this.state.updatesPerSecond = Math.round(this.state.totalUpdates / this.state.elapsedTime * 1000);
+        }
+        const afterUpdate = performance.now();
+        this.static.updateTimes.push(afterUpdate - beforeUpdate);
+        if (this.state.elapsedTime >= duration) {
+          this.finishTest();
+          return;
+        }
+        requestAnimationFrame(runUpdate);
+      };
+      requestAnimationFrame(runUpdate);
+    },
+    finishTest() {
+      this.state.isRunning = false;
+      this.state.testComplete = true;
+      const avgUpdateTime = this.static.updateTimes.reduce((a, b) => a + b, 0) / this.static.updateTimes.length;
+      this.state.testResults = {
+        totalUpdates: this.state.totalUpdates,
+        duration: this.state.elapsedTime,
+        updatesPerSecond: this.state.updatesPerSecond,
+        avgUpdateTime
+      };
+      console.log("High Frequency Test Results:", this.state.testResults);
+    }
+  };
+  const template = `
+    <div class="high-freq-test">
+      <h2>High Frequency Update Test</h2>
+      <p>This test measures how many state updates Lips can handle per second.</p>
+      
+      <div class="test-controls">
+        <if( !state.isRunning && !state.testComplete )>
+          <button on-click(startTest)>Start Test (${duration / 1000}s)</button>
+        </if>
+        <else-if( state.isRunning )>
+          <div class="progress">
+            <div class="progress-bar" style="width: {(state.elapsedTime / ${duration}) * 100}%"></div>
+          </div>
+          <div class="stats">
+            <div>Counter: {state.counter}</div>
+            <div>Elapsed: {(state.elapsedTime / 1000).toFixed(1)}s</div>
+            <div>Updates/sec: {state.updatesPerSecond}</div>
+          </div>
+        </else-if>
+        <else>
+          <div class="results">
+            <h3>Test Complete!</h3>
+            <table>
+              <tr>
+                <td>Total Updates:</td>
+                <td>{state.testResults.totalUpdates}</td>
+              </tr>
+              <tr>
+                <td>Duration:</td>
+                <td>{(state.testResults.duration / 1000).toFixed(2)}s</td>
+              </tr>
+              <tr>
+                <td>Updates Per Second:</td>
+                <td>{state.testResults.updatesPerSecond}</td>
+              </tr>
+              <tr>
+                <td>Avg Update Time:</td>
+                <td>{state.testResults.avgUpdateTime.toFixed(3)}ms</td>
+              </tr>
+            </table>
+            <button on-click(startTest)>Run Again</button>
+          </div>
+        </else>
+      </div>
+    </div>
+  `;
+  const stylesheet = `
+    .high-freq-test {
+      max-width: 600px;
+      margin: 20px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      font-family: 'Arial', sans-serif;
+    }
+    
+    .test-controls {
+      margin-top: 20px;
+    }
+    
+    button {
+      padding: 10px 20px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    
+    .progress {
+      height: 20px;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      margin: 20px 0;
+      overflow: hidden;
+    }
+    
+    .progress-bar {
+      height: 100%;
+      background-color: #4285f4;
+      transition: width 0.2s;
+    }
+    
+    .stats {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 20px;
+    }
+    
+    .results {
+      background-color: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    
+    table {
+      width: 100%;
+      margin: 20px 0;
+      border-collapse: collapse;
+    }
+    
+    td {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+    }
+    
+    td:first-child {
+      font-weight: bold;
+    }
+  `;
+  const lips = new lips_default({ debug: true });
+  const app = lips.render("HighFrequencyTest", { default: template, state, handler, stylesheet }, {});
+  app.appendTo(targetElement);
+  return app;
+}
+function runDOMStressTest(targetElement = "body") {
+  const state = {
+    nodeCount: 1000,
+    renderTime: 0,
+    isRendering: false,
+    nodes: []
+  };
+  const handler = {
+    createNodes(count) {
+      this.state.isRendering = true;
+      const startTime = performance.now();
+      const nodes = [];
+      for (let i = 0;i < count; i++) {
+        nodes.push({
+          id: i,
+          value: `Node ${i}: ${Math.random().toString(36).substring(2, 15)}`
+        });
+      }
+      this.state.nodes = nodes;
+      this.state.renderTime = performance.now() - startTime;
+      setTimeout(() => {
+        this.state.renderTime = performance.now() - startTime;
+        this.state.isRendering = false;
+      }, 10);
+    },
+    shuffleNodes() {
+      this.state.isRendering = true;
+      const startTime = performance.now();
+      const shuffled = [...this.state.nodes];
+      for (let i = shuffled.length - 1;i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+      }
+      this.state.nodes = shuffled;
+      setTimeout(() => {
+        this.state.renderTime = performance.now() - startTime;
+        this.state.isRendering = false;
+      }, 10);
+    },
+    updateValues() {
+      this.state.isRendering = true;
+      const startTime = performance.now();
+      const updated = this.state.nodes.map((node2) => ({
+        ...node2,
+        value: `Node ${node2.id}: ${Math.random().toString(36).substring(2, 15)}`
+      }));
+      this.state.nodes = updated;
+      setTimeout(() => {
+        this.state.renderTime = performance.now() - startTime;
+        this.state.isRendering = false;
+      }, 10);
+    },
+    setNodeCount(e) {
+      this.state.nodeCount = parseInt(e.target.value, 10);
+    }
+  };
+  const template = `
+    <div class="dom-stress-test">
+      <h2>DOM Stress Test</h2>
+      
+      <div class="controls">
+        <div class="input-group">
+          <label for="node-count">Number of Nodes:</label>
+          <input 
+            type="number"
+            id="node-count"
+            min="100"
+            max="10000"
+            step="100"
+            value=state.nodeCount
+            on-input(setNodeCount)/>
+        </div>
+        
+        <div class="buttons">
+          <button on-click(createNodes, state.nodeCount) disabled=state.isRendering>
+            Render Nodes
+          </button>
+          <button on-click(shuffleNodes) disabled="state.isRendering || !state.nodes.length">
+            Shuffle Nodes
+          </button>
+          <button on-click(updateValues) disabled="state.isRendering || !state.nodes.length">
+            Update Values
+          </button>
+        </div>
+        
+        <div class="render-info">
+          <if( state.isRendering )>
+            <div class="loading">Rendering...</div>
+          </if>
+          <else-if( state.renderTime > 0 )>
+            <div class="render-time">Render Time: {state.renderTime.toFixed(2)}ms</div>
+          </else-if>
+        </div>
+      </div>
+      
+      <div class="nodes-container">
+        <if( state.nodes.length )>
+          <for [node] in=state.nodes>
+            <div class="node" key=node.id>{node.value}</div>
+          </for>
+        </if>
+      </div>
+    </div>
+  `;
+  const stylesheet = `
+    .dom-stress-test {
+      max-width: 800px;
+      margin: 20px auto;
+      padding: 20px;
+      font-family: 'Arial', sans-serif;
+    }
+    
+    .controls {
+      margin-bottom: 20px;
+      padding: 15px;
+      background-color: #f5f5f5;
+      border-radius: 8px;
+    }
+    
+    .input-group {
+      display: flex;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+    
+    label {
+      margin-right: 10px;
+      min-width: 150px;
+    }
+    
+    input {
+      padding: 8px;
+      width: 150px;
+    }
+    
+    .buttons {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+    }
+    
+    button {
+      padding: 8px 15px;
+      background-color: #4285f4;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    button:disabled {
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+    
+    .render-info {
+      font-weight: bold;
+      height: 24px;
+    }
+    
+    .loading {
+      color: #ff9800;
+    }
+    
+    .render-time {
+      color: #4285f4;
+    }
+    
+    .nodes-container {
+      border: 1px solid #e0e0e0;
+      padding: 10px;
+      border-radius: 4px;
+      max-height: 400px;
+      overflow-y: auto;
+      background-color: #fafafa;
+    }
+    
+    .node {
+      padding: 8px;
+      border-bottom: 1px solid #eee;
+      font-size: 14px;
+    }
+    
+    .node:last-child {
+      border-bottom: none;
+    }
+  `;
+  const lips = new lips_default({ debug: true });
+  const app = lips.render("DOMStressTest", { default: template, state, handler, stylesheet }, {});
+  app.appendTo(targetElement);
+  return app;
+}
+function runAllStressTests(targetElement = "body") {
+  const container = document.createElement("div");
+  container.className = "stress-tests-suite";
+  container.innerHTML = `
+    <h1>Lips Framework Stress Test Suite</h1>
+    
+    <div class="test-section" id="stress-test"></div>
+    <div class="test-section" id="high-frequency-test"></div>
+    <div class="test-section" id="dom-stress-test"></div>
+  `;
+  const style = document.createElement("style");
+  style.textContent = `
+    .stress-tests-suite {
+      font-family: 'Arial', sans-serif;
+      padding: 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      color: #333;
+    }
+    
+    .test-section {
+      margin-bottom: 40px;
+      border: 1px solid #e0e0e0;
+      padding: 10px;
+      border-radius: 8px;
+    }
+  `;
+  document.head.appendChild(style);
+  document.querySelector(targetElement)?.appendChild(container);
+  createLipsStressTest("#stress-test");
+  runHighFrequencyTest("#high-frequency-test", 3000);
+  runDOMStressTest("#dom-stress-test");
+  return {
+    container
+  };
+}
+runHighFrequencyTest();
+export {
+  runHighFrequencyTest,
+  runDOMStressTest,
+  runAllStressTests,
+  createLipsStressTest
+};
