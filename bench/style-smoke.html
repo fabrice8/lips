@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>StyleIR smoke</title></head>
+<body>
+<h1>StyleIR (RFC-004 Layer 1) — real cascade</h1>
+<div id="app"></div>
+<pre id="out">running…</pre>
+
+<script type="module">
+import Lips, { compileTemplate, compileStyle } from '../dist/lips.min.js'
+
+const results = []
+const check = ( name, cond, detail = '' ) => results.push({ name, pass: !!cond, detail })
+const q = s => document.querySelector( s )
+const tick = ( ms = 30 ) => new Promise( r => setTimeout( r, ms ) )
+/** The whole point: what the BROWSER computed, not what we wrote */
+const computed = ( el, prop ) => getComputedStyle( el ).getPropertyValue( prop ).trim()
+
+const lips = new Lips()
+
+// ---------------------------------------------------------------- 1. values
+const bar = lips.render('bar', {
+  state: { percent: 25 },
+  default: `<div class="host"><div class="track"><div class="fill"></div></div></div>`,
+  stylesheet: `
+    .track { width: 400px; height: 10px; background: #222 }
+    .fill  { height: 10px; background: #4ade80; width: {state.percent}% }`
+}).appendTo('#app')
+
+await tick()
+
+check('sheet injected', !!document.head.querySelector('style[rel="bar"]') )
+check('rel stamped on the scope root', q('#app > .host')?.getAttribute('rel') === 'bar' )
+check('var resolves through calc()', computed( q('.fill'), 'width') === '100px',
+  computed( q('.fill'), 'width') )
+
+bar.state.percent = 75
+await tick()
+check('a state write moves the computed width', computed( q('.fill'), 'width') === '300px',
+  computed( q('.fill'), 'width') )
+
+// ------------------------------------------------------- 2. per-instance vars
+const badge = {
+  default: `<div class="host"><span class="badge">x</span></div>`,
+  stylesheet: `.badge { display: block; color: {input.tone} }`
+}
+lips.render('badge', badge, { tone: 'rgb(255, 0, 0)' }).appendTo('#app')
+lips.render('badge', badge, { tone: 'rgb(0, 0, 255)' }).appendTo('#app')
+
+await tick()
+
+const badges = [ ...document.querySelectorAll('.badge') ]
+check('instance A computes its own colour', computed( badges[0], 'color') === 'rgb(255, 0, 0)',
+  computed( badges[0], 'color') )
+check('instance B computes a different colour', computed( badges[1], 'color') === 'rgb(0, 0, 255)',
+  computed( badges[1], 'color') )
+check('two instances share ONE injected rule',
+  document.head.querySelectorAll('style[rel="badge"]').length === 1 )
+
+// -------------------------------------------- 3. inheritance fallthrough (§12.2)
+const themed = lips.render('themed', {
+  state: { accent: 'rgb(0, 128, 0)' },
+  default: `<div class="wrap"><span class="dot">o</span></div>`,
+  stylesheet: `
+    --accent: {state.accent};
+    .wrap { color: var(--accent) }
+    .dot  { color: var(--accent) }`
+}).appendTo('#app')
+
+await tick()
+check('direct custom-property bind resolves', computed( q('.dot'), 'color') === 'rgb(0, 128, 0)',
+  computed( q('.dot'), 'color') )
+
+// nullish removes the property → falls through to the inherited value
+document.body.style.setProperty('--accent', 'rgb(128, 0, 128)')
+themed.state.accent = undefined
+await tick()
+
+check('nullish falls through to an ancestor value',
+  computed( q('.dot'), 'color') === 'rgb(128, 0, 128)',
+  computed( q('.dot'), 'color') )
+document.body.style.removeProperty('--accent')
+
+// ------------------------------------------------- 4. reactive value in @media
+const grid = lips.render('grid', {
+  state: { gutter: 16 },
+  default: `<div class="host"><div class="grid"><i></i><i></i></div></div>`,
+  stylesheet: `
+    .grid { display: grid; gap: {state.gutter}px }
+    @media (min-width: 1px) { .grid { gap: {state.gutter}px } }`
+}).appendTo('#app')
+
+await tick()
+check('a value inside @media resolves', computed( q('.grid'), 'gap') === '16px',
+  computed( q('.grid'), 'gap') )
+
+grid.state.gutter = 40
+await tick()
+check('and updates reactively', computed( q('.grid'), 'gap') === '40px',
+  computed( q('.grid'), 'gap') )
+
+// ------------------------------------------------------ 5. @property registered
+const reg = [ ...document.styleSheets ]
+  .flatMap( s => { try { return [ ...s.cssRules ] } catch { return [] } })
+  .filter( r => r.constructor.name === 'CSSPropertyRule' || /@property/.test( r.cssText || '') )
+
+check('@property emitted for a unit-typed variable', reg.length > 0,
+  `${reg.length} registration(s)` )
+
+// -------------------------------------------------------------- 6. swap re-binds
+const panel = lips.render('panel', {
+  state: { pad: 8 },
+  default: `<div class="host"><div class="v1">a</div></div>`,
+  stylesheet: `.v1, .v2 { display: block; padding: {state.pad}px }`
+}).appendTo('#app')
+
+await tick()
+check('pre-swap padding', computed( q('.v1'), 'padding-top') === '8px',
+  computed( q('.v1'), 'padding-top') )
+
+const report = panel.swap( compileTemplate(`<div class="host"><div class="v2">b</div></div>`).ir )
+await tick()
+
+check('post-swap root keeps the scope marker',
+  q('#app')?.querySelector('[rel="panel"]')?.querySelector('.v2') !== null )
+check('post-swap styles still apply', computed( q('.v2'), 'padding-top') === '8px',
+  computed( q('.v2'), 'padding-top') )
+
+panel.state.pad = 24
+await tick()
+check('post-swap binds still reactive', computed( q('.v2'), 'padding-top') === '24px',
+  computed( q('.v2'), 'padding-top') )
+
+// ----------------------------------- 7. scoping model: root vs descendant rules
+/**
+ * Pre-existing Lips behaviour, worth pinning: the sheet is wrapped as
+ * `[rel="nsp"] { … }`, so a class rule compiles to a DESCENDANT selector and
+ * never matches the component's own root. A bare top-level declaration DOES
+ * reach the root, because the wrap itself targets it.
+ */
+lips.render('scoping', {
+  state: { c: 'rgb(255, 165, 0)' },
+  default: `<div class="self"><span class="kid">k</span></div>`,
+  stylesheet: `
+    color: {state.c};
+    .self { border: 7px solid red }
+    .kid  { border: 3px solid red }`
+}).appendTo('#app')
+
+await tick()
+check('a bare declaration reaches the root',
+  computed( q('.self'), 'color') === 'rgb(255, 165, 0)', computed( q('.self'), 'color') )
+check('a class rule matching the root does NOT apply (descendant scoping)',
+  computed( q('.self'), 'border-top-width') === '0px', computed( q('.self'), 'border-top-width') )
+check('a class rule matching a descendant does apply',
+  computed( q('.kid'), 'border-top-width') === '3px', computed( q('.kid'), 'border-top-width') )
+
+// ------------------------------------------------------- 8. hover rule compiles
+const hoverIR = compileStyle(`.btn:hover { background: {input.accent} }`, { nsp: 'btn' }).ir
+check('pseudo-class rule keeps its selector and lifts the value',
+  hoverIR.css.includes('.btn:hover') && hoverIR.css.includes('var(--btn-0)'),
+  hoverIR.css )
+
+// --------------------------------------------------------------------- report
+const pass = results.filter( r => r.pass ).length
+q('#out').textContent =
+  `${pass}/${results.length} checks passed\n\n`
+  + results.map( r => `${r.pass ? 'PASS' : 'FAIL'}  ${r.name}${r.detail ? `  → ${r.detail}` : ''}` ).join('\n')
+</script>
+</body>
+</html>

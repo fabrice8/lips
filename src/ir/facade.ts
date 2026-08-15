@@ -24,6 +24,15 @@ let COMPILER: CompilerFn | null = null
 export function setCompiler( fn: CompilerFn ){ COMPILER = fn }
 
 /**
+ * The style compiler is INJECTED for the same reason the template one is:
+ * a static import would pull the CSS scanner (and Stylis behind it) into
+ * the `./runtime` bundle, which exists precisely to ship neither.
+ */
+type StyleCompilerFn = ( src: string, options: StyleCompileOptions ) => StyleCompileResult
+let STYLE_COMPILER: StyleCompilerFn | null = null
+export function setStyleCompiler( fn: StyleCompilerFn ){ STYLE_COMPILER = fn }
+
+/**
  * Built-in components (e.g. `<router>`) are INJECTED by the full
  * entry rather than imported here, so the precompiled-only
  * `./runtime` build — which can't compile their source templates
@@ -37,6 +46,7 @@ import { renderIR } from './runtime'
 import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
+import type { StyleIR, StyleCompileResult, StyleCompileOptions } from './style'
 import I18N from '../i18n'
 
 interface FacadeTemplate {
@@ -49,6 +59,8 @@ interface FacadeTemplate {
   _static?: Record<string, any>
   context?: string[]
   stylesheet?: string
+  /** Precompiled StyleIR — skips CSS compilation entirely (RFC-004) */
+  style?: StyleIR
 }
 
 interface FacadeConfig {
@@ -56,6 +68,12 @@ interface FacadeConfig {
   debug?: boolean
   context?: Record<string, any>
   mode?: 'compiled' | 'interpreted'
+  /**
+   * Emit component sheets inside `@layer <name>` (RFC-004 §9). Absent by
+   * default, and absent output is byte-identical to no layer at all —
+   * only Tailwind-style utility users need this.
+   */
+  styleLayer?: string
 }
 
 /**
@@ -112,8 +130,8 @@ export class IRFacadeComponent extends Events {
       static: template._static,
       handlers,
       deep: true,
-      // Scoped stylesheet — the runtime stamps `rel` and injects
-      stylesheet: template.stylesheet,
+      // Compiled stylesheet — the runtime stamps `rel`, injects, and binds
+      stylesheet: lips.styleFor( name, template ),
       nsp: name,
       expose: {
         /**
@@ -170,6 +188,7 @@ export class IRLips {
   private store = new Map<string, FacadeTemplate>()
   private irCache = new WeakMap<FacadeTemplate, TemplateIR>()
   private defCache = new WeakMap<FacadeTemplate, IRComponentDef>()
+  private styleCache = new WeakMap<FacadeTemplate, StyleIR>()
   private context: Record<string, any>
   private __root?: IRFacadeComponent
 
@@ -236,6 +255,34 @@ export class IRLips {
     }
     return ir
   }
+  /**
+   * Compile `stylesheet` source to StyleIR, or take a precompiled `style`
+   * as-is. Cached per template object like the template IR — the sheet is
+   * per component type, so this runs once no matter how many instances.
+   */
+  styleFor( name: string, template: FacadeTemplate ): StyleIR | undefined {
+    if( template.style ) return template.style
+    if( !template.stylesheet ) return
+
+    if( !STYLE_COMPILER ){
+      console.warn(
+        `[lips:ir] <${name}> stylesheet skipped — this build has no style compiler. `
+        + 'Precompile it to StyleIR, or import "@lipsjs/lips" instead of "@lipsjs/lips/runtime".' )
+      return
+    }
+
+    let style = this.styleCache.get( template )
+    if( !style ){
+      const result = STYLE_COMPILER( template.stylesheet, { nsp: name, layer: this.config?.styleLayer })
+      result.diagnostics.length
+        && console.warn('[lips:ir] style diagnostics —', result.diagnostics )
+
+      style = result.ir
+      this.styleCache.set( template, style )
+    }
+    return style
+  }
+
   private defFor( name: string, template: FacadeTemplate ): IRComponentDef {
     let def = this.defCache.get( template )
     if( !def ){
@@ -244,7 +291,7 @@ export class IRLips {
         state: template.state,
         statics: template._static,
         context: template.context,
-        stylesheet: template.stylesheet,
+        stylesheet: this.styleFor( name, template ),
         nsp: name,
         handlers: guardHandlers( template.handler ),
         deep: true

@@ -22,11 +22,20 @@ const KB = 1024
  * budget moves once, deliberately, instead of the features being
  * trimmed. Next lever if this tightens again: split the event bus and
  * collection reactivity behind opt-in imports.
+ *
+ * 2026-08-15: full 23→25, precompile 10→12. StyleIR (RFC-004 Layer 1)
+ * adds the CSS value scanner to both build-time entries — ~1.7 KB.
+ * `runtime` deliberately does NOT move: the style compiler is injected
+ * (facade `setStyleCompiler`) rather than imported, so the precompiled
+ * entry gains only ~0.2 KB of custom-property bind code and still ships
+ * no CSS compiler at all. That gap is the point of the layer, so runtime
+ * holding at 14 is the number to watch — if it ever has to rise,
+ * something has leaked across the seam.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 23,        // full: runtime + parser/compiler + stylis + router
-  'dist/runtime.min.js': 14,     // precompiled-only: no compiler, no stylis, no router
-  'dist/precompile.min.js': 10   // build-time: parser + compiler + stylis
+  'dist/lips.min.js': 25,        // full: runtime + parser/compiler + style compiler + stylis + router
+  'dist/runtime.min.js': 14,     // precompiled-only: none of the above
+  'dist/precompile.min.js': 12   // build-time: parser + compiler + style compiler + stylis
 }
 
 let failed = false

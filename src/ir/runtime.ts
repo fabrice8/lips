@@ -26,6 +26,7 @@ import type { ExprEnv, Expr } from './expression'
 import { parseExpression, compileExpression, interpretExpression } from './expression'
 import { signal, effect, untrack, reactive } from './signal'
 import type { SwapChange, SwapReport } from './swap'
+import type { StyleIR } from './style'
 import { sameBinds, sameChild, sameLets } from './swap'
 
 // ------------------------------------------------------------------- types
@@ -35,8 +36,8 @@ export interface IRComponentDef {
   statics?: Record<string, any>
   /** Context fields this component subscribes to (fires onContext) */
   context?: string[]
-  /** Scoped stylesheet source + scope name (the `rel` value) */
-  stylesheet?: string
+  /** Compiled stylesheet (RFC-004) + scope name (the `rel` value) */
+  stylesheet?: StyleIR
   nsp?: string
   /** Deep-reactive component state (old-engine parity) */
   deep?: boolean
@@ -87,8 +88,8 @@ export interface RenderSetup {
   deep?: boolean
   /** Extra members merged onto self before handlers bind (e.g. emit) */
   expose?: Record<string, any>
-  /** Scoped stylesheet source + scope name (the `rel` value) */
-  stylesheet?: string
+  /** Compiled stylesheet (RFC-004) + scope name (the `rel` value) */
+  stylesheet?: StyleIR
   nsp?: string
 }
 
@@ -310,15 +311,38 @@ function stampScope( inst: BlockInstance, nsp: string ){
     if( n.nodeType === 1 /* ELEMENT_NODE */ && !( n as Element ).hasAttribute('rel') )
       ( n as Element ).setAttribute('rel', nsp )
 }
+
+/** The element roots a scoped sheet matches, and its variables live on */
+function scopeRoots( inst: BlockInstance ){
+  return nodesOf( inst ).filter( n => n.nodeType === 1 ) as HTMLElement[]
+}
+
+/**
+ * RFC-004 §8 — write a reactive declaration's custom property on the
+ * scope roots. Every element the sheet matches is a root or a descendant,
+ * and custom properties inherit (an inline one applying to the element
+ * itself as well), so one write per root covers every match.
+ *
+ * A nullish value REMOVES the property rather than blanking it, so the
+ * declaration falls through to an ancestor's value — that is what makes
+ * "use mine if given, otherwise inherit" free (RFC-004 §7.3, §12.2).
+ */
+function writeStyleVar( roots: HTMLElement[], prop: string, value: any ){
+  for( const root of roots )
+    value === null || value === undefined || value === false
+      ? root.style.removeProperty( prop )
+      : root.style.setProperty( prop, String( value ) )
+}
+
 function applyScopedStyles(
   options: RuntimeOptions,
   inst: BlockInstance,
   nsp: string,
-  css: string
+  style: StyleIR
 ): ( () => void ) | undefined {
   stampScope( inst, nsp )
 
-  const sheet = options.createStylesheet?.( nsp, css )
+  const sheet = style.css ? options.createStylesheet?.( nsp, style.css ) : undefined
   return sheet ? () => sheet.clear() : undefined
 }
 function disposeInstance( inst: BlockInstance ){
@@ -435,6 +459,26 @@ class IRRenderer {
       }
       first ? first = false : this.hooks?.notifyUpdate()
     })
+  }
+
+  /**
+   * RFC-004 §8 — wire a compiled stylesheet's reactive declarations.
+   * These are ordinary binds: same guarded() effect, same dispose handle,
+   * same onError boundary. No parallel reactive system.
+   *
+   * Roots are captured here, so a rebuild must re-bind (see swap()).
+   */
+  bindStyle( style: StyleIR, inst: BlockInstance, env: RunEnv ): () => void {
+    if( !style.binds.length ) return () => {}
+
+    const
+    roots = scopeRoots( inst ),
+    handles = style.binds.map( b => {
+      const run = this.srcRunner( style.exprs[ b.e ], [] )
+      return this.guarded( () => writeStyleVar( roots, b.prop, run( env ) ) )
+    })
+
+    return () => { for( const h of handles ) h.dispose() }
   }
 
   /** Expression runner for a table entry, honoring the execution mode */
@@ -1298,9 +1342,17 @@ class IRRenderer {
     const inst = renderer.renderBlock( def.ir.root, cenv )
     selfInst = inst // backs self.node
 
-    // Scoped stylesheet — stamp rel before the nodes go live
-    const clearStyles = def.stylesheet
-      ? applyScopedStyles( this.options, inst, def.nsp || 'lips', def.stylesheet )
+    /**
+     * Scoped stylesheet — stamp `rel` and write the reactive declarations'
+     * variables BEFORE the nodes go live, or the first paint resolves
+     * `var()` against nothing (RFC-004 §8).
+     */
+    const
+    clearStyles = def.stylesheet
+      ? applyScopedStyles( this.options, inst, def.stylesheet.nsp || def.nsp || 'lips', def.stylesheet )
+      : undefined,
+    clearStyleBinds = def.stylesheet
+      ? renderer.bindStyle( def.stylesheet, inst, cenv )
       : undefined
 
     insertAfter( anchor, nodesOf( inst ) )
@@ -1366,6 +1418,7 @@ class IRRenderer {
         i > -1 && this.live.splice( i, 1 )
 
         unwatchContext?.()
+        clearStyleBinds?.()
         clearStyles?.()
         destroy( inst )
         try {
@@ -1537,7 +1590,15 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
 
   // Scoped stylesheet for the root component
   const clearStyles = setup.stylesheet
-    ? applyScopedStyles( options, current, setup.nsp || 'lips', setup.stylesheet )
+    ? applyScopedStyles( options, current, setup.stylesheet.nsp || setup.nsp || 'lips', setup.stylesheet )
+    : undefined
+
+  /**
+   * Style binds capture the scope roots, so a swap that rebuilds the root
+   * has to re-bind against the fresh ones.
+   */
+  let clearStyleBinds = setup.stylesheet
+    ? renderer.bindStyle( setup.stylesheet, current, env )
     : undefined
 
   try {
@@ -1593,13 +1654,18 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
        * the `rel` the scoped sheet selects on — re-stamp them, or the
        * component silently loses its styles on the first revision.
        */
-      setup.stylesheet && stampScope( current, setup.nsp || 'lips' )
+      if( setup.stylesheet ){
+        stampScope( current, setup.stylesheet.nsp || setup.nsp || 'lips' )
+        clearStyleBinds?.()
+        clearStyleBinds = renderer.bindStyle( setup.stylesheet, current, env )
+      }
 
       focused && focused.isConnected && focused !== document.activeElement && focused.focus()
 
       return { changes, salvaged: renderer.salvaged }
     },
     dispose(){
+      clearStyleBinds?.()
       clearStyles?.()
       destroy( current )
       try {

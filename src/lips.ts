@@ -11,8 +11,8 @@
  */
 
 import { compile, serialize, stringify, middleware } from 'stylis'
-import { IRLips, IRFacadeComponent, setCompiler, registerBuiltin } from './ir/facade'
-import { setStyleCompiler } from './stylesheet'
+import { IRLips, IRFacadeComponent, setCompiler, setStyleCompiler, registerBuiltin } from './ir/facade'
+import { compileStyle, setStylePreprocessor } from './ir/style'
 import { compileTemplate } from './ir/compiler'
 import { routerTemplate } from './ir/router'
 
@@ -22,7 +22,8 @@ import { routerTemplate } from './ir/router'
  * built-in components out entirely.
  */
 setCompiler( compileTemplate )
-setStyleCompiler( css => serialize( compile( css ), middleware([ stringify ]) ) )
+setStyleCompiler( compileStyle )
+setStylePreprocessor( css => serialize( compile( css ), middleware([ stringify ]) ) )
 registerBuiltin( 'router', routerTemplate )
 
 export * from './types'
@@ -31,6 +32,7 @@ export {
   parseTemplate,
   parseSFC,
   compileTemplate,
+  compileStyle,
   renderIR,
   signal,
   effect,
@@ -44,6 +46,9 @@ export type {
   BindIR,
   ChildIR,
   CompileResult,
+  StyleIR,
+  StyleBindIR,
+  StyleCompileResult,
   TemplateDiagnostic,
   IRInstance,
   IRComponentDef,

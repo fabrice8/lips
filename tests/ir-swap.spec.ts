@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { compileTemplate } from '../src/ir/compiler'
+import { compileStyle } from '../src/ir/style'
 import { renderIR, type RenderSetup, type RuntimeOptions } from '../src/ir/runtime'
 
 function mount( src: string, setup: RenderSetup = {}, options: RuntimeOptions = {} ){
@@ -405,7 +406,7 @@ describe('swap: the Modela scenario', () => {
      * its styles on the first revision.
      */
     const { inst } = mount(`<div class="v1">a</div>`,
-      { stylesheet: `.v1 { color: red }`, nsp: 'scoped' })
+      { stylesheet: compileStyle(`.v1 { color: red }`, { nsp: 'scoped' }).ir, nsp: 'scoped' })
 
     expect( q('.v1')?.getAttribute('rel') ).toBe('scoped')
 
