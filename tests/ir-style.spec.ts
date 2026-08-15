@@ -170,16 +170,109 @@ describe('style compiler: @property registration', () => {
 })
 
 describe('style compiler: diagnostics', () => {
-  it('rejects a dynamic selector', () => {
+  it('S001 — rejects a dynamic selector', () => {
     expect( codes(`{state.sel} { color: blue }`) ).toEqual([ 'LIPS-S001' ])
   })
 
-  it('rejects a dynamic at-rule condition', () => {
+  it('S002 — rejects a dynamic at-rule condition', () => {
     expect( codes(`@media (max-width: {state.bp}px) { .g { color: red } }`) ).toEqual([ 'LIPS-S002' ])
+  })
+
+  it('S003 — rejects a name a stylesheet cannot resolve', () => {
+    /**
+     * A sheet has no template position, so a <for> iterator or <let>
+     * name in one is always a mistake. Without this it silently
+     * resolves to undefined and the declaration computes to unset.
+     */
+    const d = compileStyle(`.row { color: {item.tone} }`, { nsp: 'demo' }).diagnostics
+
+    expect( d.map( x => x.code ) ).toEqual([ 'LIPS-S003' ])
+    expect( d[0].message ).toContain(`'item' is not readable`)
+    expect( d[0].severity ).toBe('error')
+  })
+
+  it('S003 — allows real globals through', () => {
+    expect( codes(`.a { width: {Math.min( state.w, 100 )}px; content: {JSON.stringify( state.o )} }`) ).toEqual([])
+  })
+
+  it('S003 — does not flag arrow parameters', () => {
+    expect( codes(`.a { width: {state.list.filter( n => n > 2 ).length}px }`) ).toEqual([])
+  })
+
+  it('S004 — rejects an interpolation with no closing brace', () => {
+    expect( codes(`.a { color: {state.c`) ).toEqual([ 'LIPS-S004' ])
+  })
+
+  it('S004 — rejects a closing brace that ate the block close', () => {
+    // `}` bound to the interpolation, leaving the rule unterminated
+    expect( codes(`.a { color: {state.c }`) ).toEqual([ 'LIPS-S004' ])
+  })
+
+  it('a trailing declaration without a semicolon is fine', () => {
+    expect( codes(`--accent: red`) ).toEqual([])
+  })
+
+  it('S004 — rejects a malformed expression', () => {
+    expect( codes(`.a { color: {state.} }`) ).toEqual([ 'LIPS-S004' ])
+  })
+
+  it('S005 — warns on a unit suffix after a string literal', () => {
+    const d = compileStyle(`.a { padding: {'1rem'}px }`, { nsp: 'demo' }).diagnostics
+
+    expect( d.map( x => x.code ) ).toEqual([ 'LIPS-S005' ])
+    expect( d[0].severity ).toBe('warning')
+  })
+
+  it('carries a usable location', () => {
+    const d = compileStyle(`.a {\n  color: red;\n  width: {item.w}px\n}`, { nsp: 'demo' }).diagnostics
+
+    expect( d[0].code ).toBe('LIPS-S003')
+    expect( d[0].loc.line ).toBe( 3 )
+    expect( d[0].loc.offset ).toBeGreaterThan( 0 )
   })
 
   it('a valid sheet reports nothing', () => {
     expect( codes(`.a:hover { color: {state.c}; width: {state.w}px }`) ).toEqual([])
+  })
+})
+
+describe('runtime: a throwing style expression hits the error boundary', () => {
+  it('routes to onError instead of escaping', () => {
+    const seen: string[] = []
+    const lips = new Lips()
+
+    const c = lips.render('boom', {
+      state: { n: 1 },
+      default: `<div class="host"><b class="x">x</b></div>`,
+      stylesheet: `.x { width: {self.blow( state.n )}px }`,
+      handler: {
+        blow(){ throw new Error('style expression failed') },
+        onError( error: Error ){ seen.push( error.message ) }
+      }
+    })
+    c.appendTo( document.body )
+
+    expect( seen ).toEqual([ 'style expression failed' ])
+    // the component still rendered — a bad declaration is not fatal
+    expect( rootOf('.x') ).not.toBeNull()
+  })
+
+  it('keeps re-running the bind after a failure', () => {
+    const seen: string[] = []
+    const lips = new Lips()
+
+    const c = lips.render('recover', {
+      state: { w: null as any },
+      default: `<div class="host"><b class="y">y</b></div>`,
+      stylesheet: `.y { width: {state.w.deep}px }`,
+      handler: { onError( error: Error ){ seen.push( error.constructor.name ) } }
+    })
+    c.appendTo( document.body )
+
+    expect( seen ).toHaveLength( 1 )
+
+    c.state.w = { deep: 12 }
+    expect( rootOf('.host').style.getPropertyValue('--recover-0') ).toBe('12')
   })
 })
 
@@ -196,6 +289,41 @@ describe('style compiler: cascade layer', () => {
 
     expect( layered.css ).toContain('@layer components')
     expect( layered.css ).toContain('[rel="demo"] .a')
+  })
+
+  it('reaches the injected sheet through Lips config', () => {
+    const lips = new Lips({ styleLayer: 'components' })
+    lips.render('layered', {
+      state: { w: 3 },
+      default: `<div class="host"><b class="a">a</b></div>`,
+      stylesheet: `.a { width: {state.w}px }`
+    }).appendTo( document.body )
+
+    const sheet = sheetOf('layered')
+    expect( sheet ).toContain('@layer components')
+    expect( sheet ).toContain('[rel="layered"] .a')
+    // reactive declarations still work inside a layer
+    expect( rootOf('.host').style.getPropertyValue('--layered-0') ).toBe('3')
+  })
+
+  it('leaves the sheet unlayered by default', () => {
+    const lips = new Lips()
+    lips.render('plain', {
+      default: `<div class="host"><b class="a">a</b></div>`,
+      stylesheet: `.a { color: red }`
+    }).appendTo( document.body )
+
+    expect( sheetOf('plain') ).not.toContain('@layer')
+  })
+
+  it('keeps @property registrations outside the layer', () => {
+    /**
+     * @property is document-global. Nesting it inside @layer would still
+     * register, but keeping it at top level matches how it is scoped.
+     */
+    const layered = compileStyle(`.a { width: {state.w}px }`, { nsp: 'demo', layer: 'components' }).ir
+
+    expect( layered.css.indexOf('@property') ).toBeLessThan( layered.css.indexOf('@layer') )
   })
 })
 

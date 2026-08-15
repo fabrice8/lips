@@ -20,6 +20,7 @@
  */
 
 import type { TemplateDiagnostic } from './parser'
+import { parseExpression, freeRoots } from './expression'
 
 // ------------------------------------------------------------------- types
 export interface StyleBindIR {
@@ -142,14 +143,25 @@ function readInterpolation( src: string, open: number ){
   return expr ? { end: i, expr } : null
 }
 
-type ValuePart = string | { expr: string, unit: string }
+/**
+ * Names a stylesheet expression may read. A sheet is per component and
+ * has no template position, so `<for>` iterators and `<let>` names —
+ * which are position-local — can never resolve in one.
+ */
+const STYLE_SCOPE = new Set([ 'state', 'input', 'static', 'context', 'self' ])
+
+type ValuePart = string | { expr: string, unit: string, at: number }
 
 /**
  * Scan a declaration value from `from` to its `;`/`}` terminator, lifting
  * interpolations out. Returns null when the "declaration" turns out to be a
  * selector — `a:hover {` enters here on the `:` and aborts at the block.
  */
-function readValue( src: string, from: number ): { end: number, parts: ValuePart[] } | null {
+function readValue(
+  src: string,
+  from: number,
+  onUnterminated?: ( at: number ) => void
+): { end: number, parts: ValuePart[] } | null {
   const parts: ValuePart[] = []
   let i = from, lit = from, paren = 0
 
@@ -168,14 +180,18 @@ function readValue( src: string, from: number ): { end: number, parts: ValuePart
 
     if( c === '{' ){
       const interp = readInterpolation( src, i )
-      if( !interp ) return null
+      if( !interp ){
+        // No closing brace at all → an unterminated interpolation, not a block
+        src.indexOf( '}', i + 1 ) < 0 && onUnterminated?.( i )
+        return null
+      }
 
       parts.push( src.slice( lit, i ) )
 
       const m = UNIT.exec( src.slice( interp.end + 1 ) )
       const unit = m ? m[ 1 ] : ''
 
-      parts.push({ expr: interp.expr, unit })
+      parts.push({ expr: interp.expr, unit, at: i })
       i = interp.end + 1 + unit.length
       lit = i
       continue
@@ -183,6 +199,14 @@ function readValue( src: string, from: number ): { end: number, parts: ValuePart
 
     i++
   }
+
+  /**
+   * Ran to EOF. Harmless for a plain trailing declaration (`--a: red`
+   * with no semicolon), but if an interpolation was consumed on the way
+   * then its closing brace almost certainly ate the block's — report it
+   * rather than emitting silently broken CSS.
+   */
+  parts.some( p => typeof p !== 'string' ) && onUnterminated?.( from )
   return null
 }
 
@@ -213,6 +237,37 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
     return e
   }
 
+  /**
+   * Static checks on a lifted expression: names that cannot resolve
+   * where a sheet runs, and a unit suffix on a value that is plainly
+   * not a number.
+   */
+  const checkExpr = ( s: { expr: string, unit: string, at: number } ) => {
+    const { ast, diagnostics: errors } = parseExpression( s.expr )
+    const length = s.expr.length + 2
+
+    if( errors.length ){
+      report( 'LIPS-S004', `Invalid expression: ${errors[0].message}`, s.at, length )
+      return
+    }
+
+    for( const name of freeRoots( ast ) )
+      if( !STYLE_SCOPE.has( name ) && !( name in globalThis ) )
+        report( 'LIPS-S003',
+          `'${name}' is not readable from a stylesheet`,
+          s.at, length,
+          'Stylesheets see state, input, static, context and self — not <for> iterators or <let> names, '
+          + 'which are local to a template position.' )
+
+    if( s.unit && ast.t === 'lit' && typeof ast.v === 'string' )
+      diagnostics.push({
+        code: 'LIPS-S005', severity: 'warning',
+        message: `Unit '${s.unit}' after a string value`,
+        hint: `A unit suffix multiplies a number: drop the unit, or return ${s.unit === '%' ? '50' : '8'} instead of a string.`,
+        loc: locOf( src, s.at, length )
+      })
+  }
+
   let out = '', i = 0, depth = 0, stmt = 0, paren = 0
 
   while( i < src.length ){
@@ -240,10 +295,17 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
       const name = src.slice( stmt, i ).trim()
 
       if( PROP_NAME.test( name ) ){
-        const value = readValue( src, i + 1 )
+        const value = readValue( src, i + 1, at =>
+          report( 'LIPS-S004',
+            'Unterminated interpolation',
+            at, src.length - at,
+            'Close the expression with `}`.' ) )
 
         if( value ){
-          const slots = value.parts.filter( p => typeof p !== 'string' ) as { expr: string, unit: string }[]
+          const slots = value.parts.filter( p => typeof p !== 'string' ) as
+            { expr: string, unit: string, at: number }[]
+
+          for( const s of slots ) checkExpr( s )
 
           if( !slots.length ){
             // fully static — emit untouched

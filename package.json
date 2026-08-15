@@ -36,7 +36,7 @@
     "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/runtime.ts --entry-naming runtime.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/precompile.ts --entry-naming precompile.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external",
     "build:declaration": "tsc --project tsconfig.types.json",
     "compile": "bun run build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --project tsconfig.test.json",
     "prepack": "bun run build && bun run build:declaration",
     "test": "vitest run",
     "test:watch": "vitest",

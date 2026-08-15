@@ -433,6 +433,47 @@ export function parseExpression( src: string ): { ast: Expr, diagnostics: ExprDi
 const METAVAR_ROOTS = new Set([ 'state', 'input', 'context', 'self', 'arguments' ])
 
 /**
+ * Every root identifier an expression reads that is not bound by an
+ * arrow parameter — the head of each member chain, plus bare reads.
+ *
+ * The complement of `extractDeps`, which drops names it does not
+ * recognise. Callers that need to REPORT an unresolvable name (a
+ * stylesheet has no template position, so a `<for>` iterator in one
+ * can never resolve — RFC-004 §7.2) need to see them instead.
+ */
+export function freeRoots( ast: Expr ): string[] {
+  const roots = new Set<string>()
+
+  const walk = ( node: Expr, shadow: Set<string> ) => {
+    switch( node.t ){
+      case 'id':
+        !shadow.has( node.name ) && roots.add( node.name )
+        return
+      case 'member':
+        walk( node.obj, shadow )
+        typeof node.prop !== 'string' && walk( node.prop, shadow )
+        return
+      case 'call':
+        walk( node.callee, shadow )
+        node.args.forEach( a => walk( a, shadow ) )
+        return
+      case 'unary': case 'update': walk( node.arg, shadow ); return
+      case 'bin': case 'logic': walk( node.l, shadow ); walk( node.r, shadow ); return
+      case 'cond':
+        walk( node.test, shadow ); walk( node.cons, shadow ); walk( node.alt, shadow )
+        return
+      case 'assign': walk( node.target, shadow ); walk( node.value, shadow ); return
+      case 'arrow': walk( node.body, new Set([ ...shadow, ...node.params ]) ); return
+      case 'arr': node.items.forEach( i => walk( i.value, shadow ) ); return
+      case 'obj': node.props.forEach( p => walk( p.value, shadow ) ); return
+    }
+  }
+
+  walk( ast, new Set() )
+  return [ ...roots ]
+}
+
+/**
  * Precise dependency paths from the AST: dotted member paths
  * rooted at metavars (up to the first computed/call boundary),
  * plus bare scope-variable reads. Arrow params shadow.

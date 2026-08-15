@@ -47,34 +47,17 @@ import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import type { StyleIR, StyleCompileResult, StyleCompileOptions } from './style'
+import type { Template, Metavars, LipsConfig, Handler } from '../types'
 import I18N from '../i18n'
 
-interface FacadeTemplate {
-  default?: string
-  /** Precompiled IR — skips parsing entirely (see src/precompile.ts) */
-  ir?: TemplateIR
-  macros?: string
-  state?: Record<string, any>
-  handler?: Record<string, ( this: any, ...args: any[] ) => any>
-  _static?: Record<string, any>
-  context?: string[]
-  stylesheet?: string
-  /** Precompiled StyleIR — skips CSS compilation entirely (RFC-004) */
-  style?: StyleIR
-}
-
-interface FacadeConfig {
-  engine?: string
-  debug?: boolean
-  context?: Record<string, any>
-  mode?: 'compiled' | 'interpreted'
-  /**
-   * Emit component sheets inside `@layer <name>` (RFC-004 §9). Absent by
-   * default, and absent output is byte-identical to no layer at all —
-   * only Tailwind-style utility users need this.
-   */
-  styleLayer?: string
-}
+/**
+ * The authoring shape IS the public `Template<MT>` — one type, not a
+ * parallel internal one. `FacadeTemplate` remains as the erased form
+ * used where the metavars are not known (caches, dynamic resolution).
+ */
+type FacadeTemplate = Template<any>
+type FacadeConfig<Context extends Object = Record<string, any>> =
+  LipsConfig<Context> & { mode?: 'compiled' | 'interpreted' }
 
 /**
  * Names template handlers must not override on the component
@@ -85,28 +68,28 @@ const RESERVED_MEMBERS = new Set([
   'node', 'destroy', 'appendTo', 'prependTo', 'replaceWith', 'render', 'swap'
 ])
 
-function guardHandlers( handler?: FacadeTemplate['handler'] ){
+function guardHandlers( handler?: Handler<any> ){
   if( !handler ) return undefined
 
   for( const name of Object.keys( handler ) )
     if( RESERVED_MEMBERS.has( name ) )
       throw new Error(`Handler <${name}> is a reserved component member name`)
 
-  return handler
+  return handler as Record<string, ( this: any, ...args: any[] ) => any>
 }
 
 // --------------------------------------------------------------- component
-export class IRFacadeComponent extends Events {
-  readonly state: Record<string, any>
+export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
+  readonly state: MT['State']
   private instance: IRInstance
   private contextWatcher?: () => void
   private destroyed = false
 
   constructor(
-    private lips: IRLips,
+    private lips: IRLips<any>,
     name: string,
-    private template: FacadeTemplate,
-    input: Record<string, any> | undefined,
+    private template: Template<MT>,
+    input: MT['Input'] | undefined,
     ir: TemplateIR,
     options: RuntimeOptions
   ){
@@ -161,7 +144,14 @@ export class IRFacadeComponent extends Events {
     this.emit('component:mount')
   }
 
-  get node(){ return this.instance.nodes }
+  /**
+   * Live root ELEMENTS — matching `this.node` inside a handler. The
+   * instance's node list also carries the block's range markers, which
+   * are an internal detail no consumer should have to filter out.
+   */
+  get node(): Element[] {
+    return this.instance.nodes.filter( n => n.nodeType === 1 ) as Element[]
+  }
 
   appendTo( selector: string | Element ){
     const target = typeof selector === 'string' ? document.querySelector( selector ) : selector
@@ -183,14 +173,14 @@ export class IRFacadeComponent extends Events {
 }
 
 // -------------------------------------------------------------------- lips
-export class IRLips {
+export class IRLips<Context extends Object = Record<string, any>> {
   public debug: boolean
   private store = new Map<string, FacadeTemplate>()
   private irCache = new WeakMap<FacadeTemplate, TemplateIR>()
   private defCache = new WeakMap<FacadeTemplate, IRComponentDef>()
   private styleCache = new WeakMap<FacadeTemplate, StyleIR>()
-  private context: Record<string, any>
-  private __root?: IRFacadeComponent
+  private context: Context
+  private __root?: IRFacadeComponent<any>
 
   public i18n = new I18N()
   /** Language signal — translated binds subscribe through it */
@@ -203,9 +193,9 @@ export class IRLips {
    */
   private componentsProxy: Record<string, IRComponentDef>
 
-  constructor( private config?: FacadeConfig ){
+  constructor( private config?: FacadeConfig<Context> ){
     this.debug = !!config?.debug
-    this.context = reactive( { ...( config?.context || {} ) }, true )
+    this.context = reactive( { ...( config?.context || {} ) }, true ) as Context
 
     const [ getLang, setLang ] = signal( this.i18n.lang )
     this.getLang = getLang
@@ -225,7 +215,7 @@ export class IRLips {
   }
 
   // ---- registry
-  register( name: string, template: FacadeTemplate ){
+  register<MT extends Metavars = Metavars>( name: string, template: Template<MT> ){
     this.store.set( name, template )
     return this
   }
@@ -302,7 +292,7 @@ export class IRLips {
   }
 
   // ---- rendering
-  render( name: string, template: FacadeTemplate, input?: Record<string, any> ){
+  render<MT extends Metavars = Metavars>( name: string, template: Template<MT>, input?: MT['Input'] ){
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), {
       mode: this.config?.mode,
       components: this.componentsProxy,
@@ -342,8 +332,8 @@ export class IRLips {
       }
     })
   }
-  root( template: FacadeTemplate, selector: string ){
-    this.__root = this.render( '__ROOT__', template )
+  root<MT extends Metavars = Metavars>( template: Template<MT>, selector: string ){
+    this.__root = this.render<MT>( '__ROOT__', template )
     this.__root.appendTo( selector )
     return this.__root
   }
@@ -365,28 +355,31 @@ export class IRLips {
   }
 
   // ---- context
-  getContext(){ return this.context }
-  setContext( arg: string | Record<string, any>, value?: any ){
+  /** Reactive store, indexed dynamically — Context only types the surface */
+  private get ctx(){ return this.context as Record<string, any> }
+
+  getContext(): Context { return this.context }
+  setContext( arg: ( keyof Context & string ) | Partial<Context>, value?: any ){
     typeof arg === 'string'
-      ? this.context[ arg ] = value
-      : Object.entries( arg ).forEach( ( [ k, v ] ) => this.context[ k ] = v )
+      ? this.ctx[ arg ] = value
+      : Object.entries( arg as object ).forEach( ( [ k, v ] ) => this.ctx[ k ] = v )
   }
   /**
    * Subscribe to a subset of context fields — the effect tracks
    * exactly those keys, so unrelated context writes don't fire it.
    * Returns an unsubscribe function.
    */
-  watchContext( fields: string[], fn: () => void ){
+  watchContext( fields: ( keyof Context & string )[] | string[], fn: () => void ){
     let first = true
     const { dispose } = effect( () => {
-      fields.forEach( f => this.context[ f ] ) // track
+      ;( fields as string[] ).forEach( f => this.ctx[ f ] ) // track
       first ? first = false : fn()
     })
     return dispose
   }
-  useContext( fields: string[], fn: ( ctx: Record<string, any> ) => void ){
+  useContext( fields: string[], fn: ( ctx: Partial<Context> ) => void ){
     return this.watchContext( fields, () =>
-      fn( Object.fromEntries( fields.map( f => [ f, this.context[ f ] ] ) ) ) )
+      fn( Object.fromEntries( fields.map( f => [ f, this.ctx[ f ] ] ) ) as Partial<Context> ) )
   }
 
   dispose(){
