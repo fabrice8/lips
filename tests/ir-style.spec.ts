@@ -120,6 +120,27 @@ describe('style compiler: disambiguation', () => {
     expect( ir.props ).toBeUndefined()
   })
 
+  it('lifts a value from a declaration preceded by a comment', () => {
+    /**
+     * The comment used to be swallowed into the property name, so the
+     * declaration was never scanned and the interpolation was misread
+     * downstream — inside a function call it reported S002 and was
+     * deleted, leaving `rotate()`. Found by bench/particles.html.
+     */
+    const ir = css(`.a {\n  color: red;\n  /* why */\n  transform: rotate({state.deg}deg)\n}`)
+
+    expect( codes(`.a {\n  /* why */\n  transform: rotate({state.deg}deg)\n}`) ).toEqual([])
+    expect( ir.css ).toContain('rotate(calc(var(--demo-0) * 1deg))')
+    expect( ir.binds ).toEqual([ { prop: '--demo-0', e: 0 } ])
+  })
+
+  it('lifts a value nested inside a function call', () => {
+    const ir = css(`.a { transform: translate3d(calc(var(--x) * 1px), 0, 0) rotate({state.d}deg) }`)
+
+    expect( ir.css ).toContain('rotate(calc(var(--demo-0) * 1deg))')
+    expect( ir.css ).toContain('translate3d(calc(var(--x) * 1px), 0, 0)')
+  })
+
   it('keeps quoted braces literal', () => {
     const ir = css(`.a::after { content: "{}" }`)
 

@@ -275,7 +275,16 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
 
     if( c === '/' && src[ i + 1 ] === '*' ){
       const end = skipComment( src, i )
-      out += src.slice( i, end ); i = end; continue
+      out += src.slice( i, end )
+      /**
+       * A comment before a declaration must not become part of the
+       * property name, or `PROP_NAME` rejects it, the value is never
+       * scanned, and any interpolation inside it is misread further
+       * down (an at-rule condition, at worst) instead of being lifted.
+       */
+      !src.slice( stmt, i ).trim() && ( stmt = end )
+      i = end
+      continue
     }
     if( c === '"' || c === "'" ){
       const end = skipString( src, i )

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Lips particle stress — full template + style surface</title>
+<style>
+  :root { color-scheme: dark }
+  body { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         margin: 0; padding: 16px; background: #0a0a0b; color: #ededef }
+  h1 { font-size: 15px; margin: 0 0 4px; font-weight: 600 }
+  .sub { color: #8a8a91; margin: 0 0 14px }
+  #app { display: grid; grid-template-columns: 220px 1fr; gap: 14px; align-items: start }
+  #out { margin-top: 14px; white-space: pre-wrap; color: #b9b9c0;
+         border-top: 1px solid #26262b; padding-top: 10px }
+  .ok { color: #4ade80 } .bad { color: #f87171 }
+</style>
+</head>
+<body>
+<h1>Lips particle stress</h1>
+<p class="sub">Every template construct and every StyleIR construct, driven at animation rate.</p>
+<div id="app"></div>
+<pre id="out">running…</pre>
+
+<script type="module">
+/* A demo that fails must say so, not sit on "running…" forever. */
+const fail = e => {
+  const out = document.querySelector('#out')
+  out.innerHTML = `<span class="bad">ERROR</span>  ${( e && ( e.message || e.reason?.message ) ) || e}\n\n`
+    + ( ( e && ( e.error?.stack || e.reason?.stack ) ) || '' )
+}
+window.addEventListener('error', fail )
+window.addEventListener('unhandledrejection', fail )
+
+import Lips from '../dist/lips.min.js'
+
+const lips = new Lips({ context: { theme: 'dark', quality: 'high' } })
+
+/* ------------------------------------------------------------------ particle
+ * One instance per dot. Position and colour live entirely in custom
+ * properties written on the scope root — a frame update is N variable
+ * writes, no re-render, no rule regeneration.
+ */
+lips.register('particle', {
+  default: `<i class="dot"><if( input.trail )><b class="tail"></b></if></i>`,
+  stylesheet: `
+    --x: {input.x};
+    --y: {input.y};
+    --h: {input.hue};
+    --s: {input.size};
+
+    /* Bare declarations style the component's own root element.
+       A class rule would compile to a descendant selector, which
+       cannot match the root itself. */
+    position: absolute;
+    left: 0; top: 0;
+    width: calc(var(--s) * 1px);
+    height: calc(var(--s) * 1px);
+    margin-left: calc(var(--s) * -0.5px);
+    margin-top: calc(var(--s) * -0.5px);
+    border-radius: 50%;
+    background: hsl(var(--h) 80% 60%);
+    /* unit-suffixed slot: exercises the calc + @property path
+       alongside the direct custom-property binds above */
+    transform: translate3d(calc(var(--x) * 1px), calc(var(--y) * 1px), 0)
+               rotate({input.hue}deg);
+    will-change: transform;
+
+    &:hover { background: hsl(var(--h) 100% 85%) }
+
+    .tail {
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      background: hsl(var(--h) 80% 60% / .35);
+      transform: scale(2.2);
+    }
+    @media (prefers-reduced-motion: reduce) { will-change: auto }`
+})
+
+/* --------------------------------------------------------------- statistics
+ * Slot with arguments: the parent writes the row body, this component
+ * supplies the value at the placement site.
+ */
+lips.register('stat-list', {
+  default: `
+    <ul class="stats">
+      <for [row] in=input.rows by="key">
+        <li class="stat"><{input.renderer} row=row/></li>
+      </for>
+    </ul>`,
+  stylesheet: `
+    .stats { display: block; margin: 0; padding: 0 }
+    .stat  { display: flex; justify-content: space-between; padding: 1px 0 }`
+})
+
+/* ------------------------------------------------------------------- legends
+ * Reads a Map and a Set straight out of state.
+ */
+lips.register('hue-legend', {
+  default: `
+    <div class="legend">
+      <for [key, band] in=input.bands>
+        <span class="band" data-key=key>{band.label}</span>
+      </for>
+      <for [tag] in=input.tags>
+        <span class="tag">#{tag}</span>
+      </for>
+    </div>`,
+  stylesheet: `
+    .legend { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px }
+    .band, .tag { display: inline-block; padding: 0 5px; border: 1px solid #33333a; border-radius: 3px }
+    .tag { color: {input.accent} }`
+})
+
+/* ------------------------------------------------------------- mode surfaces
+ * Targets of a dynamic component tag `<{state.panel}/>`.
+ */
+lips.register('panel-physics', {
+  default: `<div class="panel"><b i18n>Physics</b><p>gravity {input.gravity} · drag {input.drag}</p></div>`
+})
+lips.register('panel-render', {
+  default: `<div class="panel"><b i18n>Render</b><p>{input.count} particles · trails {input.trails ? 'on' : 'off'}</p></div>`
+})
+
+/* -------------------------------------------------------------------- field */
+const field = {
+  state: {
+    particles: [],
+    count: 0,
+    running: true,
+    emitter: 'fountain',
+    panel: 'panel-physics',
+    trails: false,
+    gravity: 0.18,
+    drag: 0.995,
+    hueShift: 0,
+    fps: 0,
+    frames: 0,
+    bands: new Map([
+      [ 'lo', { label: 'slow' } ],
+      [ 'hi', { label: 'fast' } ]
+    ]),
+    tags: new Set([ 'keyed', 'signals' ]),
+    preset: null
+  },
+
+  _static: {
+    W: 720,
+    H: 420,
+    emitters: [ 'fountain', 'spiral', 'rain' ]
+  },
+
+  context: [ 'quality' ],
+
+  macros: `
+    <macro [label, value, action, active] name="ctl">
+      <button class=(active ? 'ctl on' : 'ctl')
+               data-value=value
+               on-click( action, value )>{label}</button>
+    </macro>`,
+
+  default: `
+    <div class="wrap">
+      <div class="side">
+        <div class="group">
+          <h2 i18n>Emitter</h2>
+          <for [name] in=static.emitters>
+            <ctl label=name value=name action=self.setEmitter active=(state.emitter === name)/>
+          </for>
+        </div>
+
+        <div class="group">
+          <h2 i18n>Count</h2>
+          <for [n] from=1 to=3>
+            <let size={ n * 150 }/>
+            <ctl label=size value=size action=self.setCount active=(state.count === size)/>
+          </for>
+        </div>
+
+        <div class="group">
+          <button class="ctl wide" on-click(toggle)>
+            <if( state.running )>pause</if><else>resume</else>
+          </button>
+          <button class="ctl wide" on-click( () => state.trails = !state.trails )>
+            trails {state.trails ? 'on' : 'off'}
+          </button>
+          <button class="ctl wide" on-click(cyclePanel)>panel</button>
+        </div>
+
+        <div class="group">
+          <switch( state.emitter )>
+            <case is="fountain"><small>upward burst, gravity bound</small></case>
+            <case is=[ 'spiral', 'rain' ]><small>continuous field</small></case>
+            <default><small>—</small></default>
+          </switch>
+        </div>
+
+        <div class="group">
+          <async await( self.loadPreset( state.emitter ) )>
+            <loading><small class="muted">loading preset…</small></loading>
+            <then [p]><small class="ok">preset: {p.name}</small></then>
+            <catch [e]><small class="bad">{e.message}</small></catch>
+          </async>
+        </div>
+
+        <div class="group">
+          <const UNIT="fps"/>
+          <let live={ state.particles.length }
+               ratio={ live ? Math.round( state.fps ) : 0 }/>
+
+          <stat-list [row] rows=self.stats( live, ratio )>
+            <span class="k">{row.key}</span><span class="v">{row.value}</span>
+          </stat-list>
+          <small class="muted">{state.fps.toFixed( 0 )} {UNIT} · quality {context.quality}</small>
+
+          <hue-legend bands=state.bands tags=state.tags accent="#4ade80"/>
+        </div>
+
+        <{state.panel} ...self.panelInput()/>
+      </div>
+
+      <div class="stage">
+        <for [p] in=state.particles by="id">
+          <particle x=p.x y=p.y hue=(p.hue + state.hueShift) size=p.size trail=state.trails/>
+        </for>
+        <if( !state.particles.length )>
+          <div class="empty" i18n>no particles</div>
+        </if>
+      </div>
+    </div>`,
+
+  stylesheet: `
+    --stage-w: {static.W};
+    --stage-h: {static.H};
+    --hue: {state.hueShift};
+
+    display: contents;
+
+    .side { display: flex; flex-direction: column; gap: 10px }
+    .group { border: 1px solid #26262b; border-radius: 4px; padding: 8px }
+    h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+         color: #8a8a91; margin: 0 0 6px }
+
+    .ctl { display: inline-block; padding: 3px 8px; margin: 0 4px 4px 0;
+           background: #141417; color: #ededef; border: 1px solid #33333a;
+           border-radius: 3px; cursor: pointer; font: inherit }
+    .ctl:hover { border-color: hsl(var(--hue) 70% 55%); color: hsl(var(--hue) 70% 70%) }
+    .ctl.on   { background: hsl(var(--hue) 70% 55%); color: #0a0a0b; border-color: transparent }
+    .ctl.wide { display: block; width: 100%; text-align: left }
+
+    .stage {
+      position: relative; overflow: hidden;
+      width: calc(var(--stage-w) * 1px);
+      height: calc(var(--stage-h) * 1px);
+      background: radial-gradient(circle at 50% 30%, #131318, #0a0a0b 70%);
+      border: 1px solid #26262b; border-radius: 4px;
+    }
+    .empty { position: absolute; inset: 0; display: grid; place-items: center; color: #4a4a52 }
+
+    .k { color: #8a8a91 }
+    .v { color: #ededef }
+    .muted { color: #6a6a72 }
+    .ok { color: #4ade80 } .bad { color: #f87171 }
+    small { display: block; margin-top: 4px }
+
+    @media (max-width: 860px) { .stage { width: 100% } }
+
+    @keyframes tick { from { opacity: .55 } to { opacity: 1 } }
+    .v { animation: tick .4s ease-out }`,
+
+  handler: {
+    onCreate(){
+      this.static.raf = 0
+      this.static.last = performance.now()
+      this.static.acc = 0
+      this.static.frames = 0
+      this.setCount( 150 )
+      this.loop()
+    },
+
+    stats( live, fps ){
+      return [
+        { key: 'particles', value: live },
+        { key: 'fps', value: fps },
+        { key: 'emitter', value: this.state.emitter },
+        { key: 'frames', value: this.state.frames }
+      ]
+    },
+
+    panelInput(){
+      return this.state.panel === 'panel-physics'
+        ? { gravity: this.state.gravity, drag: this.state.drag }
+        : { count: this.state.count, trails: this.state.trails }
+    },
+
+    async loadPreset( emitter ){
+      await new Promise( r => setTimeout( r, 40 ) )
+      if( emitter === 'nope' ) throw new Error('unknown preset')
+      return { name: `${emitter}-v1` }
+    },
+
+    setEmitter( name ){ this.state.emitter = name; this.seed() },
+    setCount( n ){ this.state.count = n; this.seed() },
+    toggle(){ this.state.running = !this.state.running },
+    cyclePanel(){
+      this.state.panel = this.state.panel === 'panel-physics' ? 'panel-render' : 'panel-physics'
+    },
+
+    seed(){
+      const { W, H } = this.static
+      const out = []
+      for( let i = 0; i < this.state.count; i++ )
+        out.push({
+          id: i,
+          x: W / 2, y: H - 10,
+          vx: 0, vy: 0,
+          hue: ( i * 7 ) % 360,
+          size: 3 + ( i % 4 ),
+          seed: Math.random()
+        })
+      this.state.particles = out
+      this.reset()
+    },
+
+    reset(){
+      const { W, H } = this.static
+      for( const p of this.state.particles ){
+        switch( this.state.emitter ){
+          case 'fountain':
+            p.x = W / 2; p.y = H - 8
+            p.vx = ( p.seed - 0.5 ) * 6
+            p.vy = -4 - p.seed * 5
+            break
+          case 'spiral':
+            p.x = W / 2; p.y = H / 2
+            p.vx = Math.cos( p.id ) * 2.2
+            p.vy = Math.sin( p.id ) * 2.2
+            break
+          default:
+            p.x = p.seed * W; p.y = -p.seed * H
+            p.vx = 0; p.vy = 1 + p.seed * 2
+        }
+      }
+    },
+
+    step(){
+      const { W, H } = this.static
+      const { gravity, drag } = this.state
+
+      for( const p of this.state.particles ){
+        p.vy += gravity
+        p.vx *= drag
+        p.vy *= drag
+        p.x += p.vx
+        p.y += p.vy
+
+        if( p.y > H - 4 ){
+          if( this.state.emitter === 'rain' ){ p.y = -4; p.x = Math.random() * W }
+          else { p.y = H - 4; p.vy *= -0.55; p.vx *= 0.9 }
+        }
+        if( p.x < 0 || p.x > W ) p.vx *= -1
+      }
+
+      this.state.hueShift = ( this.state.hueShift + 0.4 ) % 360
+      this.state.frames++
+    },
+
+    loop(){
+      const tick = now => {
+        this.static.raf = requestAnimationFrame( tick )
+
+        const dt = now - this.static.last
+        this.static.last = now
+        this.static.acc += dt
+        this.static.frames++
+
+        if( this.static.acc >= 500 ){
+          this.state.fps = ( this.static.frames * 1000 ) / this.static.acc
+          this.static.acc = 0
+          this.static.frames = 0
+        }
+
+        this.state.running && this.step()
+      }
+      this.static.raf = requestAnimationFrame( tick )
+    },
+
+    onDestroy(){ cancelAnimationFrame( this.static.raf ) }
+  }
+}
+
+const app = lips.root( field, '#app' )
+window.__app = app
+
+/* ------------------------------------------------------------ verification
+ * The demo is also the check: every construct below must have produced
+ * live DOM or a live custom property.
+ */
+const results = []
+const check = ( name, cond, detail = '' ) => results.push({ name, pass: !!cond, detail })
+const q = s => document.querySelector( s )
+const qa = s => [ ...document.querySelectorAll( s ) ]
+const tick = ( ms = 60 ) => new Promise( r => setTimeout( r, ms ) )
+/** Poll for a condition — fixed delays race the animation frame budget */
+const until = async ( pred, ms = 3000 ) => {
+  const stop = performance.now() + ms
+  while( performance.now() < stop ){
+    if( pred() ) return true
+    await tick( 50 )
+  }
+  return false
+}
+const computed = ( el, prop ) => getComputedStyle( el ).getPropertyValue( prop ).trim()
+
+await tick( 300 )
+
+// --- template surface
+check('for + by= renders the keyed list', qa('.dot').length === 150, `${qa('.dot').length} dots`)
+check('for from/to renders a numeric range', qa('.ctl[data-value="150"]').length === 1)
+check('for over a Map', qa('.band').length === 2)
+check('for over a Set', qa('.tag').length === 2)
+check('macro expanded with call-site args', qa('.ctl').length >= 6)
+check('if/else picked a branch', /pause|resume/.test( q('.ctl.wide')?.textContent || '') )
+check('switch matched a case', /gravity bound/.test( q('.side')?.textContent || '') )
+check('async then arm resolved',
+  await until( () => /preset: \w+-v1/.test( q('.side')?.textContent || '') ) )
+check('let + const evaluated', /fps/.test( q('.side')?.textContent || '') )
+check('slot with arguments rendered rows', qa('.stat').length === 4)
+check('slot body used the supplied argument', q('.stat .k')?.textContent === 'particles')
+check('dynamic component tag resolved', !!q('.panel'))
+check('spread input reached the dynamic component', /gravity/.test( q('.panel')?.textContent || '') )
+check('i18n attribute passed through', /Emitter/.test( q('.side')?.textContent || '') )
+check('context read in a binding', /quality high/.test( q('.side')?.textContent || '') )
+
+// --- style surface
+const dot = q('.dot')
+check('direct custom-property bind on a nested component',
+  dot.style.getPropertyValue('--x') !== '', dot.getAttribute('style') )
+check('bare declarations style the component root',
+  computed( dot, 'position') === 'absolute', computed( dot, 'position') )
+check('transform resolves through calc(var())',
+  /matrix|translate/.test( computed( dot, 'transform') ), computed( dot, 'transform') )
+check('per-instance hue differs between particles',
+  qa('.dot')[0].style.getPropertyValue('--h') !== qa('.dot')[9].style.getPropertyValue('--h') )
+check('one shared rule for all particles',
+  document.head.querySelectorAll('style[rel="particle"]').length === 1)
+check('bare declaration reached the root scope',
+  computed( q('.stage'), 'height') === '420px', computed( q('.stage'), 'height') )
+check('keyframes rule injected',
+  ( document.head.querySelector('style[rel="__ROOT__"]')?.textContent || '').includes('@keyframes tick') )
+check('@property registered for unit-typed vars',
+  ( document.head.querySelector('style[rel="particle"]')?.textContent || '').includes('@property') )
+
+// --- reactivity under load
+const before = dot.style.getPropertyValue('--x')
+await tick( 300 )
+check('positions animate through custom properties',
+  dot.style.getPropertyValue('--x') !== before,
+  `${before} → ${dot.style.getPropertyValue('--x')}`)
+
+// --- interaction
+q('.ctl[data-value="spiral"]').click()
+await tick( 200 )
+check('event handler with an argument switched emitter', app.state.emitter === 'spiral')
+check('keyed list survived the emitter switch', qa('.dot').length === 150)
+
+q('.ctl[data-value="450"]').click()
+await tick( 400 )
+check('count change re-keyed the list', qa('.dot').length === 450, `${qa('.dot').length} dots`)
+
+q('.ctl[data-value="150"]').click()
+await tick( 400 )
+
+/* -------------------------------------------------------------- measurements
+ * Not pass/fail — the numbers this demo exists to produce.
+ *
+ * A nested write (`particles[i].x = v`) is deliberately coarse in the
+ * current reactivity core: deepWrap's set trap force-notifies the TOP
+ * key's subscribers (src/ir/signal.ts, RFC-001 §6), and the keyed <for>
+ * is one of them. So one field write costs O(list), and an animation
+ * loop touching 4 fields × N particles per frame pays N × O(N).
+ */
+app.state.running = false
+await tick( 120 )
+
+const perWrite = n => {
+  const ps = app.state.particles
+  const t = performance.now()
+  for( let i = 0; i < n; i++ ) ps[ i % ps.length ].x += 0.01
+  return ( performance.now() - t ) / n
+}
+/**
+ * Control: a top-level key with a HANDFUL of subscribers. It must stay
+ * flat as the list grows — that is what isolates the nested-write cost
+ * from the honest O(subscribers) cost of a value every particle reads.
+ */
+const controlWrite = n => {
+  const t = performance.now()
+  for( let i = 0; i < n; i++ ) app.state.gravity = 0.18 + ( i % 2 ) * 0.001
+  return ( performance.now() - t ) / n
+}
+
+const measurements = []
+for( const n of [ 150, 300, 450 ] ){
+  q(`.ctl[data-value="${n}"]`).click()
+  await tick( 400 )
+  app.state.running = false
+  measurements.push({ n, nested: perWrite( 40 ), control: controlWrite( 40 ) })
+}
+
+q('.ctl[data-value="150"]').click()
+await tick( 300 )
+app.state.running = true
+await tick( 700 )
+const fps = app.state.fps
+
+check('a low-subscriber top-level write stays flat as the list grows',
+  measurements[2].control < Math.max( measurements[0].control * 2, 0.05 ),
+  measurements.map( m => `${m.n}:${m.control.toFixed(3)}ms` ).join(' '))
+
+check('nested writes scale with list length (known limitation)',
+  measurements[2].nested > measurements[0].nested * 1.4,
+  measurements.map( m => `${m.n}:${m.nested.toFixed(2)}ms` ).join(' '))
+
+// --- report
+const pass = results.filter( r => r.pass ).length
+const perf =
+  `\n\nmeasurements (animation paused)\n`
+  + measurements.map( m =>
+      `  ${String(m.n).padStart(3)} particles   nested write ${m.nested.toFixed(2)} ms   `
+      + `control write ${m.control.toFixed(3)} ms` ).join('\n')
+  + `\n  150 particles   ${fps.toFixed(0)} fps live\n`
+  + `\n  A frame writes 4 fields x N particles. A nested write notifies the\n`
+  + `  TOP key's subscribers — the keyed &lt;for&gt; among them — so each one\n`
+  + `  costs O(list), while a low-subscriber write stays flat.\n`
+  + `  See deepWrap in src/ir/signal.ts and RFC-001 section 6.`
+
+q('#out').innerHTML =
+  `<b>${pass}/${results.length} checks passed</b>\n\n`
+  + results.map( r =>
+      `<span class="${r.pass ? 'ok' : 'bad'}">${r.pass ? 'PASS' : 'FAIL'}</span>  ${r.name}`
+      + ( r.detail ? `  → ${r.detail}` : '') ).join('\n')
+  + perf
+</script>
+</body>
+</html>
