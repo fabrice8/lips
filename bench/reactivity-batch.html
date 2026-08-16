@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Reactivity: nested writes, batched vs not</title>
+<style>
+  body { font: 13px/1.5 ui-monospace, Menlo, monospace; margin: 0; padding: 16px;
+         background: #0a0a0b; color: #ededef }
+  h1 { font-size: 15px; margin: 0 0 4px }
+  .sub { color: #8a8a91; margin: 0 0 12px; max-width: 70ch }
+  #stage { position: relative; height: 180px; overflow: hidden;
+           border: 1px solid #26262b; border-radius: 4px; margin-bottom: 12px }
+  #out { white-space: pre; color: #b9b9c0 }
+  .ok { color: #4ade80 } .bad { color: #f87171 }
+</style>
+</head>
+<body>
+<h1>Nested-write cost: batched vs unbatched</h1>
+<p class="sub">
+  A frame mutates 4 fields on every particle. Each nested write force-notifies the
+  top key's subscribers — the keyed <code>&lt;for&gt;</code> among them — so the
+  unbatched cost is O(N) per write and O(N²) per frame. Timed synchronously, no
+  animation loop.
+</p>
+<div id="stage"></div>
+<pre id="out">measuring…</pre>
+
+<script type="module">
+const fail = e => document.querySelector('#out').innerHTML =
+  `<span class="bad">ERROR</span> ${( e && ( e.message || e.reason?.message ) ) || e}`
+window.addEventListener('error', fail )
+window.addEventListener('unhandledrejection', fail )
+
+import Lips, { batch } from '../dist/lips.min.js'
+
+const lips = new Lips()
+
+lips.register('dot', {
+  default: `<i class="d"></i>`,
+  stylesheet: `
+    --x: {input.x};
+    --y: {input.y};
+    position: absolute; left: 0; top: 0;
+    width: 3px; height: 3px; border-radius: 50%;
+    background: #4ade80;
+    transform: translate3d(calc(var(--x) * 1px), calc(var(--y) * 1px), 0);`
+})
+
+const field = {
+  state: { particles: [] },
+  default: `
+    <div class="field">
+      <for [p] in=state.particles by="id">
+        <dot x=p.x y=p.y/>
+      </for>
+    </div>`,
+}
+
+const app = lips.root( field, '#stage' )
+const tick = ( ms = 40 ) => new Promise( r => setTimeout( r, ms ) )
+
+const seed = n => {
+  const out = []
+  for( let i = 0; i < n; i++ )
+    out.push({ id: i, x: ( i * 7 ) % 700, y: ( i * 13 ) % 170, vx: 1, vy: 1 })
+  app.state.particles = out
+}
+/** One frame: 4 nested writes per particle, through the reactive proxy */
+const step = () => {
+  for( const p of app.state.particles ){
+    p.x += p.vx
+    p.y += p.vy
+    p.vx *= 0.999
+    p.vy *= 0.999
+  }
+}
+
+/** Median of `runs` frames, so one GC pause does not decide the number */
+const median = a => [ ...a ].sort( ( x, y ) => x - y )[ a.length >> 1 ]
+
+/**
+ * Yield between frames. An unbatched frame at 450 particles blocks for
+ * seconds; without a breath the page stops responding entirely.
+ */
+const frameCost = async ( batched, runs ) => {
+  const times = []
+  for( let i = 0; i < runs; i++ ){
+    const t = performance.now()
+    batched ? batch( step ) : step()
+    times.push( performance.now() - t )
+    await tick( 0 )
+  }
+  return median( times )
+}
+
+const rows = []
+for( const n of [ 50, 150, 300, 450 ] ){
+  seed( n )
+  await tick( 120 )
+
+  // warm both paths before timing
+  await frameCost( false, 1 ); await frameCost( true, 2 )
+
+  const runs = n > 200 ? 3 : 9
+  const plain = await frameCost( false, runs )
+  const batched = await frameCost( true, Math.max( runs, 9 ) )
+
+  rows.push({ n, plain, batched, speedup: plain / batched })
+}
+
+const pad = ( s, w ) => String( s ).padStart( w )
+const fmt = r =>
+  `  ${pad( r.n, 3 )}   ${pad( r.plain.toFixed( 2 ), 8 )} ms   `
+  + `${pad( r.batched.toFixed( 2 ), 8 )} ms   ${pad( r.speedup.toFixed( 0 ) + '×', 6 )}   `
+  + `${pad( ( 1000 / r.batched ).toFixed( 0 ), 4 )} fps ceiling`
+
+const scale = ( a, b, key ) => ( b[ key ] / a[ key ] ).toFixed( 1 )
+const first = rows[ 0 ], last = rows[ rows.length - 1 ]
+
+document.querySelector('#out').textContent =
+  `  N     unbatched      batched   speedup   headroom\n`
+  + `  ---------------------------------------------------------\n`
+  + rows.map( fmt ).join('\n')
+  + `\n\n`
+  + `  50 → 450 particles (9× the work):\n`
+  + `    unbatched grows ${scale( first, last, 'plain' )}×   — superlinear, O(N²)\n`
+  + `    batched   grows ${scale( first, last, 'batched' )}×   — linear, O(N)\n`
+</script>
+</body>
+</html>

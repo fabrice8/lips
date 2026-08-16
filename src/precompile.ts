@@ -15,16 +15,27 @@
  */
 
 import { compileTemplate } from './ir/compiler'
+import { compileStyle } from './ir/style'
 import type { TemplateIR, CompileOptions } from './ir/compiler'
+import type { StyleIR } from './ir/style'
 import type { TemplateDiagnostic } from './ir/parser'
 
 export interface PrecompiledTemplate {
   ir: TemplateIR
+  /** Compiled stylesheet — replaces `stylesheet` source (RFC-004) */
+  style?: StyleIR
   state?: Record<string, any>
   _static?: Record<string, any>
   context?: string[]
   handler?: Record<string, ( ...args: any[] ) => any>
-  stylesheet?: string
+}
+
+export interface PrecompileOptions {
+  /**
+   * Scope name for the stylesheet — baked into the StyleIR, so it must
+   * match how the component is registered. Defaults to `'lips'`.
+   */
+  name?: string
 }
 
 export interface PrecompileResult {
@@ -33,20 +44,30 @@ export interface PrecompileResult {
 }
 
 /**
- * Precompile one authoring template. Macros are inlined at this
- * point, so the `macros` source does not ship to the client.
+ * Precompile one authoring template. Macros are inlined at this point,
+ * so the `macros` source does not ship to the client — and the stylesheet
+ * is compiled to StyleIR, so the `./runtime` build needs no CSS
+ * preprocessor either (RFC-004 §1).
  */
-export function precompile( template: Record<string, any> ): PrecompileResult {
-  const options: CompileOptions = { macros: template.macros }
-  const { ir, diagnostics } = compileTemplate( template.default || '', options )
+export function precompile( template: Record<string, any>, options: PrecompileOptions = {} ): PrecompileResult {
+  const
+  copts: CompileOptions = { macros: template.macros },
+  { ir, diagnostics } = compileTemplate( template.default || '', copts ),
+  { default: _src, macros: _macros, stylesheet, ...rest } = template
 
-  const { default: _src, macros: _macros, ...rest } = template
+  if( !stylesheet ) return { template: { ...rest, ir }, diagnostics }
 
-  return { template: { ...rest, ir }, diagnostics }
+  const style = compileStyle( stylesheet, { nsp: options.name || 'lips' })
+
+  return {
+    template: { ...rest, ir, style: style.ir },
+    diagnostics: [ ...diagnostics, ...style.diagnostics ]
+  }
 }
 
 /** Serialize an IR for embedding in generated source */
 export const serializeIR = ( ir: TemplateIR ) => JSON.stringify( ir )
+export const serializeStyleIR = ( ir: StyleIR ) => JSON.stringify( ir )
 
 // ------------------------------------------------------------ bundler glue
 export interface PluginOptions {
@@ -99,16 +120,49 @@ export function lipsPlugin( options: PluginOptions = {} ){
         throw new Error(
           `[lips] ${id}: ${errors[0].message} at line ${errors[0].loc.line}:${errors[0].loc.col}` )
 
+      /**
+       * Compile the stylesheet too, so the emitted module needs no CSS
+       * preprocessor at runtime. Only a plain template literal can be
+       * lifted statically — one containing `${…}` depends on runtime
+       * values, so it ships as source and needs the full build.
+       */
+      const
+      name = ( id.split(/[\\/]/).pop() || 'lips' ).replace( /\.lips$/, '' ),
+      literal = /\bconst\s+stylesheet\s*=\s*`([^`]*)`/.exec( script ),
+      hasStyle = /\bconst\s+stylesheet\b/.test( script ),
+      liftable = literal && !literal[ 1 ].includes('${')
+
+      let styleOut = ''
+      if( liftable ){
+        const style = compileStyle( literal![ 1 ], { nsp: name })
+
+        if( report )
+          for( const d of style.diagnostics )
+            ( this as any )?.warn?.(
+              `[lips] ${d.code} ${d.message} (${id}:${d.loc.line}:${d.loc.col})` )
+
+        const styleErrors = style.diagnostics.filter( d => d.severity === 'error' )
+        if( styleErrors.length )
+          throw new Error(
+            `[lips] ${id}: ${styleErrors[0].message} at line ${styleErrors[0].loc.line}:${styleErrors[0].loc.col}` )
+
+        styleOut = `  style: ${serializeStyleIR( style.ir )},\n`
+      }
+      else if( hasStyle && report )
+        ( this as any )?.warn?.(
+          `[lips] ${id}: stylesheet could not be precompiled (interpolated template literal) — `
+          + 'it ships as source and needs "@lipsjs/lips", not "@lipsjs/lips/runtime".' )
+
       return {
         code: `${script}
 const __lips_ir__ = ${serializeIR( ir )};
 export default {
   ir: __lips_ir__,
-  ${/\bconst\s+state\b/.test( script ) ? 'state,' : ''}
+${styleOut}  ${/\bconst\s+state\b/.test( script ) ? 'state,' : ''}
   ${/\bconst\s+handler\b/.test( script ) ? 'handler,' : ''}
   ${/\bconst\s+_static\b/.test( script ) ? '_static,' : ''}
   ${/\bconst\s+context\b/.test( script ) ? 'context,' : ''}
-  ${/\bconst\s+stylesheet\b/.test( script ) ? 'stylesheet,' : ''}
+  ${hasStyle && !liftable ? 'stylesheet,' : ''}
 };
 `,
         map: null

@@ -50,3 +50,44 @@ levers to the ≤1.4× create budget: LIS reconciler, bind-walk tuning.
   (innerHTML parsing hoists unknown elements out of table context).
 - An official js-framework-benchmark submission is deferred until the Phase 2
   engine lands — submitting the current engine would only publish the "before".
+
+## particles.html — feature + animation stress
+
+`bench/particles.html` drives every template construct (`if`/`else-if`/`else`,
+keyed `for`, `for` over Map/Set/range, `switch`, `async`, `let`/`const`, macros,
+argument slots, dynamic component tags, spread inputs, events, i18n, context)
+and every StyleIR construct (reactive declarations, direct custom-property
+binds, `:hover`, `@media`, `@keyframes`, `@property`) at animation rate, and
+self-checks all of it: **29/29**.
+
+It also produces one number worth acting on.
+
+### Nested writes are O(list)
+
+Measured with the loop paused, per write, 40 samples:
+
+| particles | nested write (`particles[i].x = v`) | control write (few subscribers) |
+|---|---|---|
+| 150 | 0.75 ms | 0.005 ms |
+| 300 | 1.21 ms | 0.003 ms |
+| 450 | 1.73 ms | 0.002 ms |
+
+The control is a top-level key with a handful of subscribers: flat, as
+fine-grained reactivity should be. A nested write costs ~350× more and grows
+linearly with the list.
+
+The cause is documented, not accidental — `deepWrap`'s `set` trap in
+[src/ir/signal.ts](../src/ir/signal.ts) force-notifies the **top key's**
+subscribers (RFC-001 §6, "coarse but O(subscribers-of-key)"), and the keyed
+`<for>` is one of those subscribers. So one field write re-runs the whole list
+binding.
+
+Consequence: an animation loop touching 4 fields × N particles pays N × O(N).
+At 150 particles that is ~450 ms per frame — the demo runs at ~4 fps, and the
+fix is not in the renderer or in StyleIR, both of which are doing the right
+thing (position updates are single custom-property writes).
+
+This matters well beyond particles: it is the same shape as a canvas of
+draggable objects, which is Modela's core interaction. Making nested objects
+carry their own per-key signals — rather than routing every nested write to the
+parent key — is the lever, and is its own piece of work.

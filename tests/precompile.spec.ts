@@ -226,11 +226,13 @@ describe('runtime-only entry (@lipsjs/lips/runtime)', () => {
     vi.resetModules()
   })
 
-  it('has no CSS preprocessor wired — source stylesheets warn and skip', async () => {
+  it('has no style compiler wired — source stylesheets warn and skip', async () => {
     /**
-     * Fresh graph = the runtime bundle: Stylis is injected only by the
-     * full entry (src/lips), so a runtime-only build must not compile
-     * or inject a source stylesheet — proving Stylis is tree-shaken out.
+     * Fresh graph = the runtime bundle. Both the style compiler and
+     * Stylis behind it are INJECTED by the full entry (src/lips), so a
+     * runtime-only build cannot compile or inject a source stylesheet —
+     * proving they are tree-shaken out. Precompiled StyleIR still works
+     * here, which is the point of RFC-004 §1.
      */
     vi.resetModules()
     document.head.querySelectorAll('style[rel]').forEach( s => s.remove() )
@@ -244,9 +246,42 @@ describe('runtime-only entry (@lipsjs/lips/runtime)', () => {
 
     await settle( () => !!q('.s') )
     expect( document.head.querySelector('style[rel="styled"]') ).toBeNull()
-    expect( warn ).toHaveBeenCalledWith( expect.stringContaining('no CSS preprocessor') )
+    expect( warn ).toHaveBeenCalledWith( expect.stringContaining('no style compiler') )
 
     warn.mockRestore()
+    vi.resetModules()
+  })
+
+  it('renders PRECOMPILED StyleIR with no compiler and no preprocessor', async () => {
+    /**
+     * The hole RFC-004 closes: before StyleIR the runtime build dropped
+     * styles entirely, so the CSP-safe bundle could not render a styled
+     * app. Precompiled sheets now inject and their reactive declarations
+     * bind, with neither the style compiler nor Stylis in the graph.
+     */
+    vi.resetModules()
+    document.head.querySelectorAll('style[rel]').forEach( s => s.remove() )
+
+    const { default: RuntimeLips } = await import('../src/runtime')
+    const { template } = precompile({
+      default: `<b class="s">x</b>`,
+      state: { w: 9 },
+      stylesheet: `.s { width: {state.w}px }`
+    }, { name: 'pre' })
+
+    const rt: any = new RuntimeLips()
+    rt.render('pre', template as any ).appendTo('#app')
+
+    await settle( () => !!q('.s') )
+
+    const sheet = document.head.querySelector('style[rel="pre"]')
+    expect( sheet ).not.toBeNull()
+    expect( sheet!.textContent ).toContain('calc(var(--pre-0) * 1px)')
+
+    const root = q('.s') as HTMLElement
+    expect( root.getAttribute('rel') ).toBe('pre')
+    expect( root.style.getPropertyValue('--pre-0') ).toBe('9')
+
     vi.resetModules()
   })
 })

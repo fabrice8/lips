@@ -12,8 +12,11 @@ export type { Expr, ExprEnv, ExprDiagnostic, CompiledExpr } from './expression'
 export { compileTemplate } from './compiler'
 export type { TemplateIR, BlockIR, BindIR, ChildIR, CompInput, CompileResult } from './compiler'
 
+export { compileStyle, setStylePreprocessor, hasStylePreprocessor } from './style'
+export type { StyleIR, StyleBindIR, PropertyIR, StyleCompileOptions, StyleCompileResult } from './style'
+
 export { renderIR } from './runtime'
 export type { IRInstance, IRComponentDef, RuntimeOptions, RenderSetup } from './runtime'
 export type { SwapReport, SwapChange } from './swap'
 
-export { signal, effect, untrack, reactive } from './signal'
+export { signal, effect, untrack, reactive, batch } from './signal'

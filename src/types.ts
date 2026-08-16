@@ -5,13 +5,26 @@
  * always taken, and the serializable artifact a generator can emit:
  *
  *   { default, state, handler, _static, context, macros, stylesheet }
+ *
+ * These are the types `register`/`render`/`root` actually accept: the
+ * facade is generic over `Metavars`, so `Template<MT>` here and the
+ * argument the engine takes are the same type, not parallel ones.
  */
+import type { TemplateIR } from './ir/compiler'
+import type { StyleIR } from './ir/style'
 
+/**
+ * The four typed surfaces of a component. Defaults are permissive on
+ * purpose: an untyped `lips.render('x', { state: { n: 0 } })` still
+ * gets `c.state.n` without annotation, and a component that declares
+ * its metavars gets exact types. Tightening these to `{}` would turn
+ * every unannotated read into a compile error.
+ */
 export interface Metavars<
-  Input extends Object = {},
-  State extends Object = {},
-  Static extends Object = {},
-  Context extends Object = {}
+  Input extends Object = Record<string, any>,
+  State extends Object = Record<string, any>,
+  Static extends Object = Record<string, any>,
+  Context extends Object = Record<string, any>
 > {
   Input: Input
   State: State
@@ -40,11 +53,16 @@ export interface ComponentSelf<MT extends Metavars = Metavars> {
   context: MT['Context']
   static: MT['Static']
 
+  /** Live root elements of this component */
+  readonly node: Element[]
+
   emit( event: string, ...args: any[] ): void
   on( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
-  off( event: string ): ComponentSelf<MT>
+  once( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
+  off( event: string, fn?: ( ...args: any[] ) => void ): ComponentSelf<MT>
   setContext( arg: string | Record<string, any>, value?: any ): void
 
+  /** Sibling handlers, reachable as `this.otherMethod()` */
   [ key: string ]: any
 }
 
@@ -70,6 +88,8 @@ export type Handler<MT extends Metavars> = Partial<LifecycleEvents<MT>> & {
 export type Template<MT extends Metavars = Metavars> = {
   /** Template source — the component's markup */
   default?: string
+  /** Precompiled template IR — used instead of `default` (see `precompile`) */
+  ir?: TemplateIR
   state?: MT['State']
   _static?: MT['Static']
   /** Context fields this component subscribes to (drives onContext) */
@@ -77,12 +97,24 @@ export type Template<MT extends Metavars = Metavars> = {
   /** `<macro [argv] name="X">…</macro>` definitions, inlined at compile time */
   macros?: string
   handler?: Handler<MT>
+  /** Scoped CSS — declaration values may be `{expr}` (RFC-004) */
   stylesheet?: string
+  /** Precompiled StyleIR — used instead of `stylesheet` (see `precompile`) */
+  style?: StyleIR
 }
 
 export type LipsConfig<Context extends Object = {}> = {
   debug?: boolean
   context?: Context
+  /** Reserved for engine selection; the IR engine is the only one shipped */
+  engine?: string
+  /**
+   * Emit component sheets inside `@layer <name>` (RFC-004 §9). Absent by
+   * default, and absent output is byte-identical to no layer at all —
+   * only utility-framework users (Tailwind) need this, because unlayered
+   * styles beat layered ones regardless of specificity.
+   */
+  styleLayer?: string
   /**
    * Expression execution:
    *  - 'compiled' (default) — one cached Function per expression
