@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { signal, effect, untrack, reactive } from '../src/ir/signal'
+import { signal, effect, untrack, reactive, batch } from '../src/ir/signal'
 
 describe('signal', () => {
   it('reads the initial value and writes back', () => {
@@ -149,5 +149,88 @@ describe('reactive', () => {
     delete store.a
 
     expect( seen ).toEqual([ 1, undefined ])
+  })
+})
+
+describe('batch', () => {
+  it('collapses many writes to one effect run', () => {
+    const [ read, write ] = signal( 0 )
+    let runs = 0
+    effect( () => { read(); runs++ })
+
+    expect( runs ).toBe( 1 )
+
+    batch( () => { for( let i = 1; i <= 50; i++ ) write( i ) })
+
+    expect( runs ).toBe( 2 )
+    expect( read() ).toBe( 50 )
+  })
+
+  it('returns the callback value', () => {
+    // A `return` inside the finally would silently discard this
+    expect( batch( () => 42 ) ).toBe( 42 )
+  })
+
+  it('only flushes when the outermost batch exits', () => {
+    const [ read, write ] = signal( 0 )
+    let runs = 0
+    effect( () => { read(); runs++ })
+
+    batch( () => {
+      write( 1 )
+      batch( () => write( 2 ) )
+      expect( runs ).toBe( 1 )   // still queued
+    })
+
+    expect( runs ).toBe( 2 )
+  })
+
+  it('collapses writes made by effects during the drain', () => {
+    const [ readA, writeA ] = signal( 0 )
+    const [ readB, writeB ] = signal( 0 )
+    let bRuns = 0
+
+    effect( () => { const a = readA(); a && writeB( a ) })
+    effect( () => { readB(); bRuns++ })
+
+    expect( bRuns ).toBe( 1 )
+
+    batch( () => { writeA( 1 ); writeA( 2 ); writeA( 3 ) })
+
+    expect( bRuns ).toBe( 2 )
+    expect( readB() ).toBe( 3 )
+  })
+
+  it('flushes and resets depth when the callback throws', () => {
+    const [ read, write ] = signal( 0 )
+    let runs = 0
+    effect( () => { read(); runs++ })
+
+    expect( () => batch( () => { write( 1 ); throw new Error('boom') }) ).toThrow('boom')
+
+    expect( runs ).toBe( 2 )   // queued work still flushed
+
+    write( 2 )                 // and batching is not left switched on
+    expect( runs ).toBe( 3 )
+  })
+
+  it('collapses nested writes on a deep-reactive list', () => {
+    /**
+     * The case that motivates it: a nested write force-notifies the TOP
+     * key's subscribers, so N writes to N items cost N notifications
+     * unbatched. See bench/reactivity-batch.html.
+     */
+    const store = reactive({ items: [ { x: 0 }, { x: 0 }, { x: 0 } ] }, true )
+    let runs = 0
+    effect( () => { ( store.items as any[] ).forEach( i => i.x ); runs++ })
+
+    expect( runs ).toBe( 1 )
+
+    ;( store.items as any[] ).forEach( i => i.x = 1 )
+    expect( runs ).toBe( 4 )   // one notification per nested write
+
+    runs = 0
+    batch( () => ( store.items as any[] ).forEach( i => i.x = 2 ) )
+    expect( runs ).toBe( 1 )   // collapsed
   })
 })

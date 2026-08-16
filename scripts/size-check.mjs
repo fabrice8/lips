@@ -31,9 +31,13 @@ const KB = 1024
  * no CSS compiler at all. That gap is the point of the layer, so runtime
  * holding at 14 is the number to watch — if it ever has to rise,
  * something has leaked across the seam.
+ *
+ * 2026-08-16: full 25→26. `batch()` in the reactivity core — a few
+ * hundred bytes, and it sits in every entry because it is part of the
+ * signal implementation, not an optional layer.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 25,        // full: runtime + parser/compiler + style compiler + stylis + router
+  'dist/lips.min.js': 26,        // full: runtime + parser/compiler + style compiler + stylis + router
   'dist/runtime.min.js': 14,     // precompiled-only: none of the above
   'dist/precompile.min.js': 12   // build-time: parser + compiler + style compiler + stylis
 }

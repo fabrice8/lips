@@ -14,13 +14,58 @@ type Effect = {
 
 let CURRENT: Effect | null = null
 
+/**
+ * Batching. Inside `batch()` a notification is queued on its signal
+ * rather than run, and the queue is a Set — so N writes to the same key
+ * collapse to ONE notification when the outermost batch exits.
+ *
+ * This is what turns an animation loop over a reactive list from O(N²)
+ * into O(N): a nested write force-notifies its top key's subscribers
+ * (see `deepWrap`), and the keyed `<for>` is one of them.
+ */
+let BATCH_DEPTH = 0
+const PENDING = new Set<() => void>()
+
+/**
+ * Drain iteratively: an effect may itself write, queueing more work.
+ * Re-enter the batch around each pass so those collapse too, instead of
+ * running eagerly one at a time.
+ */
+function drain(){
+  while( PENDING.size ){
+    const queued = [ ...PENDING ]
+    PENDING.clear()
+    BATCH_DEPTH++
+    try { for( const notify of queued ) notify() }
+    finally { BATCH_DEPTH-- }
+  }
+}
+
+export function batch<T>( fn: () => T ): T {
+  BATCH_DEPTH++
+  // NB: never `return` from the finally — it would discard fn()'s value
+  try { return fn() }
+  finally {
+    BATCH_DEPTH--
+    !BATCH_DEPTH && drain()
+  }
+}
+
 export function signal<T>( value: T ): [ () => T, ( next: T ) => void, () => void ] {
   const subs = new Set<Effect>()
 
-  const notify = () => {
+  /**
+   * Queueing and running are separate on purpose: the drain must be able
+   * to RUN a queued flush unconditionally. If it went back through
+   * `notify` it would see a raised depth and re-queue itself forever.
+   */
+  const flush = () => {
     // Copy: effects may retrack while running
     for( const e of [ ...subs ] )
       !e.disposed && e.run()
+  }
+  const notify = () => {
+    BATCH_DEPTH ? PENDING.add( flush ) : flush()
   }
 
   const read = () => {

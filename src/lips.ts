@@ -38,7 +38,8 @@ export {
   signal,
   effect,
   untrack,
-  reactive
+  reactive,
+  batch
 } from './ir'
 
 export type {
