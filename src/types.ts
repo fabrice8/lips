@@ -122,6 +122,14 @@ export type LipsConfig<Context extends Object = {}> = {
   /** Reserved for engine selection; the IR engine is the only one shipped */
   engine?: string
   /**
+   * Initial i18n language, e.g. 'fr-FR'. Defaults to `navigator.language`,
+   * falling back to 'en-US' where there is no navigator (SSR, workers).
+   * Set it when the language comes from the app — a user preference, a
+   * URL segment, a server-rendered locale — rather than from the browser.
+   * Change it later with `lips.setLanguage()`.
+   */
+  lang?: string
+  /**
    * Emit component sheets inside `@layer <name>` (RFC-004 §9). Absent by
    * default, and absent output is byte-identical to no layer at all —
    * only utility-framework users (Tailwind) need this, because unlayered

@@ -1,9 +1,28 @@
 import type { Dictionary } from '../types'
 import Formatters from './formatters'
 
+/**
+ * Last-resort language. Only reached when the host has no
+ * `navigator` (SSR, a worker, a test runner) and the caller named
+ * no language either.
+ */
+const DEFAULT_LANG = 'en-US'
+
 export default class I18N {
-  private currentLang = window.navigator.language
+  private currentLang: string
   private DICTIONARIES: Record<string, Dictionary> = {}
+
+  /**
+   * `lang` is the initial language, normally `LipsConfig.lang`. Left
+   * out, it is read from the browser — which is the right default for
+   * an app that should follow the user's locale, but is not something
+   * a server render or a test can rely on being there.
+   */
+  constructor( lang?: string ){
+    this.currentLang = lang
+                      || ( typeof navigator !== 'undefined' && navigator.language )
+                      || DEFAULT_LANG
+  }
 
   set lang( value: string ){
     if( this.currentLang === value ) return

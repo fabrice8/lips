@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Lips from '../src/lips'
+import I18N from '../src/i18n'
 
 function settle( check: () => boolean, timeout = 3000 ){
   return new Promise<void>( ( resolve, reject ) => {
@@ -38,6 +39,33 @@ beforeEach( () => {
   lips.i18n.setDictionary('en', EN )
   lips.i18n.setDictionary('fr', FR )
   lips.setLanguage('en-US')
+})
+
+describe('i18n initial language', () => {
+  it('defaults to the browser language', () => {
+    const l: any = new Lips()
+    expect( l.getLanguage() ).toBe( navigator.language )
+  })
+
+  it('takes LipsConfig.lang over the browser language', () => {
+    const l: any = new Lips({ lang: 'fr-FR' })
+    expect( l.getLanguage() ).toBe('fr-FR')
+    expect( l.i18n.lang ).toBe('fr-FR')
+  })
+
+  it('translates from the configured language with no setLanguage call', async () => {
+    const l: any = new Lips({ lang: 'fr-FR' })
+    l.i18n.setDictionary('fr', FR )
+
+    l.render('t-cfg', { default: `<button i18n class="cfg">Count</button>` }).appendTo('#app')
+    await settle( () => q('.cfg')?.textContent === 'Compter' )
+  })
+
+  it('falls back to en-US where there is no navigator', () => {
+    vi.stubGlobal('navigator', undefined )
+    try { expect( new I18N().lang ).toBe('en-US') }
+    finally { vi.unstubAllGlobals() }
+  })
 })
 
 describe('i18n.translate', () => {
