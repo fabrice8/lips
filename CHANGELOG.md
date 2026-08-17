@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — bidirectional component bus
+
+- **`component.emit(…)` now also reaches listeners registered inside the
+  component** with `this.on(…)`. Outward (`this.emit('saved')` →
+  `component.on('saved')`) has always worked; inward did not exist, so the only
+  way to drive a component from outside was to mutate its state — which
+  conflates a command with data, and leaves commands that shouldn't persist
+  (focus, reset, replay) with no home.
+
+  ```js
+  editor.emit('reset')            // reaches this.on('reset', …) inside
+  editor.on('saved', doc => …)    // and the component answers on the same bus
+  ```
+
+  Inbound events reach `this.on(…)` listeners, **not** handler methods by name,
+  so what a component accepts stays an explicit contract. Arguments are passed
+  raw inward and deep-cleaned outward, matching what an internal `this.emit`
+  already did — reactive proxies still never escape a component.
+
+  This is the supported way to drive a component imperatively; `self` (the
+  internal execution context) remains unexposed.
+
 ### Added — application-readiness (RFC-002)
 Derived from a read of the Modela editor codebase; each item mirrors a
 pattern a real application already relies on. See
