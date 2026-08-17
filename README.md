@@ -104,6 +104,22 @@ Components compose with **slots** (`<{input.renderer}/>`) and **events**
 `onCreate · onInput · onMount · onRender · onUpdate · onAttach · onDetach · onContext ·
 onError · onDestroy`.
 
+### Constants
+
+`static` holds values that never change — reading them creates no subscription:
+
+```js
+{
+  static: { api: 'https://api.example.com', pageSize: 25 },
+  handler: { load(){ return fetch(`${this.static.api}/items`) } },
+  default: `<p>{static.pageSize} per page</p>`
+}
+```
+
+Use `_static` only in the named-export form — `export const static` is a
+SyntaxError, since `static` is reserved in strict mode. Both spellings are the
+same field.
+
 ### The component bus runs both ways
 
 A rendered component's bus is bidirectional, so the handle you hold can send

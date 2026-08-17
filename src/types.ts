@@ -96,6 +96,14 @@ export type Template<MT extends Metavars = Metavars> = {
   /** Precompiled template IR — used instead of `default` (see `precompile`) */
   ir?: TemplateIR
   state?: MT['State']
+  /**
+   * Constants — read as `this.static` in a handler and `static.x` in a
+   * template. `_static` is the same field: a NAMED MODULE EXPORT cannot
+   * be called `static` (it is reserved in strict mode, and ES modules
+   * are always strict), so the underscore exists for that form only.
+   * Object literals should use `static`.
+   */
+  static?: MT['Static']
   _static?: MT['Static']
   /** Context fields this component subscribes to (drives onContext) */
   context?: string[]

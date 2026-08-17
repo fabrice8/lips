@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — `static` as the object-literal spelling of `_static`
+
+- A template object may now use `static: { … }` instead of `_static: { … }`,
+  matching how it is read everywhere else (`this.static` in a handler,
+  `static.x` in a template and in a stylesheet).
+
+  `_static` exists because `static` is reserved in strict mode, so
+  `export const static = …` is a SyntaxError and the named-export form needs
+  the underscore. An object literal has no such restriction. Both spellings are
+  supported and mean the same field; `static` wins if both are given.
+
 ### Changed — per-object signals (reactivity core)
 
 - **A nested write now notifies only the bindings that read that key.** Each

@@ -158,3 +158,56 @@ describe('precompiled artifacts are typed', () => {
     expect( document.querySelector('.p')?.textContent ).toBe('4')
   })
 })
+
+describe('static constants', () => {
+  it('accepts `static` in an object literal, and `_static` from module exports', () => {
+    /**
+     * `static` is reserved in strict mode, so `export const static = …`
+     * is a SyntaxError and the named-export form must use `_static`.
+     * An object literal has no such problem — both are the same field.
+     */
+    const lips = new Lips()
+
+    const plain = lips.render('plain', {
+      static: { max: 10 },
+      default: `<i class="a">{static.max}</i>`
+    }).appendTo( document.body )
+
+    expect( document.querySelector('.a')?.textContent ).toBe('10')
+    expect( plain ).toBeTruthy()
+
+    document.body.innerHTML = ''
+
+    // the module-export spelling still works
+    lips.render('underscored', {
+      _static: { max: 20 },
+      default: `<i class="b">{static.max}</i>`
+    }).appendTo( document.body )
+
+    expect( document.querySelector('.b')?.textContent ).toBe('20')
+  })
+
+  it('reads the same value as this.static in a handler', () => {
+    const seen: any[] = []
+    const lips = new Lips()
+
+    lips.render('h', {
+      static: { api: 'https://x' },
+      default: `<i/>`,
+      handler: { onMount( this: any ){ seen.push( this.static.api ) } }
+    }).appendTo( document.body )
+
+    expect( seen ).toEqual([ 'https://x' ])
+  })
+
+  it('prefers `static` when both are present', () => {
+    const lips = new Lips()
+    lips.render('both', {
+      static: { v: 'new' },
+      _static: { v: 'old' },
+      default: `<i class="c">{static.v}</i>`
+    }).appendTo( document.body )
+
+    expect( document.querySelector('.c')?.textContent ).toBe('new')
+  })
+})
