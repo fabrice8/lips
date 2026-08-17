@@ -206,7 +206,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
   private context: Context
   private __root?: IRFacadeComponent<any>
 
-  public i18n = new I18N()
+  public i18n: I18N
   /** Language signal — translated binds subscribe through it */
   private getLang: () => string
   private setLang: ( v: string ) => void
@@ -220,6 +220,8 @@ export class IRLips<Context extends Object = Record<string, any>> {
   constructor( private config?: FacadeConfig<Context> ){
     this.debug = !!config?.debug
     this.context = reactive( { ...( config?.context || {} ) }, true ) as Context
+
+    this.i18n = new I18N( config?.lang )
 
     const [ getLang, setLang ] = signal( this.i18n.lang )
     this.getLang = getLang
