@@ -18,13 +18,26 @@ export default class I18N {
   }
 
   /**
-   * 
+   * Translate a source string into `lang`, defaulting to the current
+   * language.
+   *
+   * Dictionaries are keyed by the language ROOT — `fr-CA` and `fr-FR`
+   * both read `DICTIONARIES.fr` — and the region half selects a variant
+   * when the entry is an object:
+   *
+   *   'Device Screens': { '*': 'Device Screens', UK: 'Media Devices' }
+   *
+   * A missing dictionary or a missing key is not an error: the source
+   * text passes through unchanged, so a partially translated dictionary
+   * degrades to the original wording rather than to a blank.
+   *
+   * NB: naming the current language explicitly must behave exactly like
+   * omitting it. An earlier guard returned the source text whenever
+   * `lang === currentLang`, which is precisely when a translation IS
+   * wanted — and it made region variants unreachable through the
+   * two-argument form.
    */
   translate( text: string, lang?: string ){
-    // No translation required
-    if( lang && this.currentLang === lang )
-      return { text, lang: this.currentLang }
-
     lang = lang || this.currentLang
 
     /**

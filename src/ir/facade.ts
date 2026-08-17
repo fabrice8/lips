@@ -342,17 +342,15 @@ export class IRLips<Context extends Object = Record<string, any>> {
       },
       i18n: {
         /**
-         * Reading the language signal inside the bind effect is
-         * what makes setLanguage() re-translate every marked node.
+         * The language signal is read INSIDE the bind effect and handed
+         * to i18n as the language to use. That read is what re-runs every
+         * translated bind on setLanguage(), and passing the value on —
+         * rather than letting i18n fall back to its own `currentLang` —
+         * keeps what is rendered equal to what was tracked.
          */
-        translate: ( text: string ) => {
-          this.getLang() // track — passing the lang would short-circuit translate()
-          return this.i18n.translate( text ).text
-        },
-        format: ( reference: string, params: any ) => {
-          this.getLang()
-          return this.i18n.format( reference, params ) ?? ''
-        }
+        translate: ( text: string ) => this.i18n.translate( text, this.getLang() ).text,
+        format: ( reference: string, params: any ) =>
+          this.i18n.format( reference, params, this.getLang() ) ?? ''
       }
     })
   }
@@ -363,6 +361,11 @@ export class IRLips<Context extends Object = Record<string, any>> {
   }
 
   // ---- i18n
+  /**
+   * The only way to change language. Writing `lips.i18n.lang` directly
+   * updates the dictionary lookup but not the signal, so nothing already
+   * rendered re-translates.
+   */
   setLanguage( lang: string ){
     this.i18n.lang = lang
     this.setLang( lang )
