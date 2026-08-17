@@ -35,10 +35,18 @@ const KB = 1024
  * 2026-08-16: full 25→26. `batch()` in the reactivity core — a few
  * hundred bytes, and it sits in every entry because it is part of the
  * signal implementation, not an optional layer.
+ *
+ * 2026-08-17: runtime 14→15. Per-object signals — each nested object
+ * carries its own per-key channels instead of routing every write to the
+ * top key. This is the ONE reason `runtime` is allowed to move: the
+ * reactivity core ships in every entry by definition. It is NOT the case
+ * the previous note was watching for, which was compiler/preprocessor
+ * code leaking across the precompiled seam. If runtime grows again,
+ * check which of the two it is before touching this number.
  */
 const BUDGETS = {
   'dist/lips.min.js': 26,        // full: runtime + parser/compiler + style compiler + stylis + router
-  'dist/runtime.min.js': 14,     // precompiled-only: none of the above
+  'dist/runtime.min.js': 15,     // precompiled-only: none of the above
   'dist/precompile.min.js': 12   // build-time: parser + compiler + style compiler + stylis
 }
 

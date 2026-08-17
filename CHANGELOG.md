@@ -5,6 +5,39 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Changed — per-object signals (reactivity core)
+
+- **A nested write now notifies only the bindings that read that key.** Each
+  nested object in a deep store carries its own per-key channels, instead of
+  every nested write force-notifying the top-level key. The keyed `<for>`
+  subscribes to `length` and the key field, so `rows[3].x = v` no longer wakes
+  the list at all.
+
+  Nested write cost, per write, by list length:
+
+  | rows | before | after |
+  |---|---|---|
+  | 150 | 0.75 ms | 0.01 ms |
+  | 300 | 1.21 ms | 0.01 ms |
+  | 450 | 1.73 ms | 0.01 ms |
+
+  An animation loop over a reactive list goes from O(N²) to O(N) per frame —
+  `bench/particles.html` runs 150 particles at 120 fps, up from 1.3.
+
+- **One proxy per object across stores.** A parent's `state.rows` and a child's
+  `input.rows` are the same array; they now resolve to the same proxy with the
+  same channels, so a write through either is seen by both. Previously each
+  store held a private proxy — the same latent bug that was already fixed for
+  `Map`/`Set`.
+
+- **Collections hand out wrapped values.** `entries()`, `values()`, `forEach`
+  and iteration now wrap what they yield, as `get()` already did. Required by
+  the above: an unwrapped object out of a `Map` is one nothing can track.
+
+- **`batch()` deduplicates by effect, not by signal.** One effect commonly
+  subscribes to many channels, so per-signal queueing still ran it once per
+  channel.
+
 ### Added — bidirectional component bus
 
 - **`component.emit(…)` now also reaches listeners registered inside the
