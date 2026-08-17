@@ -347,9 +347,10 @@ const field = {
     },
 
     /**
-     * One frame is 4 nested writes per particle. Unbatched, each one
-     * force-notifies the top key and the keyed <for> re-runs — O(N) per
-     * write, O(N²) per frame. See bench/reactivity-batch.html.
+     * One frame is 4 nested writes per particle. Each notifies only the
+     * bindings that read that key, so the keyed <for> is never woken by
+     * a field change. Batching still collapses the fan-out of a
+     * structural change. See bench/reactivity-batch.html.
      */
     step(){
       this.state.batched ? batch( () => this.stepRaw() ) : this.stepRaw()
@@ -486,11 +487,10 @@ await tick( 400 )
 /* -------------------------------------------------------------- measurements
  * Not pass/fail — the numbers this demo exists to produce.
  *
- * A nested write (`particles[i].x = v`) is deliberately coarse in the
- * current reactivity core: deepWrap's set trap force-notifies the TOP
- * key's subscribers (src/ir/signal.ts, RFC-001 §6), and the keyed <for>
- * is one of them. So one field write costs O(list), and an animation
- * loop touching 4 fields × N particles per frame pays N × O(N).
+ * A nested write (`particles[i].x = v`) notifies only the bindings that
+ * read that key, so it is independent of list length. Before per-object
+ * channels it force-notified the top key and the keyed <for> re-ran:
+ * 0.75 / 1.21 / 1.73 ms at 150 / 300 / 450, against ~0.01 ms now.
  */
 app.state.running = false
 await tick( 120 )
@@ -530,9 +530,9 @@ check('a low-subscriber top-level write stays flat as the list grows',
   measurements[2].control < Math.max( measurements[0].control * 2, 0.05 ),
   measurements.map( m => `${m.n}:${m.control.toFixed(3)}ms` ).join(' '))
 
-check('nested writes scale with list length (known limitation)',
-  measurements[2].nested > measurements[0].nested * 1.4,
-  measurements.map( m => `${m.n}:${m.nested.toFixed(2)}ms` ).join(' '))
+check('nested writes stay flat as the list grows',
+  measurements[2].nested < Math.max( measurements[0].nested * 3, 0.2 ),
+  measurements.map( m => `${m.n}:${m.nested.toFixed(3)}ms` ).join(' '))
 
 // --- report
 const pass = results.filter( r => r.pass ).length

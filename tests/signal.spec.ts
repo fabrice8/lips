@@ -234,3 +234,115 @@ describe('batch', () => {
     expect( runs ).toBe( 1 )   // collapsed
   })
 })
+
+describe('per-object signals', () => {
+  it('a nested write notifies only the binding that read that key', () => {
+    const store = reactive({ rows: [ { x: 0, y: 0 }, { x: 0, y: 0 } ] }, true )
+
+    let listRuns = 0, xRuns = 0, yRuns = 0
+    effect( () => { ( store.rows as any[] ).map( r => r ); listRuns++ })
+    effect( () => { ( store.rows as any[] )[0].x; xRuns++ })
+    effect( () => { ( store.rows as any[] )[0].y; yRuns++ })
+
+    expect([ listRuns, xRuns, yRuns ]).toEqual([ 1, 1, 1 ])
+
+    ;( store.rows as any[] )[0].x = 5
+
+    // only the x binding — the list is NOT invalidated
+    expect([ listRuns, xRuns, yRuns ]).toEqual([ 1, 2, 1 ])
+  })
+
+  it('write cost does not grow with list length', () => {
+    /**
+     * The property that matters. Before per-object channels a nested
+     * write force-notified the top key, so the keyed <for> re-ran and
+     * one write cost O(list). See bench/reactivity-batch.html.
+     */
+    const runs = ( n: number ) => {
+      const store = reactive({ rows: Array.from({ length: n }, ( _, i ) => ({ i, v: 0 }) ) }, true )
+      let listRuns = 0
+      effect( () => { ( store.rows as any[] ).map( r => r.i ); listRuns++ })
+
+      const before = listRuns
+      ;( store.rows as any[] )[0].v = 1
+      return listRuns - before
+    }
+
+    expect( runs( 10 ) ).toBe( 0 )
+    expect( runs( 1000 ) ).toBe( 0 )
+  })
+
+  it('still wakes the list for a structural change', () => {
+    const store = reactive({ rows: [ { id: 'a' } ] }, true )
+    let listRuns = 0
+    effect( () => { ( store.rows as any[] ).map( r => r.id ); listRuns++ })
+
+    ;( store.rows as any[] ).push({ id: 'b' })
+    expect( listRuns ).toBe( 2 )
+
+    ;( store.rows as any[] ).splice( 0, 1 )
+    expect( listRuns ).toBe( 3 )
+  })
+
+  it('runs a multi-channel subscriber once per structural change', () => {
+    /**
+     * A keyed <for> subscribes to `length` and every index. Firing each
+     * channel separately would re-run it once per channel, which is the
+     * cost the change exists to remove — the fan-out is batched.
+     */
+    const store = reactive({ rows: Array.from({ length: 50 }, ( _, i ) => ({ i }) ) }, true )
+    let runs = 0
+    effect( () => { ( store.rows as any[] ).map( r => r.i ); runs++ })
+
+    ;( store.rows as any[] ).push({ i: 50 })
+
+    expect( runs ).toBe( 2 )
+  })
+
+  it('tracks key addition and removal for object iteration', () => {
+    const store = reactive({ map: { a: 1 } as Record<string, number> }, true )
+    let runs = 0
+    effect( () => { Object.keys( store.map ); runs++ })
+
+    store.map.b = 2
+    expect( runs ).toBe( 2 )
+
+    delete store.map.b
+    expect( runs ).toBe( 3 )
+
+    // a value change on an existing key is not a key-set change
+    store.map.a = 9
+    expect( runs ).toBe( 3 )
+  })
+
+  it('shares one proxy across stores, so a write through either is seen', () => {
+    /**
+     * A parent's `state.rows` and a child's `input.rows` are the same
+     * array. Per-store proxies would give each private channels, and a
+     * write through one would be invisible to the other.
+     */
+    const rows = [ { n: 1 } ]
+    const parent = reactive({ rows }, true )
+    const child = reactive({ rows }, true )
+
+    let seen = 0
+    effect( () => { ( child.rows as any[] )[0].n; seen++ })
+
+    ;( parent.rows as any[] )[0].n = 2
+
+    expect( seen ).toBe( 2 )
+    expect( ( child.rows as any[] )[0].n ).toBe( 2 )
+  })
+
+  it('does not notify on a no-op write', () => {
+    const store = reactive({ o: { a: 1 } }, true )
+    let runs = 0
+    effect( () => { ( store.o as any ).a; runs++ })
+
+    ;( store.o as any ).a = 1
+    expect( runs ).toBe( 1 )
+
+    ;( store.o as any ).a = 2
+    expect( runs ).toBe( 2 )
+  })
+})

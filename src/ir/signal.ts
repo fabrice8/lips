@@ -24,7 +24,14 @@ let CURRENT: Effect | null = null
  * (see `deepWrap`), and the keyed `<for>` is one of them.
  */
 let BATCH_DEPTH = 0
-const PENDING = new Set<() => void>()
+
+/**
+ * Queued EFFECTS, not queued signals. One effect commonly subscribes to
+ * many channels — a keyed `<for>` reads `length` and every index — so
+ * deduplicating per signal would still run it once per channel. The
+ * Set collapses to one run per effect.
+ */
+const PENDING = new Set<Effect>()
 
 /**
  * Drain iteratively: an effect may itself write, queueing more work.
@@ -36,7 +43,7 @@ function drain(){
     const queued = [ ...PENDING ]
     PENDING.clear()
     BATCH_DEPTH++
-    try { for( const notify of queued ) notify() }
+    try { for( const e of queued ) !e.disposed && e.run() }
     finally { BATCH_DEPTH-- }
   }
 }
@@ -54,18 +61,14 @@ export function batch<T>( fn: () => T ): T {
 export function signal<T>( value: T ): [ () => T, ( next: T ) => void, () => void ] {
   const subs = new Set<Effect>()
 
-  /**
-   * Queueing and running are separate on purpose: the drain must be able
-   * to RUN a queued flush unconditionally. If it went back through
-   * `notify` it would see a raised depth and re-queue itself forever.
-   */
-  const flush = () => {
+  const notify = () => {
+    if( BATCH_DEPTH ){
+      for( const e of subs ) PENDING.add( e )
+      return
+    }
     // Copy: effects may retrack while running
     for( const e of [ ...subs ] )
       !e.disposed && e.run()
-  }
-  const notify = () => {
-    BATCH_DEPTH ? PENDING.add( flush ) : flush()
   }
 
   const read = () => {
@@ -157,11 +160,264 @@ interface CollectionMeta {
  */
 const COLLECTION_PROXIES = new WeakMap<object, any>()
 
+/** Plain objects/arrays are deep-wrapped (Date/class instances pass through) */
+const isPlain = ( v: any ) =>
+  v !== null && typeof v === 'object'
+  && ( Array.isArray( v ) || Object.getPrototypeOf( v ) === Object.prototype )
+
+const isCollection = ( v: any ) =>
+  v instanceof Map || v instanceof Set
+  || !!( v && typeof v === 'object' && v[ COLLECTION_META ] )
+
+/**
+ * Array mutators write several times (push sets an index AND length).
+ * Run them atomically so one operation is one notification, not one per
+ * internal write.
+ */
+const ARRAY_MUTATORS = new Set([ 'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin' ])
+/** Map/Set methods that mutate — each notifies once */
+const COLLECTION_MUTATORS = new Set([ 'set', 'delete', 'clear', 'add' ])
+
+/**
+ * Channel for "which keys exist" — subscribed by `ownKeys` (Object.keys,
+ * Object.entries, `<for>` over an object) and fired when a key is added
+ * or removed. Separate from the per-key channels, which only cover value
+ * changes on keys that already exist.
+ */
+const KEYS = Symbol('lips.keys')
+
+/**
+ * ONE proxy per raw object, shared across every deep store.
+ *
+ * The same object is commonly reachable from two stores — a parent's
+ * `state.rows` and the child's `input.rows` are the same array. A
+ * per-store registry would hand each a private proxy with private
+ * channels, so a write through one would be invisible to the other.
+ */
+const OBJECT_PROXIES = new WeakMap<object, any>()
+
+/**
+ * Map/Set proxies break internal-slot access ([[MapData]]), so
+ * collections are wrapped by BINDING their methods to the target:
+ * reads work natively; mutators notify. Values read out of the
+ * collection are deep-wrapped in turn, so nested trees of Maps
+ * (e.g. a recursive layers tree) stay reactive.
+ */
+function wrapCollection( coll: any, touch: () => void ): any {
+  /**
+   * Identity-stable wrapping, for the same reason as OBJECT_PROXIES:
+   * ONE proxy is reused and every interested store adds its notifier.
+   */
+  const existing: CollectionMeta | undefined = coll[ COLLECTION_META ]
+  if( existing ){
+    existing.notify.add( touch )
+    return coll
+  }
+
+  const hit = COLLECTION_PROXIES.get( coll )
+  if( hit ){
+    ;( hit as any )[ COLLECTION_META ].notify.add( touch )
+    return hit
+  }
+
+  const meta: CollectionMeta = { raw: coll, notify: new Set([ touch ]) }
+  const notifyAll = () => meta.notify.forEach( fn => fn() )
+
+  const proxy = new Proxy( coll, {
+    get( t: any, k ){
+      if( k === COLLECTION_META ) return meta
+
+      // size and other data properties
+      const v = ( t as any )[ k ]
+      if( typeof v !== 'function' ) return v
+
+      if( typeof k === 'string' && COLLECTION_MUTATORS.has( k ) )
+        return ( ...args: any[] ) => {
+          const result = v.apply( t, args )
+          notifyAll()
+          return result
+        }
+
+      /**
+       * Readers hand out WRAPPED values. Iteration matters as much as
+       * `get`: a `<for>` over a Map reads `entries()`, and an unwrapped
+       * value there is an object nothing can track — its mutations would
+       * be invisible now that a nested write no longer force-notifies
+       * the whole collection.
+       */
+      const wrapVal = ( out: any ) =>
+        isPlain( out ) ? deepWrap( out, notifyAll )
+        : isCollection( out ) ? wrapCollection( out, notifyAll )
+        : out
+
+      const isMap = t instanceof Map
+
+      if( k === 'get' ) return ( key: any ) => wrapVal( t.get( key ) )
+
+      if( k === 'forEach' )
+        return ( fn: any, thisArg?: any ) =>
+          t.forEach( ( val: any, key: any ) => fn.call( thisArg, wrapVal( val ), key, proxy ) )
+
+      if( k === 'values' || ( !isMap && ( k === 'keys' || k === Symbol.iterator ) ) )
+        return function*(){ for( const val of t.values() ) yield wrapVal( val ) }
+
+      if( k === 'entries' || ( isMap && k === Symbol.iterator ) )
+        return isMap
+          ? function*(){ for( const [ key, val ] of t.entries() ) yield [ key, wrapVal( val ) ] }
+          : function*(){ for( const val of t.values() ) yield [ wrapVal( val ), wrapVal( val ) ] }
+
+      return v.bind( t )
+    }
+  })
+
+  COLLECTION_PROXIES.set( coll, proxy )
+  return proxy
+}
+
+/**
+ * Per-key channels for ONE nested object (RFC-004 follow-up).
+ *
+ * Each key gets its own subscription list, so `rows[3].x = v` notifies
+ * exactly the bindings that read `rows[3].x` — not everything that read
+ * `rows`. Previously every nested write force-notified the top key, and
+ * the keyed `<for>` is one of its subscribers, so a single field write
+ * re-ran the whole list: O(list) per write, O(N²) per animation frame.
+ *
+ * A channel is a signal used purely as a subscription list — reading
+ * subscribes, touching notifies. The VALUE always comes from the target,
+ * so the proxy and the underlying object can never diverge.
+ */
+function nestedProxy( target: any ): any {
+  const hit = OBJECT_PROXIES.get( target )
+  if( hit ) return hit
+
+  const chans = new Map<PropertyKey, ReturnType<typeof signal<number>>>()
+
+  const track = ( k: PropertyKey ) => {
+    let c = chans.get( k )
+    if( !c ){
+      c = signal( 0 )
+      chans.set( k, c )
+    }
+    c[0]()
+  }
+  /** Fire only if someone actually subscribed — an unread key has no channel */
+  const fire = ( k: PropertyKey ) => chans.get( k )?.[2]()
+
+  /**
+   * A STABLE notifier per key. Collections keep their subscribers in a
+   * Set, so handing them a fresh closure on every read would grow that
+   * Set without bound — one entry per read, never deduplicated.
+   */
+  const touches = new Map<PropertyKey, () => void>()
+  const touchFor = ( k: PropertyKey ) => {
+    let f = touches.get( k )
+    if( !f ){
+      f = () => fire( k )
+      touches.set( k, f )
+    }
+    return f
+  }
+  /**
+   * A structural change invalidates everything. Batched, so an effect
+   * subscribed to many channels (a `<for>` reads length and every index)
+   * runs ONCE rather than once per channel.
+   */
+  const fireAll = () => batch( () => { for( const c of chans.values() ) c[2]() })
+
+  let muted = false
+
+  const proxy = new Proxy( target, {
+    get( t: any, k ){
+      const v = t[ k ]
+
+      // Symbols (Symbol.iterator, …) pass through untracked; the
+      // iterator's own reads of length/indices are tracked below.
+      if( typeof k === 'symbol' ) return v
+
+      if( Array.isArray( t ) && ARRAY_MUTATORS.has( k ) && typeof v === 'function' )
+        return ( ...args: any[] ) => {
+          muted = true
+          try { return v.apply( t, args ) }
+          finally {
+            muted = false
+            fireAll()
+          }
+        }
+
+      /**
+       * Methods are returned unbound on purpose: `proxy.map(fn)` then
+       * runs with `this` = proxy, so its internal length/index reads go
+       * through this trap and subscribe.
+       */
+      if( typeof v === 'function' ) return v
+
+      track( k )
+      return isPlain( v ) || isCollection( v ) ? deepWrap( v, touchFor( k ) ) : v
+    },
+    set( t: any, k, v ){
+      const had = k in t
+      const prev = t[ k ]
+      t[ k ] = v
+
+      if( muted ) return true
+      if( !Object.is( prev, v ) ) fire( k )
+      /**
+       * A new key changes the key set, and on an array it also moves
+       * `length` — both are what iterators subscribed to.
+       */
+      if( !had ){
+        fire( KEYS )
+        Array.isArray( t ) && fire('length')
+      }
+      return true
+    },
+    deleteProperty( t: any, k ){
+      const had = k in t
+      delete t[ k ]
+
+      if( !muted && had ){
+        fire( k )
+        fire( KEYS )
+      }
+      return true
+    },
+    has( t: any, k ){
+      typeof k !== 'symbol' && track( k )
+      return k in t
+    },
+    ownKeys( t: any ){
+      track( KEYS )
+      return Reflect.ownKeys( t )
+    }
+  })
+
+  OBJECT_PROXIES.set( target, proxy )
+  return proxy
+}
+
+function deepWrap( value: any, touch: () => void ): any {
+  if( isCollection( value ) ) return wrapCollection( value, touch )
+  if( !isPlain( value ) ) return value
+  return nestedProxy( value )
+}
+
+/**
+ * Per-key reactive facade over a plain object:
+ * reading a key inside an effect subscribes to that key;
+ * writing notifies only that key's subscribers.
+ * Idempotent — wrapping a reactive object returns it as-is.
+ *
+ * Shallow by default (RFC-001 §6). `deep: true` opts into nested
+ * mutation tracking: plain objects/arrays read through a key are lazily
+ * given their OWN per-key channels (see `nestedProxy`), so a nested
+ * write stays O(subscribers-of-that-key) rather than invalidating the
+ * whole top-level key.
+ */
 export function reactive<T extends object>( obj: T, deep = false ): T {
   if( ( obj as any )[ IS_REACTIVE ] ) return obj
 
   const sigs = new Map<PropertyKey, [ () => any, ( v: any ) => void, () => void ]>()
-  const wrapped = deep ? new WeakMap<object, any>() : null
 
   const sigFor = ( key: PropertyKey, initial: any ) => {
     let s = sigs.get( key )
@@ -172,136 +428,12 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
     return s
   }
 
-  /** Plain objects/arrays/Maps/Sets are deep-wrapped (Date/class instances pass through) */
-  const isPlain = ( v: any ) =>
-    v !== null && typeof v === 'object'
-    && ( Array.isArray( v ) || Object.getPrototypeOf( v ) === Object.prototype )
-
-  const isCollection = ( v: any ) =>
-    v instanceof Map || v instanceof Set
-    || !!( v && typeof v === 'object' && v[ COLLECTION_META ] )
-
-  /**
-   * Array mutators write several times (push sets an index AND
-   * length). Run them atomically so one operation is one
-   * notification, not one per internal write.
-   */
-  const ARRAY_MUTATORS = new Set([ 'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin' ])
-  /** Map/Set methods that mutate — each notifies once */
-  const COLLECTION_MUTATORS = new Set([ 'set', 'delete', 'clear', 'add' ])
-
-  /**
-   * Map/Set proxies break internal-slot access ([[MapData]]), so
-   * collections are wrapped by BINDING their methods to the target:
-   * reads work natively; mutators notify. Values read out of the
-   * collection are deep-wrapped in turn, so nested trees of Maps
-   * (e.g. a recursive layers tree) stay reactive at the top key.
-   */
-  const wrapCollection = ( coll: any, touch: () => void ): any => {
-    /**
-     * Identity-stable wrapping. The same Map can be reached from
-     * several reactive stores — a parent's `state.layers` and the
-     * child's `input.list` are the same object. Re-wrapping would
-     * give each store a private proxy whose mutations only notify
-     * its own subscribers, so a `.set()` through one would be
-     * invisible to the other. Instead ONE proxy is reused and every
-     * interested store adds its notifier.
-     */
-    const existing: CollectionMeta | undefined = coll[ COLLECTION_META ]
-    if( existing ){
-      existing.notify.add( touch )
-      return coll
-    }
-
-    const hit = COLLECTION_PROXIES.get( coll )
-    if( hit ){
-      ;( hit as any )[ COLLECTION_META ].notify.add( touch )
-      return hit
-    }
-
-    const meta: CollectionMeta = { raw: coll, notify: new Set([ touch ]) }
-    const notifyAll = () => meta.notify.forEach( fn => fn() )
-
-    const proxy = new Proxy( coll, {
-      get( t: any, k ){
-        if( k === COLLECTION_META ) return meta
-
-        // size and other data properties
-        const v = ( t as any )[ k ]
-        if( typeof v !== 'function' ) return v
-
-        if( typeof k === 'string' && COLLECTION_MUTATORS.has( k ) )
-          return ( ...args: any[] ) => {
-            const result = v.apply( t, args )
-            notifyAll()
-            return result
-          }
-
-        // Readers: bind to the raw target, deep-wrap returned values
-        if( k === 'get' )
-          return ( key: any ) => {
-            const out = ( t as Map<any, any> ).get( key )
-            return isPlain( out ) ? deepWrap( out, notifyAll )
-                  : isCollection( out ) ? wrapCollection( out, notifyAll )
-                  : out
-          }
-
-        return v.bind( t )
-      }
-    })
-
-    COLLECTION_PROXIES.set( coll, proxy )
-    return proxy
-  }
-
-  const deepWrap = ( value: any, touch: () => void ): any => {
-    if( !deep ) return value
-    if( isCollection( value ) ) return wrapCollection( value, touch )
-    if( !isPlain( value ) ) return value
-
-    const hit = wrapped!.get( value )
-    if( hit ) return hit
-
-    let muted = false
-
-    const proxy = new Proxy( value, {
-      get( t: any, k ){
-        const v = t[ k ]
-
-        if( Array.isArray( t ) && typeof k === 'string' && ARRAY_MUTATORS.has( k ) && typeof v === 'function' )
-          return ( ...args: any[] ) => {
-            muted = true
-            try { return v.apply( t, args ) }
-            finally {
-              muted = false
-              touch()
-            }
-          }
-
-        return isPlain( v ) || isCollection( v ) ? deepWrap( v, touch ) : v
-      },
-      set( t: any, k, v ){
-        t[ k ] = v
-        !muted && touch()
-        return true
-      },
-      deleteProperty( t: any, k ){
-        delete t[ k ]
-        !muted && touch()
-        return true
-      }
-    })
-
-    wrapped!.set( value, proxy )
-    return proxy
-  }
-
   return new Proxy( obj, {
     get( target: any, key ){
       if( key === IS_REACTIVE ) return true
       if( typeof key === 'string' ){
         const s = sigFor( key, target[ key ] )
-        return deepWrap( s[0](), s[2] )
+        return deep ? deepWrap( s[0](), s[2] ) : s[0]()
       }
       return target[ key ]
     },

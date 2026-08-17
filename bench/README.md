@@ -62,55 +62,69 @@ self-checks all of it: **29/29**.
 
 It also produces one number worth acting on.
 
-### Nested writes are O(list) — and `batch()` fixes the sweep
+### Nested writes are O(1) in list length
 
 Measured with the loop paused, per write, 40 samples:
 
 | particles | nested write (`particles[i].x = v`) | control write (few subscribers) |
 |---|---|---|
-| 150 | 0.75 ms | 0.005 ms |
-| 300 | 1.21 ms | 0.003 ms |
-| 450 | 1.73 ms | 0.002 ms |
+| 150 | 0.01 ms | 0.007 ms |
+| 300 | 0.01 ms | 0.005 ms |
+| 450 | 0.01 ms | 0.003 ms |
 
-The control is a top-level key with a handful of subscribers: flat, as
-fine-grained reactivity should be. A nested write costs ~350× more and grows
-linearly with the list.
+Flat, and level with a plain top-level write. Each nested object carries its own
+per-key channels (`nestedProxy` in [src/ir/signal.ts](../src/ir/signal.ts)), so
+`rows[3].x = v` notifies exactly the bindings that read `rows[3].x`. The keyed
+`<for>` subscribed to `length` and the index/key fields — not to `x` — so a field
+change never wakes it.
 
-The cause is documented, not accidental — `deepWrap`'s `set` trap in
-[src/ir/signal.ts](../src/ir/signal.ts) force-notifies the **top key's**
-subscribers (RFC-001 §6, "coarse but O(subscribers-of-key)"), and the keyed
-`<for>` is one of those subscribers. So one field write re-runs the whole list
-binding, and a frame touching 4 fields × N particles pays N × O(N).
+**Before per-object signals** every nested write force-notified the top key, and
+the `<for>` was one of its subscribers, so one field write re-ran the whole list:
 
-## reactivity-batch.html — batched vs unbatched
-
-`batch()` queues each signal's notification instead of running it, and the queue
-is a Set, so N writes to one key collapse to **one** notification. Frame cost,
-median, measured synchronously with no animation loop:
-
-| particles | unbatched | batched | speedup | batched ceiling |
-|---|---|---|---|---|
-| 50 | 7.90 ms | 0.20 ms | 40× | ~5000 fps |
-| 100 | 29.40 ms | 0.50 ms | 59× | ~2000 fps |
-| 200 | 114.80 ms | 0.80 ms | 144× | ~1250 fps |
-| 300 | 278.40 ms | 1.30 ms | 214× | ~770 fps |
-
-From 50 to 300 particles — 6× the work — the unbatched cost grows **35×**
-(superlinear, O(N²)) while the batched cost grows **6.5×** (linear, O(N)).
-
-End to end in `particles.html`, live frame rate:
-
-| | unbatched | batched |
+| particles | then | now |
 |---|---|---|
-| 150 particles | 1.3 fps | **91 fps** |
-| 450 particles | ~0.2 fps | **42.6 fps** |
+| 150 | 0.75 ms | 0.01 ms |
+| 300 | 1.21 ms | 0.01 ms |
+| 450 | 1.73 ms | 0.01 ms |
 
-### What batching does not fix
+## reactivity-batch.html — frame cost
 
-It collapses a **sweep over many items**. It does nothing for a change to **one**
-item: the notification is still routed through the top key, so the keyed `<for>`
-still re-runs and a single drag still costs O(list).
+Frame cost, median, no animation loop. A frame writes 4 fields per particle:
 
-That is the Modela-shaped case — dragging one node on a canvas — so `batch()` is
-a mitigation, not the fix. Giving nested objects their own per-key signals, so
-`p.x = v` notifies only the binds that read `p.x`, remains the actual lever.
+| particles | frame | was (top-key notification) |
+|---|---|---|
+| 50 | 0.30 ms | 7.90 ms |
+| 100 | 0.50 ms | 29.40 ms |
+| 200 | 0.90 ms | 114.80 ms |
+| 300 | 2.00 ms | 278.40 ms |
+
+6× the particles now costs ~6.7× the time — linear. It used to cost 35× —
+O(N²), because each of the N×4 writes did O(N) work.
+
+### Live frame rate (`particles.html`)
+
+| | original | with `batch()` | with per-object signals |
+|---|---|---|---|
+| 150 particles | 1.3 fps | 91 fps | **120 fps** |
+| 450 particles | ~0.2 fps | 42.6 fps | **46.5 fps** |
+
+### What this means for `batch()`
+
+Batching is now close to a no-op for this workload — 120 vs 120 fps at 150
+particles, 46.5 vs 48.4 at 450. It was a mitigation for a cost that no longer
+exists.
+
+It still earns its place for two things:
+
+- **Structural fan-out.** A `push` or `splice` invalidates every channel on the
+  array; the fan-out is batched internally so a subscriber that read `length`
+  and every index runs once, not once per channel.
+- **Explicit coalescing.** Writing several keys a single binding reads still
+  notifies once per key. `batch()` collapses that to one run.
+
+### The case this fixes that batching never could
+
+Changing **one** item. Batching collapses a sweep over many; it did nothing for a
+single drag, which still routed through the top key and re-ran the list. That is
+the Modela-shaped interaction — dragging one node on a canvas — and it is now
+O(1) in the number of nodes.

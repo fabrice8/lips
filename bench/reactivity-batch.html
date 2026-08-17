@@ -15,12 +15,13 @@
 </style>
 </head>
 <body>
-<h1>Nested-write cost: batched vs unbatched</h1>
+<h1>Nested-write cost</h1>
 <p class="sub">
-  A frame mutates 4 fields on every particle. Each nested write force-notifies the
-  top key's subscribers — the keyed <code>&lt;for&gt;</code> among them — so the
-  unbatched cost is O(N) per write and O(N²) per frame. Timed synchronously, no
-  animation loop.
+  A frame mutates 4 fields on every particle. Each nested write notifies only the
+  bindings that read that key, so a frame is O(N) — the keyed
+  <code>&lt;for&gt;</code> is not woken at all. Batching still collapses the
+  fan-out of a structural change, but the baseline no longer depends on it.
+  Timed synchronously, no animation loop.
 </p>
 <div id="stage"></div>
 <pre id="out">measuring…</pre>
@@ -109,9 +110,9 @@ const render = ( note = '' ) => {
 }
 
 /**
- * Sizes and sample counts are chosen so no single unbatched frame blocks
- * the renderer for long: at 300 particles one frame is already >1s, and
- * three of them was enough to make the page unresponsive.
+ * Sample counts were once constrained by unbatched frames blocking the
+ * renderer for seconds. With per-object signals a 300-particle frame is
+ * ~2 ms either way, so the sweep is cheap.
  */
 for( const n of [ 50, 100, 200, 300 ] ){
   seed( n )
@@ -120,8 +121,8 @@ for( const n of [ 50, 100, 200, 300 ] ){
   await frameCost( true, 3 )                    // warm
   const batched = await frameCost( true, 9 )
 
-  await frameCost( false, 1 )                   // warm
-  const plain = await frameCost( false, n >= 200 ? 1 : 5 )
+  await frameCost( false, 3 )                   // warm
+  const plain = await frameCost( false, 9 )
 
   rows.push({ n, plain, batched, speedup: plain / batched })
   render('\n\n  measuring…')                   // progressive, so a stall still leaves data
@@ -133,11 +134,13 @@ const growth = ( key ) =>
 
 render(
   `\n\n  50 → 300 particles is 6× the work:\n`
-  + `    unbatched grows ${growth('plain')}×  — superlinear, O(N²)\n`
-  + `    batched   grows ${growth('batched')}×  — linear, O(N)\n\n`
-  + `  Each frame writes 4 fields per particle. Unbatched, every write\n`
-  + `  force-notifies the top key and the keyed <for> re-runs; batched,\n`
-  + `  the whole sweep collapses to one notification.` )
+  + `    unbatched grows ${growth('plain')}×\n`
+  + `    batched   grows ${growth('batched')}×\n\n`
+  + `  Both linear. A nested write notifies only the bindings that read\n`
+  + `  that key, so the keyed list is never woken by a field change.\n\n`
+  + `  For reference, before per-object signals every nested write\n`
+  + `  force-notified the top key and the list re-ran — one 300-particle\n`
+  + `  frame cost 278 ms unbatched (O(N²)) against ~2 ms now.` )
 </script>
 </body>
 </html>
