@@ -43,11 +43,22 @@ const KB = 1024
  * the previous note was watching for, which was compiler/preprocessor
  * code leaking across the precompiled seam. If runtime grows again,
  * check which of the two it is before touching this number.
+ * 2026-08-17: full 26→27, precompile 12→13. RFC-005 — three new template
+ * capabilities, all of which are compile-time work: stable translation
+ * keys (`i18n="key"` / `i18n-<attr>`), `<context …>` and `<i18n lang=…>`
+ * scope blocks, and their five diagnostics. Both build-time entries carry
+ * the compiler, so both move together — that pairing is the signature of
+ * genuine compiler growth.
+ *
+ * `runtime` holds at 15 (14.6 measured) even though it gained the
+ * `provide` executor and `self.lang`, so the precompiled seam is intact:
+ * none of the key parsing or block compilation leaked across it. That
+ * gap between precompile and runtime is still the number to watch.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 26,        // full: runtime + parser/compiler + style compiler + stylis + router
+  'dist/lips.min.js': 27,        // full: runtime + parser/compiler + style compiler + stylis + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
-  'dist/precompile.min.js': 12   // build-time: parser + compiler + style compiler + stylis
+  'dist/precompile.min.js': 13   // build-time: parser + compiler + style compiler + stylis
 }
 
 let failed = false

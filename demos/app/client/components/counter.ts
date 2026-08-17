@@ -14,8 +14,6 @@ export const _static: Static = {
   limit: 12
 }
 
-export const context = ['lang']
-
 export const state: State = {
   count: 0
 }
@@ -42,8 +40,16 @@ export default `
     <span @text=state.count></span>
     <br>
     <button on-click(handleClick)>
-      <span @text="Count"></span>
-      (<span @text=context.lang></span>)
+      <!-- Stable key: reword this label and the translation still holds -->
+      <span i18n="counter.label">Count</span>
+      (<span @text=self.lang></span>)
     </button>
+
+    <!-- Parameterised text goes through @format, not through a key alone -->
+    <small @format="counter.hint, { count: state.count }"></small>
+
+    <!-- A real switcher: setLanguage is the single writer, self.lang the reader -->
+    <button on-click( () => self.setLanguage('en-US') )>EN</button>
+    <button on-click( () => self.setLanguage('fr-FR') )>FR</button>
   </div>
 `

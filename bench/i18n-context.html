@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RFC-005 smoke — scoped context, scoped language, stable keys</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Menlo, monospace; margin: 2rem; max-width: 60rem; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; margin: 1.6rem 0 .4rem; }
+  .row { padding: 2px 0; }
+  .ok::before { content: '✓ '; color: #1a7f37; }
+  .bad::before { content: '✗ '; color: #cf222e; }
+  .bad { color: #cf222e; font-weight: 600; }
+  #summary { margin-top: 1.5rem; padding: .6rem .8rem; border-radius: 4px; font-weight: 600; }
+  .pass { background: #e6f4ea; color: #1a7f37; }
+  .fail { background: #ffebe9; color: #cf222e; }
+  #stage { border: 1px solid #d0d7de; padding: .8rem; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>RFC-005 smoke</h1>
+<div id="stage"></div>
+<h2>checks</h2>
+<div id="out"></div>
+<div id="summary"></div>
+
+<script type="module">
+import Lips from '../dist/lips.min.js'
+
+const out = document.getElementById('out')
+let pass = 0, fail = 0
+const check = ( label, got, want ) => {
+  const ok = got === want
+  ok ? pass++ : fail++
+  const d = document.createElement('div')
+  d.className = 'row ' + ( ok ? 'ok' : 'bad' )
+  d.textContent = ok ? label : `${label} — got ${JSON.stringify( got )}, want ${JSON.stringify( want )}`
+  out.appendChild( d )
+}
+const tick = ms => new Promise( r => setTimeout( r, ms ) )
+const txt = sel => document.querySelector( sel )?.textContent
+const attr = ( sel, a ) => document.querySelector( sel )?.getAttribute( a )
+
+const EN = {
+  'Count': 'Count',
+  'hero.title': 'Welcome',
+  'search.hint': 'Search…',
+  'items': { type: 'plural', value: { '0': 'No items', '1': 'One item', '*': '{count} items' } }
+}
+const FR = {
+  'Count': 'Compter',
+  'hero.title': 'Bienvenue',
+  'search.hint': 'Rechercher…',
+  'items': { type: 'plural', value: { '0': 'Aucun', '1': 'Un', '*': '{count} éléments' } }
+}
+
+const lips = new Lips({ lang: 'en-US', context: { theme: 'light', user: 'ada' } })
+lips.i18n.setDictionary('en', EN )
+lips.i18n.setDictionary('fr', FR )
+
+lips.register('badge', { default: `<em class="badge">{context.theme}/{self.lang}</em>` })
+
+lips.root({
+  state: { tone: 'dark', doc: 'fr-FR', n: 5 },
+  default: `
+    <div>
+      <p class="lang">{self.lang}</p>
+      <h1 i18n="hero.title" class="hero">Welcome</h1>
+      <input i18n i18n-placeholder="search.hint" class="find" placeholder="Find things">
+      <small class="fmt" @format="items, { count: state.n }"></small>
+
+      <b class="g-theme">{context.theme}</b>
+      <context theme=state.tone>
+        <i class="s-theme">{context.theme}</i>
+        <u class="s-user">{context.user}</u>
+        <badge/>
+        <context theme="contrast"><s class="deep">{context.theme}</s></context>
+      </context>
+
+      <span class="g-count" i18n>Count</span>
+      <i18n lang=state.doc>
+        <span class="s-count" i18n>Count</span>
+        <small class="s-fmt" @format="items, { count: state.n }"></small>
+        <badge/>
+      </i18n>
+
+      <button class="to-fr" on-click( () => self.setLanguage('fr-FR') )>FR</button>
+    </div>
+  `
+}, '#stage')
+
+await tick( 60 )
+
+// ---- stable keys + reading the language
+check('self.lang renders the configured language', txt('.lang'), 'en-US')
+check('keyed heading resolves through its key', txt('.hero'), 'Welcome')
+check('keyed placeholder resolves', attr('.find','placeholder'), 'Search…')
+check('i18n is not emitted as an attribute', document.querySelector('.find').hasAttribute('i18n'), false)
+check('i18n-placeholder is not emitted', document.querySelector('.find').hasAttribute('i18n-placeholder'), false)
+check('@format renders a plural', txt('.fmt'), '5 items')
+
+// ---- scoped context
+check('global context outside the layer', txt('.g-theme'), 'light')
+check('scoped context inside the layer', txt('.s-theme'), 'dark')
+check('unprovided key falls through', txt('.s-user'), 'ada')
+check('nearest provider wins', txt('.deep'), 'contrast')
+
+// ---- scoped language
+check('unscoped bind uses the global language', txt('.g-count'), 'Count')
+check('scoped bind uses the scoped language', txt('.s-count'), 'Compter')
+check('scoped @format follows too', txt('.s-fmt'), '5 éléments')
+
+const badges = [ ...document.querySelectorAll('.badge') ].map( e => e.textContent )
+check('component inherits scoped context', badges[0], 'dark/en-US')
+check('component inherits scoped language', badges[1], 'light/fr-FR')
+
+// ---- live: global switch must not disturb the scoped subtree
+document.querySelector('.to-fr').click()
+await tick( 60 )
+
+check('global switch translates unscoped text', txt('.g-count'), 'Compter')
+check('global switch updates self.lang', txt('.lang'), 'fr-FR')
+check('global switch retranslates a keyed heading', txt('.hero'), 'Bienvenue')
+check('global switch retranslates a keyed attribute', attr('.find','placeholder'), 'Rechercher…')
+check('scoped subtree is unmoved by the global switch', txt('.s-count'), 'Compter')
+
+// ---- live: fall-through stays reactive under a layer
+lips.setContext('user', 'grace')
+await tick( 60 )
+check('fall-through key is still reactive inside a layer', txt('.s-user'), 'grace')
+
+// ---- live: scoped language is reactive
+lips.__root.state.doc = 'en-US'
+await tick( 60 )
+check('scoped language tracks state', txt('.s-count'), 'Count')
+
+// ---- live: provided context value is reactive
+lips.__root.state.tone = 'solarized'
+await tick( 60 )
+check('provided value tracks state', txt('.s-theme'), 'solarized')
+check('deeper provider still shadows it', txt('.deep'), 'contrast')
+
+const s = document.getElementById('summary')
+s.className = fail ? 'fail' : 'pass'
+s.textContent = `${pass}/${pass + fail} checks passed`
+</script>
+</body>
+</html>

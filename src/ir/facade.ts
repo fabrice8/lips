@@ -65,7 +65,8 @@ type FacadeConfig<Context extends Object = Record<string, any>> =
  */
 const RESERVED_MEMBERS = new Set([
   'state', 'input', 'static', 'context', 'emit', 'on', 'once', 'off',
-  'node', 'destroy', 'appendTo', 'prependTo', 'replaceWith', 'render', 'swap'
+  'node', 'lang', 'setContext', 'setLanguage',
+  'destroy', 'appendTo', 'prependTo', 'replaceWith', 'render', 'swap'
 ])
 
 function guardHandlers( handler?: Handler<any> ){
@@ -222,6 +223,8 @@ export class IRLips<Context extends Object = Record<string, any>> {
     this.context = reactive( { ...( config?.context || {} ) }, true ) as Context
 
     this.i18n = new I18N( config?.lang )
+    this.debug && ( this.i18n.onMissing = ( key, lang ) =>
+      console.warn(`[lips:i18n] no <${lang}> entry for key "${key}"`) )
 
     const [ getLang, setLang ] = signal( this.i18n.lang )
     this.getLang = getLang
@@ -332,7 +335,13 @@ export class IRLips<Context extends Object = Record<string, any>> {
           ? this.defFor( value.name || 'dynamic', value as FacadeTemplate )
           : undefined,
       expose: {
-        setContext: ( arg: any, value?: any ) => this.setContext( arg, value )
+        setContext: ( arg: any, value?: any ) => this.setContext( arg, value ),
+        /**
+         * `self.setLanguage('fr-FR')` — a switcher is UI, so it needs to
+         * be reachable from a template's `on-click`, not just from the
+         * Lips instance.
+         */
+        setLanguage: ( lang: string ) => this.setLanguage( lang )
       },
       /**
        * Scoped-stylesheet factory. Undefined in a build without a CSS
@@ -349,10 +358,22 @@ export class IRLips<Context extends Object = Record<string, any>> {
          * translated bind on setLanguage(), and passing the value on —
          * rather than letting i18n fall back to its own `currentLang` —
          * keeps what is rendered equal to what was tracked.
+         *
+         * `scoped` is the `<i18n lang=…>` override for this subtree. It
+         * still tracks the global signal first: a scoped subtree whose
+         * expression reads nothing else must not go stale, and tracking
+         * one extra signal only costs a re-run that recomputes the same
+         * string.
          */
-        translate: ( text: string ) => this.i18n.translate( text, this.getLang() ).text,
-        format: ( reference: string, params: any ) =>
-          this.i18n.format( reference, params, this.getLang() ) ?? ''
+        translate: ( text: string, key?: string, scoped?: string ) => {
+          const global = this.getLang() // track unconditionally — see above
+          return this.i18n.translate( text, scoped || global, key ).text
+        },
+        format: ( reference: string, params: any, scoped?: string ) => {
+          const global = this.getLang()
+          return this.i18n.format( reference, params, scoped || global ) ?? ''
+        },
+        lang: () => this.getLang()
       }
     })
   }

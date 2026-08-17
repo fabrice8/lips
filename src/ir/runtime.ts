@@ -69,12 +69,20 @@ export interface RuntimeOptions {
    */
   createStylesheet?( nsp: string, css: string ): { clear(): void }
   /**
-   * i18n plugin hook (RFC §6): both calls must READ a language
-   * signal so translated binds re-run on language change.
+   * i18n plugin hook (RFC §6). Every call must READ a language signal
+   * so translated binds re-run on language change — including `lang()`,
+   * which is what makes `<span text=self.lang>` live.
+   *
+   * `key` is a STABLE translation id (RFC-005 §3): given one, the
+   * dictionary is consulted for it first and `text` is only the
+   * fallback wording. `lang` overrides the active language for one
+   * call — how `<i18n lang=…>` translates its subtree.
    */
   i18n?: {
-    translate( text: string ): string
-    format( reference: string, params: any ): string
+    translate( text: string, key?: string, lang?: string ): string
+    format( reference: string, params: any, lang?: string ): string
+    /** Active language, read reactively */
+    lang(): string
   }
 }
 
@@ -587,7 +595,7 @@ class IRRenderer {
         const h = this.guarded( () => {
           const v = run( benv )
           const text = v == null ? '' : String( v )
-          textNode.data = i18n ? i18n.translate( text ) : text
+          textNode.data = i18n ? i18n.translate( text, bind.ik, benv.lang?.() ) : text
         })
         return { bind, node, textNode, dispose: h.dispose }
       }
@@ -597,7 +605,7 @@ class IRRenderer {
         const h = this.guarded( () => {
           const v = run( benv )
           applyAttr( node as Element, bind.name,
-            i18n && v != null ? i18n.translate( String( v ) ) : v )
+            i18n && v != null ? i18n.translate( String( v ), bind.ik, benv.lang?.() ) : v )
         })
         return { bind, node, dispose: h.dispose }
       }
@@ -608,7 +616,7 @@ class IRRenderer {
           const ref = bind.ref || ''
           const h = this.guarded( () => {
             const params = run( benv )
-            const text = this.options.i18n?.format( ref, params )
+            const text = this.options.i18n?.format( ref, params, benv.lang?.() )
             ;( node as Element ).textContent = text == null ? '' : String( text )
           })
           return { bind, node, dispose: h.dispose }
@@ -921,6 +929,65 @@ class IRRenderer {
         })
 
         disposers.push( () => { token++; h.dispose(); destroy( current ) } )
+        break
+      }
+
+      /**
+       * Scoped context / scoped language (RFC-005 §4).
+       *
+       * The layer is a plain object whose PROTOTYPE is the enclosing
+       * context, with one reactive getter per provided key. That single
+       * choice buys the whole feature:
+       *
+       *  - a read of a provided key hits the own getter and tracks the
+       *    layer's signal;
+       *  - a read of anything else walks the chain into the global
+       *    reactive store and tracks THERE, so unprovided keys stay live;
+       *  - `Object.create` costs nothing per read, so a component under
+       *    a provider pays no lookup penalty.
+       *
+       * Nesting composes for free — an inner `<context>` prototypes off
+       * the outer layer, so the nearest provider wins.
+       */
+      case 'provide': {
+        const ctx = Object.create( benv.context ?? null )
+
+        for( const [ name, input ] of Object.entries( child.vars ) ){
+          if( 'lit' in input ){
+            const [ get ] = signal( input.lit )
+            defineGetter( ctx, name, get )
+            continue
+          }
+          const [ get, set ] = signal<any>( undefined )
+          defineGetter( ctx, name, get )
+          const run = this.runner( input.e, scopeNames )
+          disposers.push( effect( () => set( run( benv ) ) ).dispose )
+        }
+
+        /**
+         * The scoped language rides on the env rather than on the
+         * context object: it is framework state, not a user-space key,
+         * so `<i18n lang=…>` must not collide with a `context.lang` the
+         * app happens to own.
+         */
+        let lang = benv.lang
+        if( child.lang ){
+          if( 'lit' in child.lang ){
+            const v = String( child.lang.lit )
+            lang = () => v
+          }
+          else {
+            const [ get, set ] = signal<any>( undefined )
+            const run = this.runner( child.lang.e, scopeNames )
+            disposers.push( effect( () => set( run( benv ) ) ).dispose )
+            // Nullish falls back to the enclosing language, not to ''
+            lang = () => get() ?? benv.lang?.()
+          }
+        }
+
+        const inner = this.renderBlock( child.block, { ...benv, context: ctx, lang })
+        insertAfter( anchor, nodesOf( inner ) )
+        disposers.push( () => destroy( inner ) )
         break
       }
 
@@ -1287,9 +1354,21 @@ class IRRenderer {
     /** Set once the block renders — backs `self.node` */
     let selfInst: BlockInstance | null = null
 
+    // `this` inside the self literal's getters is the literal, not the renderer
+    const irr = this
+
     const self: any = {
       ...( this.options.expose || {} ),
       state, input, static: def.statics, context: benv.context,
+      /**
+       * Active language for THIS component — the scoped one when it sits
+       * under `<i18n lang=…>`, the global one otherwise. A getter, so a
+       * bind that reads `self.lang` subscribes to the language signal and
+       * re-renders on `setLanguage()`. Without it there is no way to show
+       * the current language, which is what pushed apps into mirroring it
+       * into context by hand (RFC-005 §2).
+       */
+      get lang(){ return benv.lang?.() ?? irr.options.i18n?.lang() ?? '' },
       /**
        * Live element nodes of this component — the handle external
        * controls (drag/resize/sort) bind to. Elements only: comment
@@ -1337,7 +1416,16 @@ class IRRenderer {
     try { Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
     catch( error ){ hooks.onError( error ) }
 
-    const cenv: RunEnv = { state, input, context: benv.context, static: def.statics, self, scope: undefined }
+    /**
+     * `context` and `lang` are INHERITED from the call site, not reset:
+     * a component placed inside `<context …>` or `<i18n lang=…>` renders
+     * under that layer. `scope` is not — a component is a fresh
+     * expression scope, unlike a block.
+     */
+    const cenv: RunEnv = {
+      state, input, context: benv.context, lang: benv.lang,
+      static: def.statics, self, scope: undefined
+    }
     const renderer = new IRRenderer( def.ir, this.options, hooks )
     const inst = renderer.renderBlock( def.ir.root, cenv )
     selfInst = inst // backs self.node
@@ -1524,6 +1612,8 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
 
   const self: any = {
     state, input, static: setup.static,
+    /** Active language, read reactively — see the nested-component note */
+    get lang(){ return options.i18n?.lang() ?? '' },
     /** Live element nodes — the handle external controls bind to */
     get node(){
       return rootInst
@@ -1556,6 +1646,13 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
       }
       return self
     },
+    /**
+     * `options.expose` is what every NESTED component self gets
+     * (setContext, setLanguage). The root is a component too, so it
+     * gets the same — otherwise `self.setLanguage(…)` would work
+     * everywhere except the top of the tree.
+     */
+    ...( options.expose || {} ),
     // Host-provided members (e.g. the facade's emit → Events) win
     ...( setup.expose || {} )
   }

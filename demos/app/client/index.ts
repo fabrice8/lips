@@ -6,15 +6,19 @@ import registry from './registry'
 import * as App from './app'
 
 type Context = {
-  lang: string
   online: boolean
   getUser: ( name ) => Promise<{ name: string, email: string }>
 }
 
-const lips = new Lips()
+/**
+ * `lang` is NOT context. It used to be mirrored there because there was
+ * no way to read the active language from a template — `self.lang` is
+ * that accessor now, and `self.setLanguage()` switches it. Keeping a
+ * copy in context would just be a second writer that can drift.
+ */
+const lips = new Lips({ lang: 'en-US' })
 
 lips.setContext({
-  lang: 'en-US',
   online: true,
   getUser( name ){
     return new Promise( ( resolve, reject ) => {
@@ -31,10 +35,6 @@ registry( lips )
 lips.root( App, 'body')
 
 setTimeout( () => {
-  // Change default translation language.
-  // NB: distinct from the `lang` context field above — that one is just
-  // app state the demo displays; this is what i18n actually reads.
-  // lips.setLanguage('fr-FR')
   lips.setContext('online', false )
 }, 5000 )
 

@@ -53,10 +53,15 @@ export interface BlockIR {
   blocks: ChildIR[]
 }
 
+/**
+ * `i18n` marks a bind as translatable; `ik` carries the STABLE key to
+ * look it up by (RFC-005 §3). Without `ik` the rendered text is its own
+ * key — reword the source and the translation is orphaned.
+ */
 export type BindIR =
-  | { t: 'text',   p: Path, e: E, i18n?: 1 }             // anchor; runtime inserts a text node after it
-  | { t: 'attr',   p: Path, name: string, e: E, i18n?: 1 }
-  | { t: 'prop',   p: Path, name: string, e: E, i18n?: 1, ref?: string } // @html / @text / @format
+  | { t: 'text',   p: Path, e: E, i18n?: 1, ik?: string } // anchor; runtime inserts a text node after it
+  | { t: 'attr',   p: Path, name: string, e: E, i18n?: 1, ik?: string }
+  | { t: 'prop',   p: Path, name: string, e: E, i18n?: 1, ik?: string, ref?: string } // @html / @text / @format
   | { t: 'event',  p: Path, name: string, e: E }         // raw instruction — runtime resolves handler form
   | { t: 'spread', p: Path, e: E }
 
@@ -82,6 +87,13 @@ export type ChildIR =
   | { t: 'async',   p: Path, awaitE: E, then?: ArmIR, catch?: ArmIR, loading?: BlockIR }
   | { t: 'let',     p: Path, const: boolean, vars: Record<string, CompInput> }
   | { t: 'log',     p: Path, e: E }
+  /**
+   * `<context …>` / `<i18n lang=…>` — a context layer over the subtree
+   * (RFC-005 §4). `vars` are the provided keys; `lang` is the scoped
+   * language. One IR kind, two spellings: they differ only in which
+   * field they fill.
+   */
+  | { t: 'provide', p: Path, vars: Record<string, CompInput>, lang?: CompInput, block: BlockIR }
   | { t: 'comp',    p: Path, name: string, inputs: Record<string, CompInput>, spreads: E[], events: { name: string, e: E }[], contents?: ArmIR }
   | { t: 'dynamic', p: Path, tag: E, inputs: Record<string, CompInput>, spreads: E[], events: { name: string, e: E }[], contents?: ArmIR }
 
@@ -104,7 +116,11 @@ interface MacroDef {
 // ------------------------------------------------------------------ tables
 const ANCHOR = '<!--$-->'
 
-const CONTROL_TAGS = new Set([ 'if', 'else-if', 'else', 'for', 'switch', 'async', 'let', 'const', 'log' ])
+const CONTROL_TAGS = new Set([
+  'if', 'else-if', 'else', 'for', 'switch', 'async', 'let', 'const', 'log',
+  // RFC-005 §4 — scoped context / scoped language
+  'context', 'i18n'
+])
 const ARM_TAGS = new Set([ 'case', 'default', 'then', 'catch', 'loading' ])
 
 /** Standard HTML + common SVG tags — anything else is a component candidate */
@@ -245,7 +261,7 @@ class Compiler {
      * The index simulation must match browser parsing:
      * consecutive static text coalesces into ONE node.
      */
-    const emitSiblings = ( nodes: TemplateNode[], path: Path, i18nParent = false ) => {
+    const emitSiblings = ( nodes: TemplateNode[], path: Path, i18nParent = false, i18nKey?: string ) => {
       let index = 0
       let lastWasText = false
 
@@ -265,7 +281,9 @@ class Compiler {
              * bind — there is nothing to translate in a skeleton.
              */
             if( i18nParent ){
-              block.binds.push({ t: 'text', p: anchor(), e: this.synth( JSON.stringify( node.value ) ), i18n: 1 })
+              const bind: BindIR = { t: 'text', p: anchor(), e: this.synth( JSON.stringify( node.value ) ), i18n: 1 }
+              if( i18nKey ) bind.ik = i18nKey
+              block.binds.push( bind )
               break
             }
 
@@ -283,6 +301,7 @@ class Compiler {
           case 'interp': {
             const bind: BindIR = { t: 'text', p: anchor(), e: this.concat( node.parts ) }
             if( i18nParent ) bind.i18n = 1
+            if( i18nParent && i18nKey ) bind.ik = i18nKey
             block.binds.push( bind )
             break
           }
@@ -361,7 +380,7 @@ class Compiler {
     index: number,
     html: string[],
     block: BlockIR,
-    emitSiblings: ( nodes: TemplateNode[], path: Path, i18nParent?: boolean ) => void
+    emitSiblings: ( nodes: TemplateNode[], path: Path, i18nParent?: boolean, i18nKey?: string ) => void
   ){
     const p: Path = [ ...path, index ]
     let open = `<${node.tag}`
@@ -370,8 +389,36 @@ class Compiler {
      * `i18n` marks an element's own text and its visual
      * attributes (title/placeholder) as translatable.
      */
-    const i18n = node.attrs.some( a => a.k === 'bool' && a.name === 'i18n' && a.value )
+    /** `args` (`[a,b]`) is the one attribute form with no name */
+    const named = node.attrs.filter( a => 'name' in a ) as ( AttrNode & { name: string } )[]
+
+    const i18n = named.some( a =>
+      a.name === 'i18n' && ( ( a.k === 'bool' && a.value ) || a.k === 'literal' ) )
     const translatableAttr = ( name: string ) => i18n && ( name === 'title' || name === 'placeholder' )
+
+    /**
+     * Stable translation ids (RFC-005 §3).
+     *
+     *   <h1 i18n="hero.title">Welcome</h1>
+     *   <input i18n i18n-placeholder="search.hint" placeholder="Search…">
+     *
+     * `i18n="key"` ids the element's own text; `i18n-<attr>="key"` ids
+     * that attribute. Bare `i18n` keeps the gettext model where the
+     * source text is the key — fine when a human owns the wording,
+     * lossy when a generator rewrites it.
+     */
+    const keyOf = ( name: string ) => {
+      const a = named.find( x => x.name === name && x.k === 'literal' )
+      return a && 'value' in a && a.value ? String( a.value ) : undefined
+    }
+    const textKey = keyOf('i18n')
+    const attrKey = ( name: string ) => keyOf(`i18n-${name}`)
+
+    /** `i18n-<attr>` on an element that never opted in translates nothing */
+    !i18n && named.some( a => a.name.startsWith('i18n-') )
+      && this.report( 'LIPS-C014', 'warning',
+                      `i18n-* key on <${node.tag}> without the 'i18n' marker — the attribute will not be translated`,
+                      node.loc.offset, node.loc.length )
 
     for( const attr of node.attrs ){
       switch( attr.k ){
@@ -384,9 +431,14 @@ class Compiler {
             block.binds.push({ t: 'prop', p, name: attr.name.slice( 1 ), e: this.synth( JSON.stringify( attr.value ) ) })
             break
           }
+          // `i18n="key"` / `i18n-<attr>="key"` are directives, not output
+          if( attr.name === 'i18n' || attr.name.startsWith('i18n-') ) break
           // Literal title/placeholder under i18n must become a bind to be translated
           if( translatableAttr( attr.name ) ){
-            block.binds.push({ t: 'attr', p, name: attr.name, e: this.synth( JSON.stringify( attr.value ) ), i18n: 1 })
+            const bind: BindIR = { t: 'attr', p, name: attr.name, e: this.synth( JSON.stringify( attr.value ) ), i18n: 1 }
+            const k = attrKey( attr.name )
+            if( k ) bind.ik = k
+            block.binds.push( bind )
             break
           }
           open += ` ${attr.name}="${escAttr( attr.value )}"`
@@ -406,7 +458,11 @@ class Compiler {
           }
 
           const bind: BindIR = { t: 'attr', p, name: attr.name, e: this.expr( attr.source, attr.loc ) }
-          if( translatableAttr( attr.name ) ) bind.i18n = 1
+          if( translatableAttr( attr.name ) ){
+            bind.i18n = 1
+            const k = attrKey( attr.name )
+            if( k ) bind.ik = k
+          }
           block.binds.push( bind )
           break
         }
@@ -417,7 +473,11 @@ class Compiler {
           }
 
           const bind: BindIR = { t: 'attr', p, name: attr.name, e: this.concat( attr.parts ) }
-          if( translatableAttr( attr.name ) ) bind.i18n = 1
+          if( translatableAttr( attr.name ) ){
+            bind.i18n = 1
+            const k = attrKey( attr.name )
+            if( k ) bind.ik = k
+          }
           block.binds.push( bind )
           break
         }
@@ -444,7 +504,30 @@ class Compiler {
     }
 
     html.push( open + '>' )
-    node.children.length && emitSiblings( node.children, p, i18n )
+
+    /**
+     * A key ids ONE FIXED string. Two shapes break that:
+     *
+     *   <h1 i18n="k">Hello {state.name}</h1>   — interpolated
+     *   <h1 i18n="k">a<b>x</b>c</h1>           — several text runs
+     *
+     * In the first the key would resolve the whole entry and silently
+     * drop the interpolated value; in the second every run would render
+     * the same translation. Both are what `@format` exists for — it
+     * takes a reference AND params — so name it and fall back to
+     * source-text keying rather than emit something wrong.
+     */
+    let key = textKey
+    const runs = node.children.filter( c => c.t === 'text' || c.t === 'interp' )
+    if( key && ( runs.length > 1 || runs.some( c => c.t === 'interp' ) ) ){
+      this.report( 'LIPS-C015', 'error',
+        `<${node.tag} i18n="${key}"> keys text that is not a single fixed string. `
+        + `Use @format="${key}, { … }" for interpolated text.`,
+        node.loc.offset, node.loc.length )
+      key = undefined
+    }
+
+    node.children.length && emitSiblings( node.children, p, i18n, key )
     html.push( `</${node.tag}>` )
   }
 
@@ -645,6 +728,75 @@ class Compiler {
          */
         block.blocks.push({ t: 'log', p, e: node.head ? this.synth( node.head.expr ) : this.missingHead( node ) })
         break
+
+      /**
+       * Scoped context (RFC-005 §4):
+       *
+       *   <context selection=state.sel tool=state.tool> … </context>
+       *
+       * Every attribute becomes a context key visible to the subtree —
+       * components included — shadowing the global store for that key
+       * only. Unlike `<let>`, the names do NOT enter expression scope:
+       * they are read as `context.selection`, which is what makes a
+       * child component see them without the parent passing inputs.
+       */
+      case 'context': {
+        const vars: Record<string, CompInput> = {}
+
+        for( const attr of node.attrs ){
+          /**
+           * Same reasoning as <let>: a spread's keys are unknown at
+           * compile time. Here they would also silently fail to shadow
+           * anything, since lookup is by name at render.
+           */
+          if( attr.k === 'spread' ){
+            this.report( 'LIPS-C016', 'error',
+              `Spread is not supported on <context> — provided keys must be known at compile time`,
+              attr.loc.offset, attr.loc.length,
+              `Provide them one by one: <context a=obj.a b=obj.b>` )
+            continue
+          }
+
+          if( attr.k === 'literal' || attr.k === 'expr' || attr.k === 'interp' || attr.k === 'bool' )
+            vars[ attr.name ] = this.compInput( attr )
+        }
+
+        if( !Object.keys( vars ).length )
+          this.report( 'LIPS-C017', 'warning',
+            `<context> provides nothing — it renders its children unchanged`,
+            node.loc.offset, node.loc.length )
+
+        block.blocks.push({ t: 'provide', p, vars, block: this.block( node.children, scope ) })
+        break
+      }
+
+      /**
+       * Scoped language (RFC-005 §4):
+       *
+       *   <i18n lang=state.docLang> … </i18n>
+       *
+       * The subtree's translatable binds resolve against `lang` instead
+       * of the global language — a document pane in the content's
+       * language while the chrome stays in the reader's.
+       */
+      case 'i18n': {
+        const { byName } = this.attrsOf( node )
+        const langAttr = byName.get('lang')
+
+        if( !langAttr ){
+          this.report( 'LIPS-C018', 'error',
+            `<i18n> requires a 'lang' attribute: <i18n lang=state.docLang>`,
+            node.loc.offset, node.loc.length )
+          break
+        }
+
+        block.blocks.push({
+          t: 'provide', p, vars: {},
+          lang: this.compInput( langAttr as AttrNode & { k: 'literal' | 'expr' | 'interp' | 'bool' } ),
+          block: this.block( node.children, scope )
+        })
+        break
+      }
     }
   }
 
