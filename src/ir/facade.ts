@@ -115,7 +115,7 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
       state: this.state,
       input: inputR,
       context: lips.getContext(),
-      static: template._static,
+      static: template.static ?? template._static,
       handlers,
       deep: true,
       // Compiled stylesheet — the runtime stamps `rel`, injects, and binds
@@ -303,7 +303,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
       def = {
         ir: this.compile( template ),
         state: template.state,
-        statics: template._static,
+        statics: template.static ?? template._static,
         context: template.context,
         stylesheet: this.styleFor( name, template ),
         nsp: name,
