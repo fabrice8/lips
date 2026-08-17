@@ -62,7 +62,7 @@ self-checks all of it: **29/29**.
 
 It also produces one number worth acting on.
 
-### Nested writes are O(list)
+### Nested writes are O(list) — and `batch()` fixes the sweep
 
 Measured with the loop paused, per write, 40 samples:
 
@@ -80,14 +80,37 @@ The cause is documented, not accidental — `deepWrap`'s `set` trap in
 [src/ir/signal.ts](../src/ir/signal.ts) force-notifies the **top key's**
 subscribers (RFC-001 §6, "coarse but O(subscribers-of-key)"), and the keyed
 `<for>` is one of those subscribers. So one field write re-runs the whole list
-binding.
+binding, and a frame touching 4 fields × N particles pays N × O(N).
 
-Consequence: an animation loop touching 4 fields × N particles pays N × O(N).
-At 150 particles that is ~450 ms per frame — the demo runs at ~4 fps, and the
-fix is not in the renderer or in StyleIR, both of which are doing the right
-thing (position updates are single custom-property writes).
+## reactivity-batch.html — batched vs unbatched
 
-This matters well beyond particles: it is the same shape as a canvas of
-draggable objects, which is Modela's core interaction. Making nested objects
-carry their own per-key signals — rather than routing every nested write to the
-parent key — is the lever, and is its own piece of work.
+`batch()` queues each signal's notification instead of running it, and the queue
+is a Set, so N writes to one key collapse to **one** notification. Frame cost,
+median, measured synchronously with no animation loop:
+
+| particles | unbatched | batched | speedup | batched ceiling |
+|---|---|---|---|---|
+| 50 | 7.90 ms | 0.20 ms | 40× | ~5000 fps |
+| 100 | 29.40 ms | 0.50 ms | 59× | ~2000 fps |
+| 200 | 114.80 ms | 0.80 ms | 144× | ~1250 fps |
+| 300 | 278.40 ms | 1.30 ms | 214× | ~770 fps |
+
+From 50 to 300 particles — 6× the work — the unbatched cost grows **35×**
+(superlinear, O(N²)) while the batched cost grows **6.5×** (linear, O(N)).
+
+End to end in `particles.html`, live frame rate:
+
+| | unbatched | batched |
+|---|---|---|
+| 150 particles | 1.3 fps | **91 fps** |
+| 450 particles | ~0.2 fps | **42.6 fps** |
+
+### What batching does not fix
+
+It collapses a **sweep over many items**. It does nothing for a change to **one**
+item: the notification is still routed through the top key, so the keyed `<for>`
+still re-runs and a single drag still costs O(list).
+
+That is the Modela-shaped case — dragging one node on a canvas — so `batch()` is
+a mitigation, not the fix. Giving nested objects their own per-key signals, so
+`p.x = v` notifies only the binds that read `p.x`, remains the actual lever.

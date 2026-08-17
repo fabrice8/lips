@@ -93,38 +93,51 @@ const frameCost = async ( batched, runs ) => {
   return median( times )
 }
 
+const out = document.querySelector('#out')
 const rows = []
-for( const n of [ 50, 150, 300, 450 ] ){
-  seed( n )
-  await tick( 120 )
-
-  // warm both paths before timing
-  await frameCost( false, 1 ); await frameCost( true, 2 )
-
-  const runs = n > 200 ? 3 : 9
-  const plain = await frameCost( false, runs )
-  const batched = await frameCost( true, Math.max( runs, 9 ) )
-
-  rows.push({ n, plain, batched, speedup: plain / batched })
-}
 
 const pad = ( s, w ) => String( s ).padStart( w )
-const fmt = r =>
-  `  ${pad( r.n, 3 )}   ${pad( r.plain.toFixed( 2 ), 8 )} ms   `
-  + `${pad( r.batched.toFixed( 2 ), 8 )} ms   ${pad( r.speedup.toFixed( 0 ) + '×', 6 )}   `
-  + `${pad( ( 1000 / r.batched ).toFixed( 0 ), 4 )} fps ceiling`
+const render = ( note = '' ) => {
+  out.textContent =
+    `  N     unbatched      batched   speedup   batched ceiling\n`
+  + `  --------------------------------------------------------------\n`
+  + rows.map( r =>
+      `  ${pad( r.n, 3 )}   ${pad( r.plain.toFixed( 2 ), 8 )} ms   `
+      + `${pad( r.batched.toFixed( 2 ), 8 )} ms   ${pad( r.speedup.toFixed( 0 ) + '×', 6 )}   `
+      + `${pad( ( 1000 / r.batched ).toFixed( 0 ), 5 )} fps` ).join('\n')
+  + note
+}
 
-const scale = ( a, b, key ) => ( b[ key ] / a[ key ] ).toFixed( 1 )
-const first = rows[ 0 ], last = rows[ rows.length - 1 ]
+/**
+ * Sizes and sample counts are chosen so no single unbatched frame blocks
+ * the renderer for long: at 300 particles one frame is already >1s, and
+ * three of them was enough to make the page unresponsive.
+ */
+for( const n of [ 50, 100, 200, 300 ] ){
+  seed( n )
+  await tick( 150 )
 
-document.querySelector('#out').textContent =
-  `  N     unbatched      batched   speedup   headroom\n`
-  + `  ---------------------------------------------------------\n`
-  + rows.map( fmt ).join('\n')
-  + `\n\n`
-  + `  50 → 450 particles (9× the work):\n`
-  + `    unbatched grows ${scale( first, last, 'plain' )}×   — superlinear, O(N²)\n`
-  + `    batched   grows ${scale( first, last, 'batched' )}×   — linear, O(N)\n`
+  await frameCost( true, 3 )                    // warm
+  const batched = await frameCost( true, 9 )
+
+  await frameCost( false, 1 )                   // warm
+  const plain = await frameCost( false, n >= 200 ? 1 : 5 )
+
+  rows.push({ n, plain, batched, speedup: plain / batched })
+  render('\n\n  measuring…')                   // progressive, so a stall still leaves data
+  await tick( 30 )
+}
+
+const growth = ( key ) =>
+  ( rows[ rows.length - 1 ][ key ] / rows[ 0 ][ key ] ).toFixed( 1 )
+
+render(
+  `\n\n  50 → 300 particles is 6× the work:\n`
+  + `    unbatched grows ${growth('plain')}×  — superlinear, O(N²)\n`
+  + `    batched   grows ${growth('batched')}×  — linear, O(N)\n\n`
+  + `  Each frame writes 4 fields per particle. Unbatched, every write\n`
+  + `  force-notifies the top key and the keyed <for> re-runs; batched,\n`
+  + `  the whole sweep collapses to one notification.` )
 </script>
 </body>
 </html>

@@ -31,7 +31,7 @@ const fail = e => {
 window.addEventListener('error', fail )
 window.addEventListener('unhandledrejection', fail )
 
-import Lips from '../dist/lips.min.js'
+import Lips, { batch } from '../dist/lips.min.js'
 
 const lips = new Lips({ context: { theme: 'dark', quality: 'high' } })
 
@@ -127,6 +127,7 @@ const field = {
     particles: [],
     count: 0,
     running: true,
+    batched: true,
     emitter: 'fountain',
     panel: 'panel-physics',
     trails: false,
@@ -184,6 +185,9 @@ const field = {
             trails {state.trails ? 'on' : 'off'}
           </button>
           <button class="ctl wide" on-click(cyclePanel)>panel</button>
+          <button class="ctl wide" on-click( () => state.batched = !state.batched )>
+            batch {state.batched ? 'on' : 'off'}
+          </button>
         </div>
 
         <div class="group">
@@ -342,7 +346,16 @@ const field = {
       }
     },
 
+    /**
+     * One frame is 4 nested writes per particle. Unbatched, each one
+     * force-notifies the top key and the keyed <for> re-runs — O(N) per
+     * write, O(N²) per frame. See bench/reactivity-batch.html.
+     */
     step(){
+      this.state.batched ? batch( () => this.stepRaw() ) : this.stepRaw()
+    },
+
+    stepRaw(){
       const { W, H } = this.static
       const { gravity, drag } = this.state
 
