@@ -1,17 +1,24 @@
 {
+  "Settings": "Paramètres",
   "Undo": "Annuler",
   "Redo": "Refaire",
-  "Reinitialize": "Réinitialiser",
-  "Settings": "Paramêtre",
-  "Link": "Lien",
-  "Device Screens": "Dispositifs",
-  "Bold": "Gras",
-  "Button": "Bouton",
-  "Count": "Compter",
 
-  "counter.label": "Compter",
+  "nav.overview": "Aperçu",
+  "counter.reset": "Réinitialiser",
   "counter.hint": {
     "type": "plural",
-    "value": { "0": "Pas démarré", "1": "Un clic", "*": "{count} clics" }
+    "value": {
+      "0": "Pas démarré — {limit} à faire",
+      "1": "Un pas, plafond à {limit}",
+      "*": "{count} sur {limit}"
+    }
+  },
+  "cart.items": {
+    "type": "plural",
+    "value": {
+      "0": "Votre panier est vide",
+      "1": "Un article dans votre panier",
+      "*": "{count} articles dans votre panier"
+    }
   }
 }

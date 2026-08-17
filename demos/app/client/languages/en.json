@@ -1,19 +1,24 @@
 {
+  "Settings": "Settings",
   "Undo": "Undo",
   "Redo": "Redo",
-  "Reinitialize": "Reinitialize",
-  "Settings": "Settings",
-  "Link": "Link",
-  "Device Screens": {
-    "*": "Device Screens",
-    "UK": "Media Devices"
-  },
-  "Bold": "Bold",
-  "Count": "Count",
 
-  "counter.label": "Count",
+  "nav.overview": "Overview",
+  "counter.reset": "Reset",
   "counter.hint": {
     "type": "plural",
-    "value": { "0": "Not started", "1": "One click in", "*": "{count} clicks in" }
+    "value": {
+      "0": "Not started — {limit} to go",
+      "1": "One step in, {limit} is the ceiling",
+      "*": "{count} of {limit}"
+    }
+  },
+  "cart.items": {
+    "type": "plural",
+    "value": {
+      "0": "Your cart is empty",
+      "1": "One item in your cart",
+      "*": "{count} items in your cart"
+    }
   }
 }

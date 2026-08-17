@@ -1,9 +1,120 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Demo | Modela Component</title>
+    <title>Lips — Feature Tour</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>💋</text></svg>">
+
+    <!--
+      Design tokens and the reset live here, not in a component stylesheet.
+      A component `stylesheet` is SCOPED to that component's own roots
+      (`[rel="<name>"] { … }`, RFC-004), so it can never reach `html`/`body`
+      or register document-wide tokens. Everything past this file is scoped.
+
+      The `[data-theme]` overrides are what <theme-switch> writes to, and
+      they come after the media query so an explicit choice wins over the
+      OS preference in both directions.
+    -->
+    <style>
+      :root {
+        color-scheme: light dark;
+
+        --bg: #fbfbfd;
+        --bg-grid: #ececf2;
+        --panel: #ffffff;
+        --panel-2: #f5f5f9;
+        --border: #e2e2ea;
+        --border-2: #cfcfda;
+        --text: #17171c;
+        --text-dim: #61616e;
+        --text-faint: #8b8b98;
+        --accent: #d6336c;
+        --accent-2: #ff7a9c;
+        --accent-ink: #ffffff;
+        --ok: #0b8a5f;
+        --warn: #b26a00;
+        --danger: #c92a2a;
+        --shadow: 0 1px 2px rgba(20, 20, 40, .06), 0 8px 24px rgba(20, 20, 40, .05);
+
+        --radius: 12px;
+        --radius-sm: 8px;
+        --sans: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+          --bg: #0e0e13;
+          --bg-grid: #17171f;
+          --panel: #16161e;
+          --panel-2: #1d1d27;
+          --border: #262633;
+          --border-2: #363648;
+          --text: #f2f2f7;
+          --text-dim: #a4a4b6;
+          --text-faint: #74748a;
+          --accent: #ff6b9d;
+          --accent-2: #ffa8c2;
+          --accent-ink: #1a0a12;
+          --ok: #3ddc97;
+          --warn: #ffc061;
+          --danger: #ff6b6b;
+          --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+        }
+      }
+
+      /*
+        `color-scheme` has to follow the override, not just the OS. Without
+        this, an explicit light theme still renders native controls
+        (checkboxes, ranges, selects, scrollbars) in the dark scheme.
+      */
+      :root[data-theme="light"] { color-scheme: light }
+      :root[data-theme="dark"] { color-scheme: dark }
+
+      :root[data-theme="dark"] {
+        --bg: #0e0e13;
+        --bg-grid: #17171f;
+        --panel: #16161e;
+        --panel-2: #1d1d27;
+        --border: #262633;
+        --border-2: #363648;
+        --text: #f2f2f7;
+        --text-dim: #a4a4b6;
+        --text-faint: #74748a;
+        --accent: #ff6b9d;
+        --accent-2: #ffa8c2;
+        --accent-ink: #1a0a12;
+        --ok: #3ddc97;
+        --warn: #ffc061;
+        --danger: #ff6b6b;
+        --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+      }
+
+      * { box-sizing: border-box }
+      html, body { margin: 0; padding: 0 }
+
+      body {
+        background:
+          radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 45%),
+          var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+        min-height: 100vh;
+      }
+
+      /* Pre-hydration: avoid a flash of unstyled anchors before Lips mounts */
+      body:empty::before {
+        content: 'Loading…';
+        display: block;
+        padding: 3rem;
+        color: var(--text-faint);
+        font-family: var(--mono);
+      }
+    </style>
   </head>
   <body></body>
   <script src="./build/index.js" type="module"></script>

@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8931", "--bind", "127.0.0.1"],
       "port": 8931
+    },
+    {
+      "name": "demo",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "demos/app/serve.ts"],
+      "port": 3210
     }
   ]
 }
