@@ -96,6 +96,72 @@ describe('attribute binds', () => {
     const b = bindOf('spread')
     expect( exprOf( ir(), b.e ) ).toBe('state.extra')
   })
+
+  it('an interpolated @-prop is a prop bind, not an "@text" attribute', () => {
+    const ir = clean(`<span @text="Row {state.i + 1}"></span>`)
+    const b = ( ir.root.binds as any[] )[0]
+
+    expect( b.t ).toBe('prop')
+    expect( b.name ).toBe('text')
+    expect( exprOf( ir, b.e ) ).toBe(`"Row "+((state.i + 1)??"")`)
+    // the literal attribute must NOT reach the skeleton
+    expect( ir.root.html ).toBe(`<span></span>`)
+  })
+})
+
+describe('style= takes CSS text, not an object', () => {
+  const styleErr = ( src: string ) => {
+    const { ir, diagnostics } = compile( src )
+    const d = diagnostics.find( x => x.code === 'LIPS-C019' )
+
+    expect( d, `no LIPS-C019 for: ${src}` ).toBeDefined()
+    expect( d!.severity ).toBe('error')
+    // The token-level complaint is what C019 replaces
+    expect( diagnostics.some( x => x.code === 'LIPS-E003' ) ).toBe( false )
+    return { ir, hint: d!.hint }
+  }
+
+  it('reports the interpolated object literal and drops the dead bind', () => {
+    const { ir } = styleErr(`<section style="{ border: '2px solid gray', margin: '3rem' }">x</section>`)
+
+    expect( ir.root.html ).toBe(`<section>x</section>`)
+    expect( ir.root.binds ).toEqual( [] )
+  })
+
+  it('reports the `{{ … }}` object expression, which compiles to [object Object]', () => {
+    const { ir } = styleErr(`<div style={{ margin: '3rem' }}>x</div>`)
+    expect( ir.root.binds ).toEqual( [] )
+  })
+
+  it('names the fix', () => {
+    const { hint } = styleErr(`<div style="{ margin: '3rem' }">x</div>`)
+    expect( hint ).toContain(`style="border: 2px solid gray; margin: 3rem"`)
+    expect( hint ).toContain('stylesheet')
+  })
+
+  it('leaves the CSS-text forms alone', () => {
+    // literal, interpolated value, whole-value expression, ternary
+    clean(`<div style="background: black;color: white">x</div>`)
+    clean(`<div style="width: {state.w}px; color: {state.c}">x</div>`)
+    clean(`<div style=state.css>x</div>`)
+    clean(`<div style="{state.on ? 'color: red' : ''}">x</div>`)
+    clean(`<div style="{!state.on && 'color: red'}">x</div>`)
+    clean(`<div style="{state.css ?? 'color: red'}">x</div>`)
+  })
+
+  it('binds the interpolated form as a concat, as before', () => {
+    const ir = clean(`<div style="width: {state.w}px">x</div>`)
+    const b = ( ir.root.binds as any[] )[0]
+
+    expect( b.t ).toBe('attr')
+    expect( b.name ).toBe('style')
+    expect( exprOf( ir, b.e ) ).toBe(`"width: "+((state.w)??"")+"px"`)
+  })
+
+  it('is element-only — on a component `style` is an input, and objects are fine there', () => {
+    const { diagnostics } = compile(`<counter style={{ margin: '3rem' }}>x</counter>`)
+    expect( diagnostics ).toEqual( [] )
+  })
 })
 
 describe('control-flow blocks', () => {

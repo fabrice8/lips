@@ -376,3 +376,50 @@ describe('disposal', () => {
     expect( () => { state.x = 2 } ).not.toThrow()
   })
 })
+
+describe('attach queue re-entrancy', () => {
+  /**
+   * `onAttach` may render — that is what `<router>` does, and it is the
+   * documented place to publish context. Rendering under a live parent
+   * flushes the attach queue AGAIN from inside the outer flush, which
+   * splices entries the outer loop has not walked down to yet.
+   */
+  it('survives an onAttach that renders more components', () => {
+    const attached: string[] = []
+    const leaf = ( name: string ) => ({
+      ir: compileTemplate(`<i class="leaf">${name}</i>`).ir,
+      handlers: { onAttach( this: any ){ attached.push( name ) } }
+    })
+
+    const components: Record<string, any> = {
+      'leaf-a': leaf('leaf-a'),
+      'leaf-b': leaf('leaf-b'),
+      'leaf-c': leaf('leaf-c'),
+      'late-one': leaf('late-one'),
+      'late-two': leaf('late-two'),
+      // Renders two more components from its own onAttach
+      opener: {
+        ir: compileTemplate(
+          `<span class="opener"><if( state.open )><late-one/><late-two/></if></span>`).ir,
+        state: { open: false },
+        handlers: {
+          onAttach( this: any ){
+            attached.push('opener')
+            this.state.open = true
+          }
+        }
+      }
+    }
+
+    expect( () => mount(
+      `<div><leaf-a/><leaf-b/><leaf-c/><opener/></div>`,
+      {},
+      { components }
+    ) ).not.toThrow()
+
+    // Every queued component attached exactly once — none dropped by a bad splice
+    expect( attached.sort() ).toEqual(
+      [ 'late-one', 'late-two', 'leaf-a', 'leaf-b', 'leaf-c', 'opener' ] )
+    expect( qa('.leaf') ).toHaveLength( 5 )
+  })
+})

@@ -5,6 +5,52 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Fixed — an `onAttach` that renders no longer breaks the attach queue
+
+- `flushAttach()` walked `PENDING_ATTACH` by index while `entry.fn()` was free
+  to mutate it. An `onAttach` that RENDERS — which is exactly what
+  `<router>` does when it navigates on attach — both appends entries and
+  re-enters the flush, so the index went stale two ways:
+
+  - it outlived a shrunken array → `Cannot read properties of undefined
+    (reading 'node')`, thrown out of `lips.root()`
+  - entries appended mid-pass sat below the descending index → their
+    `onAttach` silently never fired
+
+  It now drains by entry identity over a snapshot and repeats while a pass
+  settles anything. Attach order is unchanged: parents still attach before
+  the children rendered inside them.
+
+  Both symptoms need several sibling components plus one that renders from
+  `onAttach`, which is why a router-shaped app hit it and the unit tests
+  did not.
+
+### Fixed — an interpolated `@`-prop is a prop bind again
+
+- `@text="Row {i + 1}"` set a literal `@text` ATTRIBUTE on the element
+  instead of writing the prop, so nothing rendered. The `interp` case
+  handled `@format` and then fell through to the attribute branch, never
+  testing for `@`. Interpolated `@text` / `@html` now compile to a prop
+  bind over the concatenation, matching the `literal` and `expr` forms.
+
+### Changed — `style=` on an element names the object-literal mistake
+
+- An object literal in an element's `style=` now reports `LIPS-C019` with the
+  CSS-text form spelled out, instead of `LIPS-E003 Unexpected token ':'` from
+  the expression compiler.
+
+  `style=` carries CSS **text**, and `{…}` inside an attribute value is an
+  interpolation slot — so both `style="{ margin: '3rem' }"` and
+  `style={{ margin: '3rem' }}` were dead code: the first died on the `:` and
+  the second stringified to `[object Object]`. Neither ever reached the DOM.
+  Two demo templates had been carrying the first form.
+
+  Elements only. On a component `style` is an input like any other, and an
+  object is a fine value for it. The forms that work are untouched:
+  `style="width: {state.w}px"`, `style="{state.on ? 'color: red' : ''}"`,
+  `style=state.css`. Reactive styles that need pseudo-classes, media queries
+  or keyframes belong in the component stylesheet (RFC-004).
+
 ### Added — `static` as the object-literal spelling of `_static`
 
 - A template object may now use `static: { … }` instead of `_static: { … }`,

@@ -222,14 +222,39 @@ function makeHooks( self: any ): ComponentHooks {
  */
 const PENDING_ATTACH: { node: () => Node | undefined, fn: () => void }[] = []
 
+/**
+ * `entry.fn()` runs `onAttach`, and an `onAttach` may RENDER — that is
+ * exactly what `<router>` does when it navigates on attach. Rendering
+ * appends new entries here, and rendering under an already-live parent
+ * re-enters this function, so the array mutates arbitrarily mid-pass.
+ *
+ * Walking it by index is unsound in both directions:
+ *  - an index outlives a shrunken array → `PENDING_ATTACH[i]` is
+ *    undefined and the flush throws
+ *  - entries appended during the pass sit below the descending index →
+ *    their `onAttach` silently never fires
+ *
+ * So drain by IDENTITY over a snapshot, and repeat while a pass settles
+ * anything. Reverse order is preserved: a component pushes after the
+ * children rendered inside it, so walking back attaches parents first.
+ */
 function flushAttach(){
-  for( let i = PENDING_ATTACH.length - 1; i >= 0; i-- ){
-    const entry = PENDING_ATTACH[ i ]
-    const node = entry.node()
+  let progressed = true
 
-    if( node && node.isConnected ){
-      PENDING_ATTACH.splice( i, 1 )
+  while( progressed ){
+    progressed = false
+
+    for( const entry of [ ...PENDING_ATTACH ].reverse() ){
+      const node = entry.node()
+      if( !node || !node.isConnected ) continue
+
+      // A re-entrant pass may have claimed it already
+      const at = PENDING_ATTACH.indexOf( entry )
+      if( at < 0 ) continue
+
+      PENDING_ATTACH.splice( at, 1 )
       entry.fn()
+      progressed = true
     }
   }
 }

@@ -153,6 +153,68 @@ const escAttr = ( s: string ) => s.replace( /&/g, '&amp;' ).replace( /"/g, '&quo
 
 const isNumeric = ( s: string ) => s !== '' && !isNaN( Number( s ) )
 
+/**
+ * Does this source denote an OBJECT LITERAL rather than a value?
+ *
+ * Two spellings arrive here and both are the same React habit:
+ *
+ *   style="{ margin: '3rem' }"     — braces eaten as an interpolation slot,
+ *                                    so the source is bare `margin: '3rem'`
+ *   style={{ margin: '3rem' }}     — a real object expression
+ *
+ * The discriminator is a top-level `:` reached before any top-level `?`,
+ * which is what keeps the forms that DO work out of it: a ternary
+ * (`{state.on ? 'color:red' : ''}`), `??` and `?.` all hit the `?` first,
+ * and a `:` inside a string (`{!state.on && 'color: red'}`) is skipped.
+ */
+const isObjectLiteral = ( src: string ): boolean => {
+  const s = src.trim()
+  let depth = 0
+
+  for( let i = 0; i < s.length; i++ ){
+    const c = s[ i ]
+
+    if( c === "'" || c === '"' || c === '`' ){
+      i++
+      while( i < s.length && s[ i ] !== c ){
+        if( s[ i ] === '\\' ) i++
+        i++
+      }
+      continue
+    }
+
+    if( c === '(' || c === '[' || c === '{' ) depth++
+    else if( c === ')' || c === ']' || c === '}' ){
+      depth--
+      // A leading `{` that closes on the last char wraps the whole value
+      if( depth === 0 && s[ 0 ] === '{' && i === s.length - 1 )
+        return isObjectLiteral( s.slice( 1, -1 ) )
+    }
+    else if( depth === 0 ){
+      if( c === '?' ) return false
+      if( c === ':' ) return true
+    }
+  }
+  return false
+}
+
+/**
+ * The attribute's value as ONE expression source, or '' when it is not a
+ * single bare expression. `width: {state.w}px` has literal text around
+ * its slot, so it is CSS with a value interpolated in — not a candidate.
+ */
+const objectishAttr = ( attr: AttrNode ) => {
+  if( attr.k === 'expr' ) return attr.source
+  if( attr.k !== 'interp' ) return ''
+
+  const slots = attr.parts.filter( ( p ): p is ExprSlot => typeof p !== 'string' )
+
+  return slots.length === 1
+      && attr.parts.every( p => typeof p !== 'string' || !p.trim() )
+    ? slots[ 0 ].expr
+    : ''
+}
+
 // ---------------------------------------------------------------- compiler
 class Compiler {
   private exprs: string[] = []
@@ -421,6 +483,31 @@ class Compiler {
                       node.loc.offset, node.loc.length )
 
     for( const attr of node.attrs ){
+      /**
+       * On an ELEMENT, `style=` is CSS text — `{…}` in it is an
+       * interpolation slot, so a React-style object literal never reaches
+       * the DOM: it goes to the expression compiler, which rejects the
+       * `:` (LIPS-E003, naming the token and not the mistake) and the
+       * element renders unstyled. Say what the fix is instead.
+       *
+       * Components are untouched: there `style` is an input like any
+       * other, and an object is a perfectly good value for it.
+       */
+      if( 'name' in attr && attr.name === 'style' ){
+        const source = objectishAttr( attr )
+
+        if( source && isObjectLiteral( source ) ){
+          this.report( 'LIPS-C019', 'error',
+            `style= on <${node.tag}> takes CSS text, not an object literal`,
+            attr.loc.offset, attr.loc.length,
+            'Write the declarations as CSS — style="border: 2px solid gray; margin: 3rem" — '
+            + 'and interpolate values into it where they vary: style="margin: {state.gap}rem". '
+            + 'Styles that need pseudo-classes, media queries or keyframes belong in the '
+            + "component's stylesheet." )
+          continue
+        }
+      }
+
       switch( attr.k ){
         case 'literal':
           if( attr.name === '@format' ){
@@ -469,6 +556,16 @@ class Compiler {
         case 'interp': {
           if( attr.name === '@format' ){
             block.binds.push( this.formatBind( p, attr ) )
+            break
+          }
+          /**
+           * `@text="Row {i + 1}"` — an @-prop whose value INTERPOLATES.
+           * Without this it fell through to the attribute branch and set a
+           * literal `@text` attribute on the element, so the prop it names
+           * was never written and nothing rendered.
+           */
+          if( attr.name.startsWith('@') ){
+            block.binds.push({ t: 'prop', p, name: attr.name.slice( 1 ), e: this.concat( attr.parts ) })
             break
           }
 
