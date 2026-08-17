@@ -56,6 +56,16 @@ export interface ComponentSelf<MT extends Metavars = Metavars> {
   /** Live root elements of this component */
   readonly node: Element[]
 
+  /**
+   * Active language, read reactively — a bind that reads it re-renders
+   * on `setLanguage()`. Component-grained: a component under
+   * `<i18n lang=…>` reports the scoped language, but an `<i18n>` block
+   * inside this component's own template does not change it (RFC-005 §2).
+   */
+  readonly lang: string
+  /** Switches the language for the whole app — the single writer */
+  setLanguage( lang: string ): void
+
   /** Reaches both this component's own listeners and external ones */
   emit( event: string, ...args: any[] ): void
   /**
@@ -105,7 +115,11 @@ export type Template<MT extends Metavars = Metavars> = {
    */
   static?: MT['Static']
   _static?: MT['Static']
-  /** Context fields this component subscribes to (drives onContext) */
+  /**
+   * Context fields this component subscribes to. NB: this drives
+   * `onContext` ONLY — bindings that read `context.x` update whether or
+   * not `x` is listed here (RFC-005 §6).
+   */
   context?: string[]
   /** `<macro [argv] name="X">…</macro>` definitions, inlined at compile time */
   macros?: string

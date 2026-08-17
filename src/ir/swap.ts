@@ -66,6 +66,13 @@ export function normChild( c: ChildIR, x: string[] ): any {
         vars: Object.fromEntries( Object.entries( c.vars ).map( ( [ k, v ] ) => [ k, normInput( v, x ) ] ) ) }
     case 'log':
       return { t: c.t, e: x[ c.e ] }
+    case 'provide':
+      return {
+        t: c.t,
+        vars: Object.fromEntries( Object.entries( c.vars ).map( ( [ k, v ] ) => [ k, normInput( v, x ) ] ) ),
+        lang: normInput( c.lang, x ),
+        block: normBlock( c.block, x )
+      }
     case 'comp':
     case 'dynamic':
       return {

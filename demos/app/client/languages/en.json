@@ -9,5 +9,11 @@
     "UK": "Media Devices"
   },
   "Bold": "Bold",
-  "Count": "Count"
+  "Count": "Count",
+
+  "counter.label": "Count",
+  "counter.hint": {
+    "type": "plural",
+    "value": { "0": "Not started", "1": "One click in", "*": "{count} clicks in" }
+  }
 }

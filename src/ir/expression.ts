@@ -593,6 +593,13 @@ export interface ExprEnv {
   self?: any
   arguments?: any
   scope?: Record<string, any>
+  /**
+   * Effective language for this subtree, read reactively (RFC-005 §4).
+   * Set by `<i18n lang=…>`; absent means "the global language". Not an
+   * expression root — the evaluator only binds the named roots, so this
+   * rides along for the runtime's own use.
+   */
+  lang?: () => string
 }
 
 export interface CompiledExpr {
