@@ -104,7 +104,12 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
      * render → mount → attach → destroy) for root and nested
      * components alike — the facade only supplies wiring.
      */
-    const emitExternal = ( event: string, ...args: any[] ) => this.emit( event, ...args )
+    /**
+     * The OUTWARD half only. Deliberately `super.emit`, not `this.emit`:
+     * `this.emit` now also drives the inward half, so routing through it
+     * would deliver every internal emission to the local bus twice.
+     */
+    const emitExternal = ( event: string, ...args: any[] ) => super.emit( event, ...args )
 
     this.instance = renderIR( ir, {
       state: this.state,
@@ -142,6 +147,25 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
       })
 
     this.emit('component:mount')
+  }
+
+  /**
+   * The component bus is bidirectional.
+   *
+   * Outward has always worked: a handler's `this.emit('save')` reaches
+   * `component.on('save')`. Inward is this override — `component.emit(
+   * 'reset')` also reaches `this.on('reset')` registered inside the
+   * component, so a holder of the handle can send a command without
+   * mutating state or reaching into internals.
+   *
+   * Argument handling matches what an internal emit already does:
+   * inward is raw (the caller owns the data), outward is deep-cleaned by
+   * `Events` so reactive proxies never escape the component.
+   */
+  emit( event: string, ...args: any[] ){
+    // instance is unset only while renderIR is still running (e.g. onCreate)
+    this.instance?.self?.emitLocal?.( event, ...args )
+    return super.emit( event, ...args )
   }
 
   /**

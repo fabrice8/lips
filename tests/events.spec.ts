@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import Events from '../src/events'
+import Lips from '../src/lips'
 
 describe('Events', () => {
   it('invokes registered listeners with emitted params', () => {
@@ -83,5 +84,110 @@ describe('Events', () => {
     e.emit('err', error)
 
     expect( received ).toBe( error )
+  })
+})
+
+describe('the component bus is bidirectional', () => {
+  const build = ( seen: string[] ) => {
+    const lips = new Lips()
+    const c = lips.render('bus', {
+      state: { n: 0 },
+      default: `<i class="a">{state.n}</i>`,
+      handler: {
+        onCreate( this: any ){
+          this.on('reset', () => { seen.push('inside'); this.state.n = 0 })
+          this.on('bump', ( by: number ) => seen.push(`inside:${by}`) )
+          this.on('save', () => this.emit('saved', { id: 1 }) )
+        },
+
+      }
+    })
+    c.appendTo( document.body )
+    return c
+  }
+
+  it('round trip: a command in, an event out', () => {
+    /**
+     * The shape this unlocks — the holder sends a command, the component
+     * answers on the same bus. No state mutation, no internals touched.
+     */
+    const seen: string[] = []
+    const c = build( seen )
+    c.on('saved', ( payload: any ) => seen.push(`outside:${payload.id}`) )
+
+    c.emit('save')
+
+    expect( seen ).toEqual([ 'outside:1' ])
+  })
+
+  it('inward: an external emit reaches a listener registered inside', () => {
+    const seen: string[] = []
+    const c = build( seen )
+
+    c.emit('reset')
+
+    expect( seen ).toEqual([ 'inside' ])
+    expect( c.state.n ).toBe( 0 )
+  })
+
+  it('carries arguments inward', () => {
+    const seen: string[] = []
+    const c = build( seen )
+
+    c.emit('bump', 3 )
+
+    expect( seen ).toEqual([ 'inside:3' ])
+  })
+
+  it('does NOT deliver an internal emit to the local bus twice', () => {
+    /**
+     * The failure mode this override invites: an internal `this.emit`
+     * already drives the local bus, so if it also routed through the
+     * facade's emit the component would hear itself twice.
+     */
+    const seen: string[] = []
+    const lips = new Lips()
+    const c = lips.render('echo', {
+      default: `<i/>`,
+      handler: {
+        onCreate( this: any ){
+          this.on('ping', () => seen.push('local') )
+          this.on('fire', () => this.emit('ping') )
+        }
+      }
+    })
+    c.appendTo( document.body )
+    c.on('ping', () => seen.push('external') )
+
+    c.emit('fire')
+
+    // 'fire' has no external listener; 'ping' hits local then external — once each
+    expect( seen ).toEqual([ 'local', 'external' ])
+  })
+
+  it('reaches both buses from outside, in one call', () => {
+    const seen: string[] = []
+    const c = build( seen )
+    c.on('reset', () => seen.push('outside') )
+
+    c.emit('reset')
+
+    expect( seen ).toEqual([ 'inside', 'outside' ])
+  })
+
+  it('is inert for an event nobody listens to', () => {
+    const seen: string[] = []
+    const c = build( seen )
+
+    expect( () => c.emit('nobody-home') ).not.toThrow()
+    expect( seen ).toEqual([])
+  })
+
+  it('survives destroy without throwing', () => {
+    const seen: string[] = []
+    const c = build( seen )
+    c.destroy()
+
+    expect( () => c.emit('reset') ).not.toThrow()
   })
 })

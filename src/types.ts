@@ -56,7 +56,12 @@ export interface ComponentSelf<MT extends Metavars = Metavars> {
   /** Live root elements of this component */
   readonly node: Element[]
 
+  /** Reaches both this component's own listeners and external ones */
   emit( event: string, ...args: any[] ): void
+  /**
+   * Also the inbound channel: a listener registered here receives
+   * `component.emit(…)` calls made by whoever holds the handle.
+   */
   on( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
   once( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
   off( event: string, fn?: ( ...args: any[] ) => void ): ComponentSelf<MT>

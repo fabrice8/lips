@@ -104,6 +104,36 @@ Components compose with **slots** (`<{input.renderer}/>`) and **events**
 `onCreate · onInput · onMount · onRender · onUpdate · onAttach · onDetach · onContext ·
 onError · onDestroy`.
 
+### The component bus runs both ways
+
+A rendered component's bus is bidirectional, so the handle you hold can send
+commands in, not just receive events out:
+
+```js
+const editor = lips.render('editor', template).appendTo('#app')
+
+// out — the component reports
+editor.on('saved', doc => console.log( doc.id ))
+
+// in — the holder commands
+editor.emit('reset')
+editor.emit('focus', 'title')
+```
+
+```js
+handler: {
+  onCreate(){
+    this.on('reset', () => this.state.draft = '')
+    this.on('focus', field => this.node[0].querySelector(`[name="${field}"]`)?.focus() )
+  }
+}
+```
+
+Inbound events reach listeners the component registered with `this.on(…)` —
+**not** handler methods by name, so what a component accepts stays an explicit
+contract. This is the way to drive a component imperatively; its internals are
+deliberately not exposed.
+
 ## ⚡ Precompile & CSP
 
 Compile templates to IR at build time — no runtime parsing, and with

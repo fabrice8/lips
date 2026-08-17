@@ -67,6 +67,11 @@ export type {
  *   type MT = Metavars<{ tone: string }, { count: number }>
  *   const c: Component<MT> = lips.render<MT>('counter', counter)
  *   c.state.count++            // number
+ *
+ * Its event bus runs both ways — `c.on('saved', …)` receives what the
+ * component emits, and `c.emit('reset')` reaches listeners the component
+ * registered with `this.on(…)`. Inbound events do NOT invoke handler
+ * methods by name, so what a component accepts stays explicit.
  */
 export type Component<MT extends Metavars = Metavars> = IRFacadeComponent<MT>
 
