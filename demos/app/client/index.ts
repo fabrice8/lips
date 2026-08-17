@@ -31,8 +31,10 @@ registry( lips )
 lips.root( App, 'body')
 
 setTimeout( () => {
-  // Change detault translation language
-  // lips.language('fr-FR')
+  // Change default translation language.
+  // NB: distinct from the `lang` context field above — that one is just
+  // app state the demo displays; this is what i18n actually reads.
+  // lips.setLanguage('fr-FR')
   lips.setContext('online', false )
 }, 5000 )
 

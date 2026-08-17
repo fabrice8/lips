@@ -40,6 +40,61 @@ beforeEach( () => {
   lips.setLanguage('en-US')
 })
 
+describe('i18n.translate', () => {
+  /**
+   * Direct unit coverage. Every other spec here drives translate()
+   * through a render, which only ever exercises the one-argument
+   * form — that is how the two-argument form stayed inverted.
+   */
+  it('translates into the current language', () => {
+    lips.setLanguage('fr-FR')
+    expect( lips.i18n.translate('Count').text ).toBe('Compter')
+  })
+
+  it('naming the current language behaves like omitting it', () => {
+    lips.setLanguage('fr-FR')
+
+    expect( lips.i18n.translate('Count', 'fr-FR') ).toEqual( lips.i18n.translate('Count') )
+    expect( lips.i18n.translate('Count', 'fr-FR').text ).toBe('Compter')
+    expect( lips.i18n.translate('Count', 'fr').text ).toBe('Compter')
+  })
+
+  it('translates into an explicitly named other language', () => {
+    lips.setLanguage('en-US')
+    expect( lips.i18n.translate('Count', 'fr-FR').text ).toBe('Compter')
+  })
+
+  it('reports back the language it resolved against', () => {
+    lips.setLanguage('en-US')
+
+    expect( lips.i18n.translate('Count').lang ).toBe('en-US')
+    expect( lips.i18n.translate('Count', 'fr-FR').lang ).toBe('fr-FR')
+  })
+
+  it('selects a region variant, including for the current language', () => {
+    lips.i18n.setDictionary('en', {
+      ...EN,
+      'Device Screens': { '*': 'Device Screens', UK: 'Media Devices' }
+    })
+
+    // The variant must be reachable through BOTH forms
+    lips.setLanguage('en-UK')
+    expect( lips.i18n.translate('Device Screens').text ).toBe('Media Devices')
+    expect( lips.i18n.translate('Device Screens', 'en-UK').text ).toBe('Media Devices')
+
+    // …and an unknown region falls back to '*'
+    expect( lips.i18n.translate('Device Screens', 'en-CA').text ).toBe('Device Screens')
+    expect( lips.i18n.translate('Device Screens', 'en').text ).toBe('Device Screens')
+
+    lips.i18n.setDictionary('en', EN )
+  })
+
+  it('passes unknown keys and unknown languages through unchanged', () => {
+    expect( lips.i18n.translate('Untranslated').text ).toBe('Untranslated')
+    expect( lips.i18n.translate('Count', 'de-DE').text ).toBe('Count')
+  })
+})
+
 describe('i18n', () => {
   it('translates static text on i18n-marked elements', async () => {
     lips.render('t-static', { default: `<button i18n class="b">Count</button>` }).appendTo('#app')
