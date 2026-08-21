@@ -4,6 +4,11 @@ import { compileStyle } from '../src/ir/style'
 import { compileTemplate } from '../src/ir/compiler'
 import { precompile } from '../src/precompile'
 
+// These assert the FLATTENED, prefixed output, so they opt into the
+// preprocessor process-wide. The native-nesting path has its own file.
+import { useStylis } from '../src/stylis'
+useStylis()
+
 /**
  * StyleIR — reactive declarations (RFC-004 Layer 1).
  *

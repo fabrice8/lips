@@ -60,6 +60,16 @@ export interface StyleCompileOptions {
   meta?: boolean
   /** Emit inside `@layer <name>` so utility frameworks can win (RFC-004 §9) */
   layer?: string
+  /**
+   * CSS preprocessor for this call, overriding any process-wide one.
+   *
+   * Passed per call rather than only set globally because the opt-in
+   * preprocessor ships as a SEPARATE bundle: `@lipsjs/lips/stylis` and
+   * `@lipsjs/lips` each carry their own copy of this module, so a global
+   * set from one is invisible to the other. Handing the function across
+   * the call is the only wiring that survives that boundary.
+   */
+  preprocess?: StylePreprocessor
 }
 
 export interface StyleCompileResult {
@@ -68,7 +78,7 @@ export interface StyleCompileResult {
 }
 
 // ------------------------------------------------------------- preprocessor
-type StylePreprocessor = ( css: string ) => string
+export type StylePreprocessor = ( css: string ) => string
 let PREPROCESSOR: StylePreprocessor | null = null
 
 /** Wire the CSS preprocessor (full build only — see src/lips.ts) */
@@ -437,6 +447,75 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
  * The scanner MUST run before Stylis: a brace in a declaration value breaks
  * its block parsing, so interpolations are replaced with `var()` first.
  */
+/**
+ * At-rules that are NOT valid inside a style rule.
+ *
+ * `@media`, `@supports`, `@container` and `@layer` all nest natively —
+ * they wrap style rules, so they belong INSIDE the scope wrap. These do
+ * not: CSS nesting only admits at-rules whose body is itself a rule
+ * list, so a `@keyframes` left inside `[rel="x"] { … }` is dropped by
+ * the parser. Stylis used to hoist them on our behalf; without it we
+ * hoist them ourselves — and they are document-global anyway, exactly
+ * like the `@property` registrations already emitted outside the wrap.
+ */
+const HOISTED_AT = /^@(-\w+-)?(keyframes|font-face|property|counter-style|font-feature-values|page|import|charset)\b/
+
+/**
+ * Split top-level at-rules that cannot nest out of `css`.
+ *
+ * Brace-aware and string/comment aware, so a `{` inside `content: "{"`
+ * or a comment does not throw the depth off.
+ */
+function hoistAtRules( css: string ){
+  let hoisted = '', rest = '', i = 0
+
+  while( i < css.length ){
+    const c = css[ i ]
+
+    if( c === '"' || c === "'" ){
+      const end = skipString( css, i )
+      rest += css.slice( i, end )
+      i = end
+      continue
+    }
+    if( c === '/' && css[ i + 1 ] === '*' ){
+      const end = skipComment( css, i )
+      rest += css.slice( i, end )
+      i = end
+      continue
+    }
+
+    if( c !== '@' || !HOISTED_AT.test( css.slice( i ) ) ){
+      rest += c
+      i++
+      continue
+    }
+
+    // Consume the whole at-rule: prelude, then a balanced body or a `;`
+    let j = i, depth = 0, opened = false
+    while( j < css.length ){
+      const d = css[ j ]
+
+      if( d === '"' || d === "'" ){ j = skipString( css, j ); continue }
+      if( d === '/' && css[ j + 1 ] === '*' ){ j = skipComment( css, j ); continue }
+
+      if( d === '{' ){ depth++; opened = true }
+      else if( d === '}' ){
+        depth--
+        if( !depth ){ j++; break }
+      }
+      // A statement at-rule (`@import …;`) ends at the semicolon
+      else if( d === ';' && !opened ){ j++; break }
+      j++
+    }
+
+    hoisted += css.slice( i, j )
+    i = j
+  }
+
+  return { hoisted, rest }
+}
+
 export function compileStyle( src: string, options: StyleCompileOptions ): StyleCompileResult {
   const
   diagnostics: TemplateDiagnostic[] = [],
@@ -444,18 +523,25 @@ export function compileStyle( src: string, options: StyleCompileOptions ): Style
 
   const empty: StyleIR = { v: 1, nsp: options.nsp, css: '', exprs: [], binds: [] }
 
-  if( !PREPROCESSOR ){
-    console.warn(
-      `[lips] <${options.nsp}> stylesheet skipped — this build has no CSS preprocessor. `
-      + 'Use "@lipsjs/lips" (not "@lipsjs/lips/runtime") for source stylesheets, '
-      + 'or precompile them to StyleIR.' )
-    return { ir: empty, diagnostics }
-  }
+  /**
+   * The scope wrap IS nesting — `[rel="x"] { .a { … } }`. Stylis used to
+   * flatten it, and is now opt-in (`@lipsjs/lips/stylis`), so without it
+   * the sheet is emitted as-is and the browser's own CSS nesting resolves
+   * it. Same selectors, same cascade; what the preprocessor still buys is
+   * vendor prefixing and support for engines older than native nesting.
+   *
+   * At-rules that cannot legally nest are lifted out first — see
+   * `hoistAtRules`.
+   */
+  const
+  preprocess = options.preprocess || PREPROCESSOR,
+  { hoisted, rest } = preprocess ? { hoisted: '', rest: css } : hoistAtRules( css ),
+  scoped = options.meta ? rest : `[rel="${options.nsp}"] { ${rest} }`,
+  source = options.layer ? `@layer ${options.layer} { ${hoisted}${scoped} }` : hoisted + scoped
 
-  const scoped = options.meta ? css : `[rel="${options.nsp}"] { ${css} }`
   let sheet: string
 
-  try { sheet = PREPROCESSOR( options.layer ? `@layer ${options.layer} { ${scoped} }` : scoped ) }
+  try { sheet = preprocess ? preprocess( source ) : source }
   catch( error: any ){
     diagnostics.push({
       code: 'LIPS-S006', severity: 'error',

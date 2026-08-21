@@ -65,18 +65,28 @@ const KB = 1024
  * context rewrite made unreachable. That paid back ~0.15 KB and is why
  * `runtime` came back DOWN to 14.9 after touching 15.0.
  *
- * The next raise should not be another bump. The measured lever is
- * Stylis: ~4.4 KB gzipped, ~16% of this entry, pulled in eagerly by
- * `setStylePreprocessor` in lips.ts. Making the preprocessor opt-in the
- * way `setCompiler` already is would let apps that use no nesting or
- * prefixing drop it — at the cost of nested CSS silently not working
- * unless opted in, so it is a product decision, not a cleanup. The
- * eagerly registered `<router>` builtin is a smaller second lever.
+ * 2026-08-21b: full 28→26 — the Stylis split, taken. It measured 1.89 KB
+ * gzipped in context, NOT the 4.4 KB the previous note estimated from
+ * gzipping the standalone UMD build; bun tree-shakes it far smaller. The
+ * feared cost — "nested CSS silently not working" — turned out not to
+ * exist: the scope wrap IS CSS nesting, which browsers have resolved
+ * natively since 2023, so dropping the preprocessor changes the emitted
+ * text and not the rendered result. The compiler now hoists the at-rules
+ * that cannot legally nest (@keyframes, @font-face, …) out of the wrap
+ * itself, which is the one job Stylis was doing that native nesting does
+ * not.
+ *
+ * The budget comes DOWN rather than staying loose: a ratchet that keeps
+ * slack it no longer needs stops being a ratchet.
+ *
+ * Remaining lever: the `<router>` builtin is registered eagerly in
+ * lips.ts, so it cannot tree-shake for apps that never route.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 28,        // full: runtime + parser/compiler + style compiler + stylis + router
+  'dist/lips.min.js': 26,        // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
-  'dist/precompile.min.js': 13   // build-time: parser + compiler + style compiler + stylis
+  'dist/precompile.min.js': 13,  // build-time: parser + compiler + style compiler
+  'dist/stylis.min.js': 3        // opt-in preprocessor — not loaded unless asked for
 }
 
 let failed = false

@@ -10,21 +10,25 @@
  * time (see `compileTemplate`) for CSP-safe, parse-free startup.
  */
 
-import { compile, serialize, stringify, middleware } from 'stylis'
 import { IRLips, IRFacadeComponent, setCompiler, setStyleCompiler, registerBuiltin } from './ir/facade'
-import { compileStyle, setStylePreprocessor } from './ir/style'
+import { compileStyle } from './ir/style'
 import { compileTemplate } from './ir/compiler'
 import type { Metavars } from './types'
 import { routerTemplate } from './ir/router'
 
 /**
- * Full build capabilities. The `./runtime` entry wires none of these,
- * so its bundle tree-shakes the template compiler, Stylis, and the
- * built-in components out entirely.
+ * Full build capabilities. The `./runtime` entry wires none of these, so
+ * its bundle tree-shakes the template compiler and the built-in
+ * components out entirely.
+ *
+ * Stylis is deliberately NOT wired here. The scope wrap is ordinary CSS
+ * nesting and browsers resolve it natively, so the preprocessor buys
+ * vendor prefixing and pre-2023 engine support — worth ~1.9 KB gzipped
+ * to those who need it, and nothing to everyone else. Opt in with
+ * `import '@lipsjs/lips/stylis'`.
  */
 setCompiler( compileTemplate )
 setStyleCompiler( compileStyle )
-setStylePreprocessor( css => serialize( compile( css ), middleware([ stringify ]) ) )
 registerBuiltin( 'router', routerTemplate )
 
 export * from './types'

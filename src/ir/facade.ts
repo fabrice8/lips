@@ -306,7 +306,11 @@ export class IRLips<Context extends Object = Record<string, any>> {
 
     let style = this.styleCache.get( template )
     if( !style ){
-      const result = STYLE_COMPILER( template.stylesheet, { nsp: name, layer: this.config?.styleLayer })
+      const result = STYLE_COMPILER( template.stylesheet, {
+        nsp: name,
+        layer: this.config?.styleLayer,
+        preprocess: this.config?.stylePreprocessor
+      })
       result.diagnostics.length
         && console.warn('[lips:ir] style diagnostics —', result.diagnostics )
 

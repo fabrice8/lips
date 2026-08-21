@@ -156,6 +156,20 @@ export type LipsConfig<Context extends Object = {}> = {
    */
   styleLayer?: string
   /**
+   * CSS preprocessor for component stylesheets. Absent, the sheet ships
+   * as written and the browser's own CSS nesting resolves the scope wrap
+   * — correct in every engine since 2023, and 1.9 KB gzipped lighter.
+   *
+   *   import { stylisPreprocessor } from '@lipsjs/lips/stylis'
+   *   new Lips({ stylePreprocessor: stylisPreprocessor })
+   *
+   * Wire it for vendor prefixing, flattening for pre-nesting engines, or
+   * a preprocessor of your own. It is passed here rather than imported
+   * for its side effect because the two entries are separate bundles
+   * with separate module state.
+   */
+  stylePreprocessor?: ( css: string ) => string
+  /**
    * Expression execution:
    *  - 'compiled' (default) — one cached Function per expression
    *  - 'interpreted' — sandboxed AST walker, required under a CSP

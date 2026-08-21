@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Style modes — native nesting vs opt-in Stylis</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Menlo, monospace; margin: 2rem; max-width: 60rem; }
+  .row { padding: 2px 0 }
+  .ok::before { content: '✓ '; color: #1a7f37 }
+  .bad::before { content: '✗ '; color: #cf222e }
+  .bad { color: #cf222e; font-weight: 600 }
+  #summary { margin-top: 1.2rem; padding: .6rem .8rem; border-radius: 4px; font-weight: 600 }
+  .pass { background: #e6f4ea; color: #1a7f37 } .fail { background: #ffebe9; color: #cf222e }
+  pre { background: #f6f8fa; padding: .6rem; overflow-x: auto; font-size: 12px }
+</style>
+</head>
+<body>
+<h1>Style modes</h1>
+<div id="stage"></div>
+<h3>checks</h3><div id="out"></div>
+<div id="summary"></div>
+<h3>emitted sheet</h3><pre id="sheet"></pre>
+
+<script type="module">
+import Lips from '../dist/lips.min.js'
+
+const out = document.getElementById('out')
+let pass = 0, fail = 0
+const check = ( label, got, want ) => {
+  const ok = got === want
+  ok ? pass++ : fail++
+  const d = document.createElement('div')
+  d.className = 'row ' + ( ok ? 'ok' : 'bad' )
+  d.textContent = ok ? label : `${label} — got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`
+  out.appendChild( d )
+}
+const tick = ms => new Promise( r => setTimeout( r, ms ) )
+
+const lips = new Lips()
+lips.root({
+  state: { w: 60 },
+  stylesheet: `
+    .box { width: {state.w}px; height: 20px; background: #3b82f6; animation: pulse 8s infinite }
+    .box:hover { background: #ef4444 }
+    @media (min-width: 1px) { .box { outline: 2px solid #111 } }
+    @keyframes pulse { 0% { opacity: 1 } 100% { opacity: 0.25 } }
+    @font-face { font-family: Fake; src: local("Arial") }
+  `,
+  default: `<div><div class="box" id="b"></div></div>`
+}, '#stage')
+
+await tick( 120 )
+
+const el = document.getElementById('b')
+const cs = getComputedStyle( el )
+const sheet = document.head.querySelector('style[rel]')?.textContent || ''
+document.getElementById('sheet').textContent = sheet
+
+// --- the sheet is genuinely NOT flattened: this is the native path
+check('sheet is nested, not flattened', sheet.includes('[rel="__ROOT__"] {'), true)
+check('no preprocessor ran (declaration spacing intact)', /width:\s\s*calc\(/.test( sheet ) || sheet.includes('width: calc('), true)
+
+// --- native nesting resolves the scope wrap
+check('nested class rule applies', cs.width, '60px')
+// The var is written on the SCOPE ROOT (the element carrying `rel`) and
+// inherits down to .box — which is why the width above resolves at all.
+// NB: the injected <style> also carries rel — match inside the stage
+const scopeRoot = document.querySelector('#stage [rel="__ROOT__"]')
+check('reactive custom property bound on the scope root', scopeRoot.style.getPropertyValue('--__ROOT__-0'), '60')
+check('nested @media applies', cs.outlineWidth, '2px')
+
+// --- the hoisting the compiler had to do itself
+check('@keyframes hoisted OUT of the wrap', sheet.indexOf('@keyframes pulse') < sheet.indexOf('[rel="__ROOT__"] {'), true)
+check('@font-face hoisted OUT of the wrap', sheet.indexOf('@font-face') < sheet.indexOf('[rel="__ROOT__"] {'), true)
+
+// the real proof: a hoisted @keyframes still resolves as an animation
+check('animation name applied', cs.animationName, 'pulse')
+const anims = el.getAnimations ? el.getAnimations() : []
+check('animation actually running (keyframes resolved)', anims.length > 0, true)
+
+// --- reactivity still works through the native path
+lips.__root.state.w = 140
+await tick( 80 )
+check('reactive style update', getComputedStyle( el ).width, '140px')
+
+const s = document.getElementById('summary')
+s.className = fail ? 'fail' : 'pass'
+s.textContent = `${pass}/${pass+fail} checks passed`
+</script>
+</body>
+</html>

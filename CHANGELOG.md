@@ -5,6 +5,53 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Changed — Stylis is opt-in, and the full bundle is 1.9 KB smaller
+
+- The scope wrap `[rel="card"] { … }` **is** CSS nesting, which browsers have
+  resolved natively since 2023. So the preprocessor was flattening something
+  the engine already understands. It is now opt-in:
+
+  ```js
+  import { stylisPreprocessor } from '@lipsjs/lips/stylis'
+  const lips = new Lips({ stylePreprocessor: stylisPreprocessor })
+  ```
+
+  Wire it for vendor prefixing, flattening for pre-nesting engines, or a
+  preprocessor of your own. Without it the sheet ships as written and renders
+  identically — verified in a browser, not only in jsdom.
+
+- The preprocessor is handed over as a **value**, not wired by importing the
+  module for its side effect. `@lipsjs/lips` and `@lipsjs/lips/stylis` are
+  separate bundles with separate copies of the style module, so a global set
+  from one is invisible to the other. `useStylis()` still sets it
+  process-wide for a single-module-graph setup — notably a build script
+  calling `precompile()`, which takes no Lips config.
+
+- `full` drops 27.0 → 25.4 KB gzipped and its budget is ratcheted **down**
+  28 → 26. The earlier estimate of 4.4 KB came from gzipping Stylis's
+  standalone UMD build; in context bun tree-shakes it to 1.89 KB.
+
+### Fixed — a build script importing only `./precompile` lost every stylesheet
+
+- `precompile()` never wired a preprocessor, so `compileStyle` took the
+  no-preprocessor branch, warned, and returned an **empty** StyleIR. Every
+  component stylesheet silently vanished from a real build pipeline. The
+  existing spec only passed because a sibling import of `src/lips` had set
+  the module-global.
+
+  The no-preprocessor path now emits the scoped sheet instead of nothing, so
+  precompiled styles survive on their own.
+
+### Fixed — at-rules that cannot nest are hoisted out of the scope wrap
+
+- CSS nesting only admits at-rules whose body is a rule list, so a
+  `@keyframes` left inside `[rel="x"] { … }` is dropped by the parser and the
+  animation silently does nothing. Stylis used to hoist these; the compiler
+  now does it itself, for `@keyframes`, `@font-face`, `@property`,
+  `@counter-style`, `@font-feature-values`, `@page`, `@import` and
+  `@charset`. `@media`, `@supports`, `@container` and `@layer` nest fine and
+  stay inside the wrap, where they must be to remain scoped.
+
 ### Added — a `<context>` layer owns what it declares
 
 - `this.setContext(key, …)` from inside a `<context>` subtree now writes to

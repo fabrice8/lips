@@ -32,6 +32,10 @@ import * as Compose from '../demos/app/client/pages/compose'
 import * as Account from '../demos/app/client/pages/account'
 import * as Product from '../demos/app/client/pages/product'
 
+// Asserts flattened selectors — opt into the preprocessor
+import { useStylis } from '../src/stylis'
+useStylis()
+
 type Source = {
   default?: string
   stylesheet?: string
