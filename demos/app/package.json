@@ -1,10 +1,14 @@
 {
-  "name": "demo",
-  "version": "0.0.1",
-  "description": "",
-  "main": "./dist/index.js",
+  "name": "lips-demo-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Feature tour for Lips — every panel is the feature it describes, running",
+  "type": "module",
   "scripts": {
-    "dev": "bun compile --watch",
-    "compile": "bun build --entrypoints ./client/* ./components/* --entry-naming [name].[ext] --minify --root . --outdir ./build --target browser --format esm --sourcemap=external"
+    "compile": "bun build --entrypoints ./client/index.ts --entry-naming index.js --outdir ./build --target browser --format esm --sourcemap=external",
+    "dev": "bun run compile -- --watch",
+    "serve": "bun run serve.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "bun run compile && bun run serve"
   }
 }

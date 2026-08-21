@@ -116,10 +116,15 @@ export type Template<MT extends Metavars = Metavars> = {
   static?: MT['Static']
   _static?: MT['Static']
   /**
-   * Context fields this component subscribes to. NB: this drives
-   * `onContext` ONLY — bindings that read `context.x` update whether or
-   * not `x` is listed here (RFC-005 §6).
+   * Context fields whose change fires this component's `onContext`.
+   *
+   * It does NOT declare what the component reads: bindings that read
+   * `context.x` are tracked individually and update whether or not `x`
+   * is listed here. The old spelling for this was `context`, which read
+   * as "the context this component uses" and misled accordingly.
    */
+  watchContext?: string[]
+  /** @deprecated Renamed to `watchContext` — same meaning (RFC-005 §4.3) */
   context?: string[]
   /** `<macro [argv] name="X">…</macro>` definitions, inlined at compile time */
   macros?: string

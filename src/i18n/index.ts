@@ -20,6 +20,19 @@ export default class I18N {
   public onMissing?: ( key: string, lang: string ) => void
 
   /**
+   * Fires whenever the dictionary set changes. The facade bumps a
+   * revision signal from here, which is what makes a dictionary that
+   * arrives LATE — an async load resolving after the language already
+   * switched — re-translate what is already on screen.
+   */
+  public onChange?: () => void
+
+  /** Async dictionary source, set by `setLoader` */
+  private loader?: ( id: string ) => Promise<Dictionary | undefined>
+  /** In-flight and settled loads, keyed by language root */
+  private loading = new Map<string, Promise<void>>()
+
+  /**
    * `lang` is the initial language, normally `LipsConfig.lang`. Left
    * out, it is read from the browser — which is the right default for
    * an app that should follow the user's locale, but is not something
@@ -41,6 +54,46 @@ export default class I18N {
 
   setDictionary( id: string, dico: Dictionary ){
     this.DICTIONARIES[ id ] = dico
+    this.onChange?.()
+  }
+  /** Has a dictionary for this language root been registered? */
+  has( lang: string ){ return !!this.DICTIONARIES[ lang.split('-')[0] ] }
+
+  /**
+   * Register an async dictionary source — one language root per call,
+   * resolved on demand:
+   *
+   *   lips.i18n.setLoader( id => import(`./languages/${id}.json`).then( m => m.default ) )
+   *
+   * Bundling every language up front costs every user all of them. With
+   * a loader, `setLanguage()` switches immediately (untranslated source
+   * text is a fine placeholder — it is real wording, not a blank) and
+   * the strings resolve when the dictionary lands.
+   */
+  setLoader( fn: ( id: string ) => Promise<Dictionary | undefined> ){
+    this.loader = fn
+    return this
+  }
+
+  /**
+   * Ensure the dictionary for `lang` is registered. Resolves
+   * immediately when it already is, or when no loader is set — a
+   * missing dictionary is not an error, it just means untranslated
+   * output. Each root is attempted ONCE: a rejected load is remembered
+   * so a missing language file does not re-fetch on every switch.
+   */
+  load( lang: string ): Promise<void> {
+    const id = lang.split('-')[0]
+    if( this.DICTIONARIES[ id ] || !this.loader ) return Promise.resolve()
+
+    let inflight = this.loading.get( id )
+    if( !inflight ){
+      inflight = this.loader( id )
+        .then( dico => { dico && this.setDictionary( id, dico ) } )
+        .catch( error => console.warn(`[lips:i18n] <${id}> dictionary failed to load —`, error ) )
+      this.loading.set( id, inflight )
+    }
+    return inflight
   }
 
   /**

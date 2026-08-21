@@ -167,3 +167,197 @@ describe('<context> diagnostics', () => {
     expect( diagnostics.some( d => d.code === 'LIPS-C017' ) ).toBe( true )
   })
 })
+
+describe('context ownership', () => {
+  /**
+   * A layer that can only be READ is half a provider. These cover the
+   * write half: `setContext` from inside a subtree lands on the nearest
+   * layer that declares the key, and dies with it.
+   */
+  it('writes to the nearest layer, not the global store', async () => {
+    lips.register('writer', {
+      handler: { bump( this: any ){ this.setContext('selection', 'local') } },
+      default: `<div><u class="v">{context.selection}</u><button class="b" on-click( bump )>x</button></div>`
+    })
+
+    lips.render('t-own', {
+      default: `<div>
+        <b class="g">{context.selection}</b>
+        <context selection="node-a"><writer/></context>
+      </div>`
+    }).appendTo('#app')
+
+    await settle( () => txt('.v') === 'node-a' )
+    ;( q('.b') as HTMLElement ).click()
+
+    await settle( () => txt('.v') === 'local' )
+    // the global store never saw it
+    expect( lips.getContext().selection ).toBe( undefined )
+    expect( txt('.g') ).toBe('')
+  })
+
+  it('keeps sibling layers from colliding on the same key', async () => {
+    lips.register('writer2', {
+      handler: { bump( this: any ){ this.setContext('selection', this.input.to ) } },
+      default: `<div><u class="v">{context.selection}</u><button class="b" on-click( bump )>x</button></div>`
+    })
+
+    lips.render('t-own2', {
+      default: `<div>
+        <context selection="a"><writer2 to="A2"/></context>
+        <context selection="b"><writer2 to="B2"/></context>
+      </div>`
+    }).appendTo('#app')
+
+    await settle( () => document.querySelectorAll('.v').length === 2 )
+    ;( document.querySelectorAll('.b')[0] as HTMLElement ).click()
+
+    await settle( () => document.querySelectorAll('.v')[0].textContent === 'A2' )
+    expect( document.querySelectorAll('.v')[1].textContent ).toBe('b')
+  })
+
+  it('still reaches the global store when no layer claims the key', async () => {
+    lips.register('writer3', {
+      handler: { bump( this: any ){ this.setContext('theme', 'dark') } },
+      default: `<button class="b" on-click( bump )>x</button>`
+    })
+
+    lips.render('t-global', {
+      default: `<div><b class="g">{context.theme}</b><writer3/></div>`
+    }).appendTo('#app')
+
+    await settle( () => txt('.g') === 'light' )
+    ;( q('.b') as HTMLElement ).click()
+
+    await settle( () => txt('.g') === 'dark' )
+    expect( lips.getContext().theme ).toBe('dark')
+  })
+
+  it('writes past a layer that does not declare the key', async () => {
+    lips.register('writer4', {
+      handler: { bump( this: any ){ this.setContext('user', 'grace') } },
+      default: `<button class="b" on-click( bump )>x</button>`
+    })
+
+    lips.render('t-past', {
+      default: `<context theme="dark"><b class="u">{context.user}</b><writer4/></context>`
+    }).appendTo('#app')
+
+    await settle( () => txt('.u') === 'ada' )
+    ;( q('.b') as HTMLElement ).click()
+
+    await settle( () => txt('.u') === 'grace' )
+    expect( lips.getContext().user ).toBe('grace')
+  })
+
+  it('re-syncs a DERIVED key when its source changes', async () => {
+    lips.register('writer5', {
+      handler: { bump( this: any ){ this.setContext('theme', 'local') } },
+      default: `<div><u class="v">{context.theme}</u><button class="b" on-click( bump )>x</button></div>`
+    })
+
+    const c = lips.render('t-derived', {
+      state: { tone: 'dark' },
+      default: `<context theme=state.tone><writer5/></context>`
+    })
+    c.appendTo('#app')
+
+    await settle( () => txt('.v') === 'dark' )
+
+    // a local write holds…
+    ;( q('.b') as HTMLElement ).click()
+    await settle( () => txt('.v') === 'local' )
+
+    // …until the source it derives from moves again
+    c.state.tone = 'solarized'
+    await settle( () => txt('.v') === 'solarized' )
+  })
+
+  it('tears ownership down with the block', async () => {
+    lips.register('writer6', {
+      handler: { bump( this: any ){ this.setContext('selection', 'local') } },
+      default: `<button class="b" on-click( bump )>x</button>`
+    })
+
+    const c = lips.render('t-teardown', {
+      state: { on: true },
+      default: `<if( state.on )><context selection="a"><writer6/></context></if>`
+    })
+    c.appendTo('#app')
+
+    await settle( () => !!q('.b') )
+    c.state.on = false
+    await settle( () => !q('.b') )
+
+    // nothing leaked into the global store on the way out
+    expect( lips.getContext().selection ).toBe( undefined )
+  })
+})
+
+describe('onContext under a layer', () => {
+  it('fires for a scoped override, not just a global write', async () => {
+    const seen: string[] = []
+    lips.register('obs', {
+      watchContext: ['theme'],
+      handler: { onContext( this: any ){ seen.push( this.context.theme ) } },
+      default: `<i class="o">{context.theme}</i>`
+    })
+
+    const c = lips.render('t-onctx', {
+      state: { tone: 'dark' },
+      default: `<context theme=state.tone><obs/></context>`
+    })
+    c.appendTo('#app')
+
+    await settle( () => txt('.o') === 'dark' )
+
+    c.state.tone = 'solarized'
+    await settle( () => seen.includes('solarized') )
+  })
+
+  it('still fires for a global write when nothing shadows the key', async () => {
+    const seen: string[] = []
+    lips.register('obs2', {
+      watchContext: ['user'],
+      handler: { onContext( this: any ){ seen.push( this.context.user ) } },
+      default: `<i class="o2">{context.user}</i>`
+    })
+
+    lips.render('t-onctx2', { default: `<obs2/>` }).appendTo('#app')
+    await settle( () => txt('.o2') === 'ada' )
+
+    lips.setContext('user', 'grace')
+    await settle( () => seen.includes('grace') )
+  })
+
+  it('does not fire for a context field it did not declare', async () => {
+    const seen: string[] = []
+    lips.register('obs3', {
+      watchContext: ['user'],
+      handler: { onContext( this: any ){ seen.push('fired') } },
+      default: `<i class="o3">{context.theme}</i>`
+    })
+
+    lips.render('t-onctx3', { default: `<obs3/>` }).appendTo('#app')
+    await settle( () => txt('.o3') === 'light' )
+
+    lips.setContext('theme', 'dark')
+    await settle( () => txt('.o3') === 'dark' )
+    expect( seen ).toEqual( [] )
+  })
+
+  it('accepts the deprecated `context` spelling', async () => {
+    const seen: string[] = []
+    lips.register('obs4', {
+      context: ['user'],
+      handler: { onContext( this: any ){ seen.push( this.context.user ) } },
+      default: `<i class="o4">{context.user}</i>`
+    })
+
+    lips.render('t-onctx4', { default: `<obs4/>` }).appendTo('#app')
+    await settle( () => txt('.o4') === 'ada' )
+
+    lips.setContext('user', 'grace')
+    await settle( () => seen.includes('grace') )
+  })
+})

@@ -5,6 +5,123 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — a `<context>` layer owns what it declares
+
+- `this.setContext(key, …)` from inside a `<context>` subtree now writes to
+  the **nearest layer that declares the key**, not to the global store. Two
+  sibling canvases can both own `selection` without colliding. A key no
+  layer declares still falls through, so a tree with no providers behaves
+  exactly as before.
+
+  The resolution walks the prototype chain the layers already form, so
+  ownership needs no registry and is torn down with the block — no
+  unregister step, nothing left behind.
+
+  Literal and expression declarations now differ in a way that falls out of
+  what you already write: `<context sel="node-a">` is seeded once and a
+  local write sticks (the subtree's own state), while `<context
+  sel=state.sel>` is re-synced by an effect and a local write holds only
+  until the source next changes (a parent driving it).
+
+### Fixed — `onContext` sees scoped context
+
+- The declared-context subscription watched the host's global store, so a
+  `<context>` override never fired `onContext` while bindings reading the
+  same key updated normally — the one place where declared and rendered
+  context disagreed. It now tracks the effective context with its own
+  effect, so both notify through the same path.
+
+- The `watchContext` runtime option this replaced has been removed rather
+  than left as dead plumbing.
+
+### Added — `watchContext` replaces the `context` template field
+
+- The field that lists which context fields fire `onContext` is now spelled
+  `watchContext`. It never declared what a component reads — bindings that
+  read `context.x` are tracked individually regardless — and the old name
+  said the opposite. `context` still works and means the same thing.
+
+### Added — lazy dictionaries
+
+- A loader resolves one language root on demand instead of bundling every
+  language up front:
+
+  ```js
+  lips.i18n.setLoader( id => import(`./languages/${id}.json`).then( m => m.default ) )
+  ```
+
+- `setLanguage()` switches first and resolves second: the language changes
+  immediately, showing source wording — real text, not a blank — and the
+  strings settle when the dictionary lands.
+
+- Dictionaries now carry a revision that translated binds track alongside
+  the language. Without it a late-arriving dictionary would not re-render,
+  because the language never changed — only what it resolves to. This also
+  makes a plain `setDictionary()` at runtime re-translate what is already on
+  screen, which it previously did not.
+
+- `i18n.has(lang)` reports whether a root is registered. Each root is
+  attempted once; a rejected load is remembered so a missing file does not
+  re-fetch on every switch.
+
+### Fixed — a quoted handler is reported instead of silently ignored
+
+- `on-click="() => …"` wires no listener. Only the instruction form
+  `on-click( … )` does — the parser produces an event attribute for that
+  spelling alone — so the quoted version was an ordinary attribute whose
+  source text was emitted into the DOM and never ran.
+
+  It now reports **LIPS-C020** and the dead attribute is dropped rather than
+  rendered. Same class as the `@text="…"` and `style={…}` fall-throughs
+  fixed alongside it; found the same way, by a demo where the feature simply
+  did not happen.
+
+### Fixed — an `onAttach` that renders no longer breaks the attach queue
+
+- `flushAttach()` walked `PENDING_ATTACH` by index while `entry.fn()` was free
+  to mutate it. An `onAttach` that RENDERS — which is exactly what
+  `<router>` does when it navigates on attach — both appends entries and
+  re-enters the flush, so the index went stale two ways:
+
+  - it outlived a shrunken array → `Cannot read properties of undefined
+    (reading 'node')`, thrown out of `lips.root()`
+  - entries appended mid-pass sat below the descending index → their
+    `onAttach` silently never fired
+
+  It now drains by entry identity over a snapshot and repeats while a pass
+  settles anything. Attach order is unchanged: parents still attach before
+  the children rendered inside them.
+
+  Both symptoms need several sibling components plus one that renders from
+  `onAttach`, which is why a router-shaped app hit it and the unit tests
+  did not.
+
+### Fixed — an interpolated `@`-prop is a prop bind again
+
+- `@text="Row {i + 1}"` set a literal `@text` ATTRIBUTE on the element
+  instead of writing the prop, so nothing rendered. The `interp` case
+  handled `@format` and then fell through to the attribute branch, never
+  testing for `@`. Interpolated `@text` / `@html` now compile to a prop
+  bind over the concatenation, matching the `literal` and `expr` forms.
+
+### Changed — `style=` on an element names the object-literal mistake
+
+- An object literal in an element's `style=` now reports `LIPS-C019` with the
+  CSS-text form spelled out, instead of `LIPS-E003 Unexpected token ':'` from
+  the expression compiler.
+
+  `style=` carries CSS **text**, and `{…}` inside an attribute value is an
+  interpolation slot — so both `style="{ margin: '3rem' }"` and
+  `style={{ margin: '3rem' }}` were dead code: the first died on the `:` and
+  the second stringified to `[object Object]`. Neither ever reached the DOM.
+  Two demo templates had been carrying the first form.
+
+  Elements only. On a component `style` is an input like any other, and an
+  object is a fine value for it. The forms that work are untouched:
+  `style="width: {state.w}px"`, `style="{state.on ? 'color: red' : ''}"`,
+  `style=state.css`. Reactive styles that need pseudo-classes, media queries
+  or keyframes belong in the component stylesheet (RFC-004).
+
 ### Added — `static` as the object-literal spelling of `_static`
 
 - A template object may now use `static: { … }` instead of `_static: { … }`,

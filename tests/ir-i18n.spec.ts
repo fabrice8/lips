@@ -468,3 +468,91 @@ describe('i18n', () => {
       [ ...document.querySelectorAll('.chip') ].map( e => e.textContent ).join('|') === 'Compter|Repondre' )
   })
 })
+
+describe('lazy dictionaries', () => {
+  it('loads a dictionary on demand when the language switches', async () => {
+    const l: any = new Lips({ lang: 'en-US' })
+    l.i18n.setLoader( async ( id: string ) => id === 'fr' ? { Count: 'Compter' } : undefined )
+
+    l.render('t-lazy', { default: `<b i18n class="z">Count</b>` }).appendTo('#app')
+    await settle( () => txt('.z') === 'Count' )
+
+    l.setLanguage('fr-FR')
+    await settle( () => txt('.z') === 'Compter' )
+  })
+
+  it('switches immediately and back-fills — source wording is the placeholder', async () => {
+    let release: ( d: any ) => void = () => {}
+    const l: any = new Lips({ lang: 'en-US' })
+    l.i18n.setLoader( () => new Promise( r => { release = r }) )
+
+    l.render('t-lazy2', { default: `<b i18n class="p">Count</b>` }).appendTo('#app')
+    await settle( () => txt('.p') === 'Count' )
+
+    l.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 20 ) )
+
+    // language already switched, dictionary not in yet
+    expect( l.getLanguage() ).toBe('fr-FR')
+    expect( txt('.p') ).toBe('Count')
+
+    release({ Count: 'Compter' })
+    await settle( () => txt('.p') === 'Compter' )
+  })
+
+  it('attempts each language root only once', async () => {
+    const calls: string[] = []
+    const l: any = new Lips({ lang: 'en-US' })
+    l.i18n.setLoader( async ( id: string ) => { calls.push( id ); return { Count: 'Compter' } })
+
+    l.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 20 ) )
+    l.setLanguage('en-US')
+    l.setLanguage('fr-CA')   // same root — must not refetch
+    await new Promise( r => setTimeout( r, 20 ) )
+
+    expect( calls ).toEqual([ 'fr', 'en' ])
+  })
+
+  it('does not re-fetch a language whose load failed', async () => {
+    let calls = 0
+    const l: any = new Lips({ lang: 'en-US' })
+    l.i18n.setLoader( async () => { calls++; throw new Error('404') })
+
+    l.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 20 ) )
+    l.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 20 ) )
+
+    expect( calls ).toBe( 1 )
+  })
+
+  it('skips the loader for a dictionary already registered', async () => {
+    let calls = 0
+    const l: any = new Lips({ lang: 'en-US' })
+    l.i18n.setDictionary('fr', { Count: 'Compter' })
+    l.i18n.setLoader( async () => { calls++; return {} })
+
+    l.setLanguage('fr-FR')
+    await new Promise( r => setTimeout( r, 20 ) )
+
+    expect( calls ).toBe( 0 )
+  })
+
+  it('re-translates when a dictionary is registered after render', async () => {
+    const l: any = new Lips({ lang: 'fr-FR' })
+    l.render('t-late', { default: `<b i18n class="late">Count</b>` }).appendTo('#app')
+    await settle( () => txt('.late') === 'Count' )
+
+    l.i18n.setDictionary('fr', { Count: 'Compter' })
+    await settle( () => txt('.late') === 'Compter' )
+  })
+
+  it('reports whether a language is registered', () => {
+    const l: any = new Lips({ lang: 'en-US' })
+    l.i18n.setDictionary('fr', { Count: 'Compter' })
+
+    expect( l.i18n.has('fr-CA') ).toBe( true )
+    expect( l.i18n.has('de') ).toBe( false )
+  })
+})

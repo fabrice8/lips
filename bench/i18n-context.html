@@ -139,6 +139,78 @@ await tick( 60 )
 check('provided value tracks state', txt('.s-theme'), 'solarized')
 check('deeper provider still shadows it', txt('.deep'), 'contrast')
 
+// ---- context OWNERSHIP: a write lands on the layer, not the global store
+lips.register('owner', {
+  handler: { grab(){ this.setContext('selection', this.input.to ) } },
+  default: `<span><u class="sel">{context.selection}</u><button class="grab" on-click( grab )>g</button></span>`
+})
+
+const stage2 = document.createElement('div')
+document.getElementById('stage').appendChild( stage2 )
+
+const own = lips.render('own', {
+  default: `<div>
+    <b class="g-sel">{context.selection}</b>
+    <context selection="node-a"><owner to="A2"/></context>
+    <context selection="node-b"><owner to="B2"/></context>
+  </div>`
+})
+own.appendTo( stage2 )
+await tick( 60 )
+
+const sels = () => [ ...document.querySelectorAll('.sel') ].map( e => e.textContent )
+check('sibling layers start apart', sels().join('|'), 'node-a|node-b')
+
+document.querySelectorAll('.grab')[0].click()
+await tick( 60 )
+
+check('a write lands on its own layer', sels()[0], 'A2')
+check('the sibling layer is untouched', sels()[1], 'node-b')
+check('the global store never saw it', lips.getContext().selection, undefined)
+check('and nothing rendered it globally', txt('.g-sel'), '')
+
+// ---- onContext fires for a scoped override
+const fired = []
+lips.register('watcher', {
+  watchContext: ['theme'],
+  handler: { onContext(){ fired.push( this.context.theme ) } },
+  default: `<i class="wt">{context.theme}</i>`
+})
+const stage3 = document.createElement('div')
+document.getElementById('stage').appendChild( stage3 )
+const w = lips.render('w', {
+  state: { tone: 'dark' },
+  default: `<context theme=state.tone><watcher/></context>`
+})
+w.appendTo( stage3 )
+await tick( 60 )
+
+w.state.tone = 'solarized'
+await tick( 60 )
+check('onContext fires for a scoped override', fired.includes('solarized'), true)
+check('…and the bind agrees with it', txt('.wt'), 'solarized')
+
+// ---- lazy dictionary: switch first, back-fill second
+let release = () => {}
+const lazy = new Lips({ lang: 'en-US' })
+lazy.i18n.setDictionary('en', { 'late.k': 'Later' })
+lazy.i18n.setLoader( () => new Promise( r => { release = r }) )
+
+const stage4 = document.createElement('div')
+document.getElementById('stage').appendChild( stage4 )
+lazy.render('lz', { default: `<b i18n="late.k" class="lz">Later</b>` }).appendTo( stage4 )
+await tick( 60 )
+check('lazy: renders the loaded language', txt('.lz'), 'Later')
+
+lazy.setLanguage('fr-FR')
+await tick( 60 )
+check('lazy: switches before the dictionary lands', lazy.getLanguage(), 'fr-FR')
+check('lazy: shows source wording meanwhile', txt('.lz'), 'Later')
+
+release({ 'late.k': 'Plus tard' })
+await tick( 80 )
+check('lazy: back-fills when the dictionary arrives', txt('.lz'), 'Plus tard')
+
 const s = document.getElementById('summary')
 s.className = fail ? 'fail' : 'pass'
 s.textContent = `${pass}/${pass + fail} checks passed`
