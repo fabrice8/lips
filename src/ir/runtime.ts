@@ -52,8 +52,6 @@ export interface IRComponentDef {
 export interface RuntimeOptions {
   mode?: 'compiled' | 'interpreted'
   components?: Record<string, IRComponentDef>
-  /** Host-provided context subscription (returns an unsubscribe) */
-  watchContext?( fields: string[], fn: () => void ): () => void
   /**
    * Resolve a plain template object (e.g. a route's `template`)
    * into a component definition — the host owns compilation and
@@ -422,6 +420,91 @@ const applyAttr = ( el: Element, name: string, v: any ) => {
 
 const defineGetter = ( scope: any, name: string, get: () => any ) =>
   Object.defineProperty( scope, name, { get, enumerable: true, configurable: true } )
+
+/** Marks a `<context>` layer and carries its owned-key setters */
+const LAYER = Symbol('lips.ctx.layer')
+
+/**
+ * Write a context key to the nearest enclosing `<context>` layer that
+ * declares it, falling back to the global store.
+ *
+ * The walk is over the prototype chain the layers already form, so
+ * ownership needs no registry: a layer owns exactly the keys it wrote
+ * into its own `LAYER` map, and both vanish when the block is disposed.
+ * `global` is the host's setter — reached when no layer claims the key,
+ * which is every write in a tree with no providers.
+ */
+function writeContext( ctx: any, key: string, value: any, global?: ( k: string, v: any ) => void ){
+  for( let o = ctx; o; o = Object.getPrototypeOf( o ) ){
+    const owned: Map<string, ( v: any ) => void> | undefined = o[ LAYER ]
+    const set = owned?.get( key )
+    if( set ){ set( value ); return }
+  }
+  global?.( key, value )
+}
+
+/**
+ * The half of `self` that is identical for a root and a nested
+ * component: the live-node view, the language getter, and the event bus.
+ * Both selves carried their own byte-identical copy of these six
+ * members, in every bundle.
+ *
+ * Handed back as a PROTOTYPE rather than something to spread — `node`
+ * and `lang` are getters, and a spread (or Object.assign) would evaluate
+ * them once and freeze the result. Own properties still shadow it, so
+ * the host's `expose` and a template's handlers keep winning.
+ */
+function selfBus( langOf: () => string ){
+  const listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
+  const fire = ( event: string, ...args: any[] ) => listeners.get( event )?.forEach( fn => fn( ...args ) )
+
+  let self: any
+  let instOf: () => BlockInstance | null = () => null
+
+  const proto = {
+    /**
+     * Live element nodes — the handle external controls (drag/resize/
+     * sort) bind to. Elements only: comment boundaries are an
+     * implementation detail.
+     */
+    get node(){
+      const inst = instOf()
+      return inst ? nodesOf( inst ).filter( n => n.nodeType === 1 ) as Element[] : []
+    },
+    /** Active language, read reactively — scoped when under `<i18n lang=…>` */
+    get lang(){ return langOf() },
+    emit: fire,
+    /** Always the runtime-local bus — a host `emit` chains into it */
+    emitLocal: fire,
+    on( event: string, fn: ( ...args: any[] ) => void ){
+      listeners.set( event, [ ...( listeners.get( event ) || [] ), fn ])
+      return self
+    },
+    once( event: string, fn: ( ...args: any[] ) => void ){
+      const wrapped = ( ...args: any[] ) => {
+        self.off( event, wrapped )
+        fn( ...args )
+      }
+      return self.on( event, wrapped )
+    },
+    off( event: string, fn?: ( ...args: any[] ) => void ){
+      if( !fn ) listeners.delete( event )
+      else {
+        const rest = ( listeners.get( event ) || [] ).filter( f => f !== fn )
+        rest.length ? listeners.set( event, rest ) : listeners.delete( event )
+      }
+      return self
+    }
+  }
+
+  /** Adopt the finished self and tell the bus where its nodes live */
+  const bind = ( owner: any, inst: () => BlockInstance | null ) => {
+    self = owner
+    instOf = inst
+    return owner
+  }
+  return { proto, bind }
+}
 
 // ---------------------------------------------------------------- renderer
 class IRRenderer {
@@ -976,15 +1059,30 @@ class IRRenderer {
        */
       case 'provide': {
         const ctx = Object.create( benv.context ?? null )
+        /**
+         * Keys this layer OWNS, key → setter. `setContext` from anywhere
+         * inside the subtree walks the prototype chain looking for these
+         * (RFC-005 §4.1), so a write lands on the nearest layer that
+         * declares the key instead of on the global store. The signals
+         * die with the block, so the ownership is torn down with it —
+         * no unregister step, nothing left behind.
+         */
+        const owned = new Map<string, ( v: any ) => void>()
+        Object.defineProperty( ctx, LAYER, { value: owned })
 
         for( const [ name, input ] of Object.entries( child.vars ) ){
-          if( 'lit' in input ){
-            const [ get ] = signal( input.lit )
-            defineGetter( ctx, name, get )
-            continue
-          }
-          const [ get, set ] = signal<any>( undefined )
+          const [ get, set ] = signal<any>( 'lit' in input ? input.lit : undefined )
           defineGetter( ctx, name, get )
+          owned.set( name, set )
+
+          /**
+           * An expression-bound key is DERIVED: the effect re-syncs it
+           * from the source, so a local write holds only until the
+           * source next changes. A literal has no effect at all, so a
+           * write to it simply sticks — which is how a subtree gets
+           * state of its own, seeded once.
+           */
+          if( 'lit' in input ) continue
           const run = this.runner( input.e, scopeNames )
           disposers.push( effect( () => set( run( benv ) ) ).dispose )
         }
@@ -1375,58 +1473,39 @@ class IRRenderer {
      * Component event bus: the child emits, the parent's
      * `on-*( … )` instructions receive the emitted arguments.
      */
-    const listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
     /** Set once the block renders — backs `self.node` */
     let selfInst: BlockInstance | null = null
 
-    // `this` inside the self literal's getters is the literal, not the renderer
+    // `this` inside the bus closures is the literal, not the renderer
     const irr = this
+    /**
+     * `lang` for THIS component is the scoped one when it sits under
+     * `<i18n lang=…>`, the global one otherwise. Without it there is no
+     * way to show the current language, which is what pushed apps into
+     * mirroring it into context by hand (RFC-005 §2).
+     */
+    const bus = selfBus( () => benv.lang?.() ?? irr.options.i18n?.lang() ?? '' )
 
-    const self: any = {
+    const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
       ...( this.options.expose || {} ),
       state, input, static: def.statics, context: benv.context,
       /**
-       * Active language for THIS component — the scoped one when it sits
-       * under `<i18n lang=…>`, the global one otherwise. A getter, so a
-       * bind that reads `self.lang` subscribes to the language signal and
-       * re-renders on `setLanguage()`. Without it there is no way to show
-       * the current language, which is what pushed apps into mirroring it
-       * into context by hand (RFC-005 §2).
+       * Overrides the host's global `setContext` (merged in by the
+       * spread above): a write goes to the nearest `<context>` layer
+       * that declares the key, and only reaches the global store when
+       * no layer claims it. A component under a provider therefore
+       * mutates ITS OWN context — two canvases writing `selection` no
+       * longer collide (RFC-005 §4.1).
        */
-      get lang(){ return benv.lang?.() ?? irr.options.i18n?.lang() ?? '' },
-      /**
-       * Live element nodes of this component — the handle external
-       * controls (drag/resize/sort) bind to. Elements only: comment
-       * boundaries are an implementation detail.
-       */
-      get node(){
-        return selfInst
-          ? nodesOf( selfInst ).filter( n => n.nodeType === 1 ) as Element[]
-          : []
-      },
-      emit( event: string, ...args: any[] ){
-        listeners.get( event )?.forEach( fn => fn( ...args ) )
-      },
-      on( event: string, fn: ( ...args: any[] ) => void ){
-        listeners.set( event, [ ...( listeners.get( event ) || [] ), fn ])
-        return self
-      },
-      once( event: string, fn: ( ...args: any[] ) => void ){
-        const wrapped = ( ...args: any[] ) => {
-          self.off( event, wrapped )
-          fn( ...args )
-        }
-        return self.on( event, wrapped )
-      },
-      off( event: string, fn?: ( ...args: any[] ) => void ){
-        if( !fn ) listeners.delete( event )
-        else {
-          const rest = ( listeners.get( event ) || [] ).filter( f => f !== fn )
-          rest.length ? listeners.set( event, rest ) : listeners.delete( event )
-        }
-        return self
+      setContext( arg: any, value?: any ){
+        const write = ( k: string, v: any ) =>
+                          writeContext( benv.context, k, v, ( irr.options.expose as any )?.setContext )
+
+        typeof arg === 'string'
+              ? write( arg, value )
+              : Object.entries( arg || {} ).forEach( ( [ k, v ] ) => write( k, v ) )
       }
-    }
+    }), () => selfInst )
     def.handlers && Object.entries( def.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 
     this.wireEvents( child.events, benv, scopeNames, self, wiring )
@@ -1479,15 +1558,32 @@ class IRRenderer {
     catch( error ){ hooks.onError( error ) }
 
     /**
-     * Declared context subscription — fires onContext only when
-     * one of the component's own fields changes.
+     * Declared context subscription — fires onContext only when one of
+     * the component's own fields changes.
+     *
+     * Tracked against the EFFECTIVE context, not the host's global
+     * store: reading a key off `cenv.context` hits the layer's own
+     * getter when a `<context>` provides it and falls through to the
+     * global proxy when it does not, so both notify through the same
+     * effect. Watching the host directly (as this did) meant a scoped
+     * override never fired the hook while binds reading the same key
+     * updated — the one place where declared and rendered context
+     * disagreed (RFC-005 §4.2).
      */
     let unwatchContext: ( () => void ) | undefined
-    if( def.context?.length && typeof self.onContext === 'function' && this.options.watchContext )
-      unwatchContext = this.options.watchContext( def.context, () => {
-        try { self.onContext() }
-        catch( error ){ hooks.onError( error ) }
+    if( def.context?.length && typeof self.onContext === 'function' ){
+      let first = true
+      const { dispose } = effect( () => {
+        for( const f of def.context! ) cenv.context?.[ f ] // track
+        if( first ){ first = false; return }
+
+        untrack( () => {
+          try { self.onContext() }
+          catch( error ){ hooks.onError( error ) }
+        })
       })
+      unwatchContext = dispose
+    }
 
     /**
      * Attachment is always tracked (not only when onAttach is
@@ -1629,48 +1725,15 @@ class IRRenderer {
 export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: RuntimeOptions = {} ): IRInstance {
   const
   state = reactive( setup.state || {}, setup.deep ?? false ),
-  input = setup.input ? reactive( setup.input, setup.deep ?? false ) : undefined,
-  listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
+  input = setup.input ? reactive( setup.input, setup.deep ?? false ) : undefined
 
   /** Set after the first render — backs `self.node` */
   let rootInst: BlockInstance | null = null
 
-  const self: any = {
+  const bus = selfBus( () => options.i18n?.lang() ?? '' )
+
+  const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
     state, input, static: setup.static,
-    /** Active language, read reactively — see the nested-component note */
-    get lang(){ return options.i18n?.lang() ?? '' },
-    /** Live element nodes — the handle external controls bind to */
-    get node(){
-      return rootInst
-        ? nodesOf( rootInst ).filter( n => n.nodeType === 1 ) as Element[]
-        : []
-    },
-    emit( event: string, ...args: any[] ){
-      listeners.get( event )?.forEach( fn => fn( ...args ) )
-    },
-    /** Always the runtime-local bus — a host `emit` chains into it */
-    emitLocal( event: string, ...args: any[] ){
-      listeners.get( event )?.forEach( fn => fn( ...args ) )
-    },
-    on( event: string, fn: ( ...args: any[] ) => void ){
-      listeners.set( event, [ ...( listeners.get( event ) || [] ), fn ])
-      return self
-    },
-    once( event: string, fn: ( ...args: any[] ) => void ){
-      const wrapped = ( ...args: any[] ) => {
-        self.off( event, wrapped )
-        fn( ...args )
-      }
-      return self.on( event, wrapped )
-    },
-    off( event: string, fn?: ( ...args: any[] ) => void ){
-      if( !fn ) listeners.delete( event )
-      else {
-        const rest = ( listeners.get( event ) || [] ).filter( f => f !== fn )
-        rest.length ? listeners.set( event, rest ) : listeners.delete( event )
-      }
-      return self
-    },
     /**
      * `options.expose` is what every NESTED component self gets
      * (setContext, setLanguage). The root is a component too, so it
@@ -1680,7 +1743,7 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
     ...( options.expose || {} ),
     // Host-provided members (e.g. the facade's emit → Events) win
     ...( setup.expose || {} )
-  }
+  }), () => rootInst )
 
   setup.handlers && Object.entries( setup.handlers ).forEach( ( [ k, fn ] ) => self[ k ] = fn.bind( self ) )
 

@@ -54,9 +54,27 @@ const KB = 1024
  * `provide` executor and `self.lang`, so the precompiled seam is intact:
  * none of the key parsing or block compilation leaked across it. That
  * gap between precompile and runtime is still the number to watch.
+ * 2026-08-21: full 27→28. RFC-005 follow-through — context ownership,
+ * onContext over the effective context, lazy dictionaries, and the
+ * LIPS-C020 quoted-handler diagnostic.
+ *
+ * Savings were taken first, not skipped: the root and nested `self`
+ * carried byte-identical copies of `node`/`lang`/`emit`/`emitLocal`/
+ * `on`/`once`/`off`, now one shared prototype (`selfBus`), plus a dead
+ * listener Map and the `watchContext` runtime option the effective-
+ * context rewrite made unreachable. That paid back ~0.15 KB and is why
+ * `runtime` came back DOWN to 14.9 after touching 15.0.
+ *
+ * The next raise should not be another bump. The measured lever is
+ * Stylis: ~4.4 KB gzipped, ~16% of this entry, pulled in eagerly by
+ * `setStylePreprocessor` in lips.ts. Making the preprocessor opt-in the
+ * way `setCompiler` already is would let apps that use no nesting or
+ * prefixing drop it — at the cost of nested CSS silently not working
+ * unless opted in, so it is a product decision, not a cleanup. The
+ * eagerly registered `<router>` builtin is a smaller second lever.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 27,        // full: runtime + parser/compiler + style compiler + stylis + router
+  'dist/lips.min.js': 28,        // full: runtime + parser/compiler + style compiler + stylis + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
   'dist/precompile.min.js': 13   // build-time: parser + compiler + style compiler + stylis
 }

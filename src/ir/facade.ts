@@ -141,8 +141,9 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
      * Context subscription: components declaring `context: [...]`
      * get onContext whenever a declared field changes.
      */
-    if( template.context?.length && typeof handlers?.onContext === 'function' )
-      this.contextWatcher = lips.watchContext( template.context, () => {
+    const watched = template.watchContext ?? template.context
+    if( watched?.length && typeof handlers?.onContext === 'function' )
+      this.contextWatcher = lips.watchContext( watched, () => {
         try { handlers.onContext!.call( this.instance.self ) }
         catch( error ){ console.error('[lips:ir]', error ) }
       })
@@ -211,6 +212,8 @@ export class IRLips<Context extends Object = Record<string, any>> {
   /** Language signal — translated binds subscribe through it */
   private getLang: () => string
   private setLang: ( v: string ) => void
+  /** Dictionary revision — bumped whenever a dictionary is registered */
+  private getRev!: () => number
 
   /**
    * Registered components resolved lazily — the runtime looks
@@ -229,6 +232,17 @@ export class IRLips<Context extends Object = Record<string, any>> {
     const [ getLang, setLang ] = signal( this.i18n.lang )
     this.getLang = getLang
     this.setLang = setLang
+
+    /**
+     * Dictionary revision. Translated binds track it alongside the
+     * language, so a dictionary registered AFTER render — a lazy load
+     * resolving, or a plain `setDictionary` call at runtime — re-runs
+     * them. Without it the language signal alone would not fire: the
+     * language never changed, only what it resolves to.
+     */
+    const [ getRev, setRev ] = signal( 0 )
+    this.getRev = getRev
+    this.i18n.onChange = () => setRev( getRev() + 1 )
 
     // Built-in components (their templates are source — need the compiler)
     COMPILER && Object.entries( BUILTINS ).forEach( ( [ name, template ] ) => this.register( name, template ) )
@@ -309,7 +323,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
         ir: this.compile( template ),
         state: template.state,
         statics: template.static ?? template._static,
-        context: template.context,
+        context: template.watchContext ?? template.context,
         stylesheet: this.styleFor( name, template ),
         nsp: name,
         handlers: guardHandlers( template.handler ),
@@ -325,7 +339,6 @@ export class IRLips<Context extends Object = Record<string, any>> {
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), {
       mode: this.config?.mode,
       components: this.componentsProxy,
-      watchContext: ( fields, fn ) => this.watchContext( fields, fn ),
       /**
        * Route pages (and any `<{templateObject}/>`) are plain
        * template objects — compile + cache them on demand.
@@ -367,10 +380,12 @@ export class IRLips<Context extends Object = Record<string, any>> {
          */
         translate: ( text: string, key?: string, scoped?: string ) => {
           const global = this.getLang() // track unconditionally — see above
+          this.getRev()                 // …and re-run when a dictionary lands
           return this.i18n.translate( text, scoped || global, key ).text
         },
         format: ( reference: string, params: any, scoped?: string ) => {
           const global = this.getLang()
+          this.getRev()
           return this.i18n.format( reference, params, scoped || global ) ?? ''
         },
         lang: () => this.getLang()
@@ -392,6 +407,15 @@ export class IRLips<Context extends Object = Record<string, any>> {
   setLanguage( lang: string ){
     this.i18n.lang = lang
     this.setLang( lang )
+    /**
+     * Switch first, resolve second. The UI changes language immediately
+     * — showing source wording, which is real text rather than a blank —
+     * and the loaded dictionary bumps the revision to re-translate. A
+     * language already registered resolves synchronously and this is a
+     * no-op.
+     */
+    this.i18n.load( lang )
+    return this
   }
   getLanguage(){ return this.getLang() }
   useTranslator( support: string | string[], fn: ( lang: string ) => void ){

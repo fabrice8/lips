@@ -508,6 +508,9 @@ class Compiler {
         }
       }
 
+      // Quoted handler — reported and dropped, never emitted as a dead attribute
+      if( this.quotedEvent( node.tag, attr ) ) continue
+
       switch( attr.k ){
         case 'literal':
           if( attr.name === '@format' ){
@@ -948,6 +951,25 @@ class Compiler {
   }
 
   /** Components and dynamic tags share input/event/spread shape */
+  /**
+   * `on-click="…"` is NOT an event binding. The parser only produces an
+   * `event` attribute for the instruction form `on-x( … )`; quoted, it
+   * stays an ordinary attribute, so no listener is wired and the source
+   * text lands in the DOM as a dead `on-click="() => …"`. Nothing failed
+   * loudly, which is exactly the problem — same class as the `@text="…"`
+   * and `style={…}` fall-throughs.
+   */
+  private quotedEvent( tag: string, attr: AttrNode ){
+    if( !( 'name' in attr ) || !attr.name.startsWith('on-') ) return false
+
+    this.report( 'LIPS-C020', 'error',
+      `${attr.name}="…" on <${tag}> wires no listener`,
+      attr.loc.offset, attr.loc.length,
+      `Handlers use the instruction form: ${attr.name}( … ). `
+      + `Quoted, it is an ordinary attribute — the handler never runs and the source is emitted into the DOM.` )
+    return true
+  }
+
   private compLike( node: ElementNode, p: Path, scope: string[], kind: 'comp' | 'dynamic' ): ChildIR {
     const
     inputs: Record<string, CompInput> = {},
@@ -956,6 +978,9 @@ class Compiler {
     let args: string[] = []
 
     for( const attr of node.attrs ){
+      // A quoted handler on a component is the same dead attribute, as an input
+      if( attr.k !== 'event' && this.quotedEvent( node.tag, attr ) ) continue
+
       switch( attr.k ){
         case 'literal': case 'bool': case 'expr': case 'interp':
           inputs[ attr.name ] = this.compInput( attr )

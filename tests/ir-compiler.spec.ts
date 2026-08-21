@@ -359,3 +359,30 @@ describe('serialization contract', () => {
     expect( clean( SRC ) ).toEqual( clean( SRC ) )
   })
 })
+
+describe('quoted event attributes', () => {
+  /**
+   * Handlers are the instruction form `on-x( … )`. Quoted, the parser
+   * makes an ordinary attribute — no listener, and the source text used
+   * to land in the DOM. Silent, so it earns a diagnostic.
+   */
+  it('rejects on-*="…" on an element', () => {
+    const { diagnostics } = compile(`<button on-click="() => state.n++">x</button>`)
+    expect( diagnostics.some( d => d.code === 'LIPS-C020' ) ).toBe( true )
+  })
+
+  it('rejects on-*="…" on a component', () => {
+    const { diagnostics } = compile(`<mycomp on-save="() => 1"/>`)
+    expect( diagnostics.some( d => d.code === 'LIPS-C020' ) ).toBe( true )
+  })
+
+  it('does not emit the dead attribute', () => {
+    const { ir } = compile(`<button on-click="() => state.n++">x</button>`)
+    expect( ir.root.html ).toBe(`<button>x</button>`)
+  })
+
+  it('leaves the instruction form alone', () => {
+    const { diagnostics } = compile(`<button on-click( () => state.n++ )>x</button>`)
+    expect( diagnostics ).toEqual( [] )
+  })
+})

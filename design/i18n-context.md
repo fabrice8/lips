@@ -1,6 +1,6 @@
 # RFC-005 — Language and context: reading, keying, scoping
 
-**Status:** implemented
+**Status:** implemented (revised 2026-08-21)
 **Supersedes:** nothing. **Depends on:** RFC-001 (fine-grained reactivity)
 **Companion of:** RFC-004 (StyleIR)
 
@@ -252,17 +252,68 @@ the same string.
 | `LIPS-C017` | warning | `<context>` that provides nothing |
 | `LIPS-C018` | error | `<i18n>` with no `lang` attribute |
 
-### What is still global
+### 4.1 Ownership — writes land on the nearest layer
 
-`setContext` writes to the global store from anywhere. Scoping is
-**provision**, not ownership: a subtree can be *given* a value, but there
-is no mechanism for a subtree to own a key and tear it down. `onContext`
-likewise watches the global store. Both are noted here as the remaining
-asymmetry rather than fixed — see §6.
+Provision alone is half a provider: a subtree that can read its own
+`selection` but whose writes go to the global store still collides with
+its siblings. So `setContext` resolves the same way reads do.
+
+```html
+<context selection="node-a"><board/></context>
+```
+
+`this.setContext('selection', …)` from anywhere inside that subtree —
+including from a component several levels down — writes to **the layer**,
+not the global store. A key no layer declares still falls through, so a
+tree with no providers behaves exactly as before.
+
+The walk is over the prototype chain the layers already form, so
+ownership needs no registry: a layer owns exactly the keys it declared,
+and both the signals and the ownership vanish when the block is disposed.
+There is no unregister step and nothing left behind.
+
+**Literal keys are owned; expression keys are derived.** The distinction
+falls out of what the author already wrote, with no extra syntax:
+
+| declaration | effect | a local write |
+|---|---|---|
+| `selection="node-a"` | seeded once, no effect | sticks |
+| `selection=state.sel` | effect re-syncs from the source | holds until the source next changes |
+
+So `<context sel="…">` is how a subtree gets state **of its own**, and
+`<context sel=state.sel>` is how a parent **drives** one.
+
+### 4.2 `onContext` sees the effective context
+
+`onContext` used to be wired to the host's global store, so a scoped
+override never fired it while bindings reading the same key updated
+normally — the one place where declared and rendered context disagreed.
+
+It now tracks the **effective** context with its own effect: reading a
+key hits the layer's own getter when a `<context>` provides it and falls
+through to the global proxy when it does not, so both notify through the
+same path. The `watchContext` runtime option this replaced is gone rather
+than left as dead plumbing.
+
+### 4.3 `watchContext`, not `context`
+
+The template field is now `watchContext`:
+
+```ts
+export const watchContext = ['theme']
+```
+
+It declares which context fields fire `onContext` — it never declared
+what the component reads, because bindings that read `context.x` are
+tracked individually and update whether or not `x` is listed. The old
+name said the opposite of that. `context` still works and means the same
+thing.
 
 ---
 
-## 5. `LipsConfig.lang`
+## 5. Loading — initial language and dictionaries
+
+### 5.0 `LipsConfig.lang`
 
 `I18N.currentLang` was initialised from `window.navigator.language` at
 construction: not configurable, and it threw on any host without a
@@ -279,26 +330,53 @@ workers, and non-DOM test runners, not a policy.
 
 ---
 
+### 5.1 Lazy dictionaries
+
+Bundling every language up front costs every user all of them. A loader
+resolves one language root on demand:
+
+```ts
+lips.i18n.setLoader( id => import(`./languages/${id}.json`).then( m => m.default ) )
+```
+
+`setLanguage()` **switches first and resolves second**: the language
+changes immediately, showing source wording — real text, not a blank —
+and the strings settle when the dictionary lands. That ordering is only
+safe because an untranslated string is already the defined fallback (§3).
+
+Making it re-render needed one new piece. The language signal alone would
+not fire, because the language never changed — only what it resolves to.
+So dictionaries carry a **revision** that translated binds track
+alongside the language, bumped whenever one is registered. That also
+makes a plain `setDictionary()` at runtime re-translate what is already
+on screen, which it previously did not.
+
+Each root is attempted once. A rejected load is remembered, so a missing
+language file does not re-fetch on every switch, and a language already
+registered never calls the loader at all.
+
+---
+
 ## 6. Deferred
 
-**Owned context.** A subtree can be given a key but cannot own one.
-`setContext` writes globally from anywhere with no teardown. A provider
-that also *owns* its keys — writes scoped to the layer, cleaned up with
-it — is the natural next step, and is what a `<context>`-local
-`setContext` would need.
+**A subtree that provides for itself.** `<context>` values come from the
+enclosing scope. A component cannot declare "I provide `selection` to my
+own children" without its parent wrapping it — provider-by-component
+rather than provider-by-block.
 
-**`onContext` under a layer.** `def.context` subscriptions watch the
-global store, so a scoped override does not fire `onContext`. Binds
-reading `context.x` inside a layer are correct; only the declared-hook
-path is not. Unifying them means routing the watch through the effective
-context rather than the host.
+**Scoped `onContext` for keys a layer adds.** A component watching a key
+that only exists inside a layer works, but `watchContext` is a static
+list on the template, so it cannot vary per placement.
 
-**The `context: [...]` field's name.** It reads as "the context this
-component uses" but only controls whether `onContext` fires; bindings
-update regardless. Documented, still misleading.
+**Dictionary granularity.** The loader resolves one dictionary per
+language root. Splitting by route or feature — the natural pairing with
+code-splitting — has no expression.
 
-**Lazy dictionaries.** `setDictionary` is eager and synchronous. Nothing
-supports loading a language on demand.
+**Bundle: Stylis is eager.** ~4.4 KB gzipped, ~16% of the full entry,
+pulled in by `setStylePreprocessor` in `lips.ts`. Making it opt-in the
+way `setCompiler` already is would let apps with no nested CSS drop it,
+at the cost of nesting silently not working unless opted in — a product
+decision, not a cleanup.
 
 ---
 
@@ -321,3 +399,17 @@ supports loading a language on demand.
    must not collide with an app's own `context.lang`.
 8. **`navigator.language` stays the default.** `LipsConfig.lang` overrides
    it; `'en-US'` is only reached where there is no navigator at all.
+9. **Ownership follows the read path.** `setContext` resolves through the
+   same prototype chain as a read, so a layer owns exactly what it
+   declares and teardown is automatic.
+10. **Literal vs expression decides owned vs derived.** No new syntax: a
+    seeded key is the subtree's own state, an expression-bound key is
+    driven by its source.
+11. **`onContext` tracks the effective context.** Declared and rendered
+    context must not be able to disagree.
+12. **Language switches before the dictionary arrives.** Source wording
+    is a defined fallback, so there is nothing to wait for; a revision
+    signal back-fills the translation.
+13. **Quoted handlers are an error, not a second syntax.** `on-x( … )`
+    stays the one form; `on-x="…"` is reported (LIPS-C020) and the dead
+    attribute is dropped rather than emitted.
