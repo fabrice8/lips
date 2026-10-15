@@ -17,7 +17,7 @@
 import { compileTemplate } from './ir/compiler'
 import { compileStyle } from './ir/style'
 import type { TemplateIR, CompileOptions } from './ir/compiler'
-import type { StyleIR } from './ir/style'
+import type { StyleIR, StylePreprocessor } from './ir/style'
 import type { TemplateDiagnostic } from './ir/parser'
 
 export interface PrecompiledTemplate {
@@ -36,6 +36,13 @@ export interface PrecompileOptions {
    * match how the component is registered. Defaults to `'lips'`.
    */
   name?: string
+  /**
+   * CSS preprocessor for the stylesheet, e.g. `stylisPreprocessor` from
+   * `@lipsjs/lips/stylis`. Absent, the sheet is baked nested and native
+   * CSS nesting resolves it. Passed here, not set globally: this entry
+   * and `@lipsjs/lips/stylis` are separate bundles with separate state.
+   */
+  preprocess?: StylePreprocessor
 }
 
 export interface PrecompileResult {
@@ -57,7 +64,7 @@ export function precompile( template: Record<string, any>, options: PrecompileOp
 
   if( !stylesheet ) return { template: { ...rest, ir }, diagnostics }
 
-  const style = compileStyle( stylesheet, { nsp: options.name || 'lips' })
+  const style = compileStyle( stylesheet, { nsp: options.name || 'lips', preprocess: options.preprocess })
 
   return {
     template: { ...rest, ir, style: style.ir },
@@ -75,6 +82,8 @@ export interface PluginOptions {
   include?: RegExp
   /** Emit diagnostics as build warnings (default true) */
   reportDiagnostics?: boolean
+  /** CSS preprocessor for lifted stylesheets — see `PrecompileOptions.preprocess` */
+  preprocess?: StylePreprocessor
 }
 
 /**
@@ -134,7 +143,7 @@ export function lipsPlugin( options: PluginOptions = {} ){
 
       let styleOut = ''
       if( liftable ){
-        const style = compileStyle( literal![ 1 ], { nsp: name })
+        const style = compileStyle( literal![ 1 ], { nsp: name, preprocess: options.preprocess })
 
         if( report )
           for( const d of style.diagnostics )

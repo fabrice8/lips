@@ -2,9 +2,11 @@
  * Style IR (RFC-004 Layer 1) — reactive declarations for component stylesheets.
  *
  *   stylesheet source
- *     │  scanner — lifts {expr} out of declaration VALUES only
+ *     │  scanner — lifts {expr} out of declaration VALUES only, hoists the
+ *     │            at-rules that cannot nest, compacts the text
  *     ▼
- *     Stylis — nesting flattened, prefixes applied, scope wrap resolved
+ *     scope wrap `[rel="x"]{…}` — resolved by native CSS nesting, or
+ *     flattened by an opt-in preprocessor (`@lipsjs/lips/stylis`)
  *     ▼
  *   StyleIR ──────────► JSON (precompiled module)
  *     │
@@ -45,7 +47,7 @@ export interface StyleIR {
    * scoped to it, and the two must agree.
    */
   nsp: string
-  /** Post-Stylis: flat, scoped, prefixed. Injected verbatim, never re-parsed. */
+  /** Scoped and compact — nested, or flat if a preprocessor ran. Injected verbatim, never re-parsed. */
   css: string
   exprs: string[]
   binds: StyleBindIR[]
@@ -81,8 +83,14 @@ export interface StyleCompileResult {
 export type StylePreprocessor = ( css: string ) => string
 let PREPROCESSOR: StylePreprocessor | null = null
 
-/** Wire the CSS preprocessor (full build only — see src/lips.ts) */
-export function setStylePreprocessor( fn: StylePreprocessor ){ PREPROCESSOR = fn }
+/**
+ * Process-wide default preprocessor, `null` to clear it. Only reaches
+ * `compileStyle` in the SAME module graph — each published entry bundles
+ * its own copy of this module — so outside of tests and source builds,
+ * pass `preprocess` per call (`LipsConfig.stylePreprocessor`,
+ * `precompile(…, { preprocess })`) instead.
+ */
+export function setStylePreprocessor( fn: StylePreprocessor | null ){ PREPROCESSOR = fn }
 export function hasStylePreprocessor(){ return !!PREPROCESSOR }
 
 // ------------------------------------------------------------------ scanner
@@ -114,6 +122,11 @@ function skipString( src: string, i: number ){
 function skipComment( src: string, i: number ){
   const end = src.indexOf( '*/', i + 2 )
   return end < 0 ? src.length : end + 2
+}
+/** `// …` up to (not including) the newline — Stylis syntax, not CSS */
+function skipLine( src: string, i: number ){
+  const end = src.indexOf( '\n', i + 2 )
+  return end < 0 ? src.length : end
 }
 function locOf( src: string, offset: number, length: number ){
   let line = 1, last = -1
@@ -179,7 +192,12 @@ function readValue(
     const c = src[ i ]
 
     if( c === '"' || c === "'" ){ i = skipString( src, i ); continue }
-    if( c === '/' && src[ i + 1 ] === '*' ){ i = skipComment( src, i ); continue }
+    // Comments are cut out of the value, not carried in its text
+    if( c === '/' && ( src[ i + 1 ] === '*' || ( src[ i + 1 ] === '/' && !paren ) ) ){
+      parts.push( src.slice( lit, i ) )
+      i = lit = src[ i + 1 ] === '*' ? skipComment( src, i ) : skipLine( src, i )
+      continue
+    }
     if( c === '(' ){ paren++; i++; continue }
     if( c === ')' ){ paren--; i++; continue }
 
@@ -220,14 +238,102 @@ function readValue(
   return null
 }
 
+// --------------------------------------------------------------- structure
+/**
+ * At-rules that are NOT valid inside a style rule.
+ *
+ * CSS nesting only admits at-rules whose body is itself a rule list, so a
+ * `@keyframes` left inside `[rel="x"] { … }` is dropped by the parser and
+ * the animation silently does nothing. These are lifted out of the scope
+ * wrap — they are document-global anyway, exactly like the `@property`
+ * registrations emitted outside it.
+ */
+const HOISTED_BLOCK = /^@(-\w+-)?(keyframes|font-face|property|counter-style|font-feature-values|font-palette-values|page|view-transition|position-try|color-profile)\b/i
+/**
+ * Statement at-rules that must open the sheet: `@import` is ignored after
+ * any other rule, `@charset` must be first, `@namespace` must precede
+ * every style rule.
+ */
+const HOISTED_STATEMENT = /^@(import|charset|namespace)\b/i
+/**
+ * Conditional group rules. Their body holds style rules, they nest
+ * natively, and they stay INSIDE the scope wrap so what they contain
+ * remains scoped. A hoisted at-rule found inside one carries the
+ * condition out with it.
+ */
+const GROUP_AT = /^@(media|supports|container|layer|scope|starting-style|document)\b/i
+
+/**
+ * Engines that shipped the FIRST cut of CSS nesting (Chrome 112–119,
+ * Safari 16.5–17.1) parse a nested line that starts with an identifier
+ * as a declaration, so `button { … }` inside the scope wrap is silently
+ * dropped. `& button` is the same selector — a nested relative selector
+ * gets an implicit `& ` anyway — and parses wherever nesting does.
+ */
+const TYPE_LEAD = /^([a-zA-Z_*\\]|[^\x00-\x7f])/
+/** Stylis/Sass `&-suffix` concatenation — native nesting has no equivalent */
+const CONCAT = /&[-\w]/
+
+const WS = /\s/
+const BREAK = /[{};]/
+const STRING_OR_SPACE = /("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')|\s+/g
+
+/** Fold whitespace runs outside strings to one space */
+const squash = ( text: string ) => text.replace( STRING_OR_SPACE, ( _, str ) => str || ' ' )
+
+/** Prefix every identifier-led selector in a list with `& ` (see TYPE_LEAD) */
+function nestSelector( prelude: string ){
+  const parts: string[] = []
+  let from = 0, nest = 0
+
+  for( let i = 0; i < prelude.length; i++ ){
+    const c = prelude[ i ]
+
+    if( c === '"' || c === "'" ){ i = skipString( prelude, i ) - 1; continue }
+    if( c === '(' || c === '[' ) nest++
+    else if( c === ')' || c === ']' ) nest--
+    else if( c === ',' && !nest ){
+      parts.push( prelude.slice( from, i ) )
+      from = i + 1
+    }
+  }
+  parts.push( prelude.slice( from ) )
+
+  return parts
+    .map( p => {
+      const s = p.trim()
+      // `div &` names its own parent — leave it be
+      return TYPE_LEAD.test( s ) && !s.includes('&') ? `& ${s}` : s
+    })
+    .join(',')
+}
+
+interface Block {
+  /**
+   * What a selector directly inside this block is: nested in a style
+   * rule (`style`), at the top of a global sheet (`top`), or not a style
+   * selector at all — keyframe selectors, `@page` margin boxes (`opaque`).
+   */
+  ctx: 'style' | 'top' | 'opaque'
+  /** Prelude of a conditional group rule, carried out by anything hoisted from inside it */
+  group?: string
+  /** Offset in the output where an at-rule being hoisted starts */
+  hoist?: number
+}
+
 interface ScanResult {
+  /** The sheet body, still to be wrapped in the scope rule */
   css: string
+  /** Statement at-rules that must open the sheet (`@import`, …) */
+  statements: string
+  /** Block at-rules lifted out of the scope wrap (`@keyframes`, …) */
+  hoisted: string
   exprs: string[]
   binds: StyleBindIR[]
   props: PropertyIR[]
 }
 
-function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): ScanResult {
+function scan( src: string, options: StyleCompileOptions, native: boolean, diagnostics: TemplateDiagnostic[] ): ScanResult {
   const
   exprs: string[] = [],
   binds: StyleBindIR[] = [],
@@ -237,9 +343,11 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
    * document-global, so a bare `--0` would collide across components and the
    * last registration would silently win.
    */
-  prefix = `--${ nsp.replace( /[^a-zA-Z0-9_-]/g, '-' ) }`,
+  prefix = `--${ options.nsp.replace( /[^a-zA-Z0-9_-]/g, '-' ) }`,
   report = ( code: string, message: string, offset: number, length: number, hint?: string ) =>
-    diagnostics.push({ code, severity: 'error', message, hint, loc: locOf( src, offset, length ) })
+    diagnostics.push({ code, severity: 'error', message, hint, loc: locOf( src, offset, length ) }),
+  warn = ( code: string, message: string, offset: number, length: number, hint?: string ) =>
+    diagnostics.push({ code, severity: 'warning', message, hint, loc: locOf( src, offset, length ) })
 
   const slot = ( expr: string ) => {
     let e = exprs.indexOf( expr )
@@ -278,14 +386,111 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
       })
   }
 
-  let out = '', i = 0, depth = 0, stmt = 0, paren = 0
+  /**
+   * The output is emitted compact: comments dropped, whitespace runs
+   * folded to one space, and dropped entirely beside `{`, `}` and `;`.
+   * Without a preprocessor nothing else would minify it, and the sheet
+   * would ship as authored — banners, indentation and all — in every
+   * `<style>` and every precompiled module.
+   *
+   * The statement being built (`cur`) is kept apart from the output so
+   * far, so reading or rewriting a prelude never copies the whole sheet.
+   * A statement always starts right after `{`, `}`, `;` or at the top,
+   * where no space is wanted — hence `tail = ''` whenever one is dropped.
+   */
+  let out = '', cur = '', tail = '', gap = false
+
+  const emit = ( text: string ) => {
+    if( !text ) return
+    if( gap && tail && !BREAK.test( tail ) && !BREAK.test( text[ 0 ] ) ) cur += ' '
+    gap = false
+    cur += text
+    tail = text[ text.length - 1 ]
+  }
+  /** End the statement: it joins the output, followed by its terminator */
+  const flush = ( end: string ) => {
+    out += cur + end
+    cur = ''
+    tail = end
+    gap = false
+  }
+  /** Drop the statement being built, returning it */
+  const drop = () => {
+    const text = cur
+    cur = tail = ''
+    gap = false
+    return text
+  }
+
+  /** Declaration values: folded, trimmed, never emptied (`--x: ;` is a value) */
+  const value = ( text: string ) => ':' + ( squash( text ).trim() || ' ' )
+
+  let
+  i = 0, paren = 0,
+  /** Statement start in the source */
+  stmt = 0,
+  statements = '', hoisted = '',
+  /** An interpolation that ate a closing brace — already reported as the cause */
+  unterminated = false
+
+  const
+  stack: Block[] = [{ ctx: options.meta ? 'top' : 'style' }]
+
+  const open = () => {
+    const
+    parent = stack[ stack.length - 1 ],
+    prelude = cur
+
+    let block: Block
+
+    if( prelude[ 0 ] === '@' ){
+      if( parent.ctx !== 'opaque' && HOISTED_BLOCK.test( prelude ) ) block = { ctx: 'opaque', hoist: out.length }
+      else if( GROUP_AT.test( prelude ) ) block = { ctx: parent.ctx, group: prelude }
+      else block = { ctx: 'opaque' }
+    }
+    else {
+      if( parent.ctx === 'style' ){
+        native && CONCAT.test( prelude )
+        && warn( 'LIPS-S008', `'${prelude}' joins '&' to a name`, stmt, i - stmt,
+          'Native nesting cannot: write the full selector, or use stylisPreprocessor.' )
+
+        cur = nestSelector( prelude )
+      }
+
+      block = { ctx: parent.ctx === 'opaque' ? 'opaque' : 'style' }
+    }
+
+    stack.push( block )
+    flush('{')
+  }
+
+  const close = () => {
+    const block = stack.pop()!
+    flush('}')
+
+    if( block.hoist === undefined ) return
+
+    // Carry any enclosing conditions out with it — `@media (…) { @keyframes … }`
+    const
+    text = out.slice( block.hoist ),
+    groups = stack.filter( b => b.group )
+
+    out = out.slice( 0, block.hoist )
+    tail = ''
+
+    hoisted += groups.map( b => b.group + '{' ).join('') + text + '}'.repeat( groups.length )
+  }
 
   while( i < src.length ){
     const c = src[ i ]
 
-    if( c === '/' && src[ i + 1 ] === '*' ){
-      const end = skipComment( src, i )
-      out += src.slice( i, end )
+    /**
+     * Comments are dropped. `//` is not CSS, but Stylis accepted it as a
+     * line comment and sheets were written against Stylis; left in, it
+     * would glue itself onto the next selector and void the rule.
+     */
+    if( c === '/' && ( src[ i + 1 ] === '*' || ( src[ i + 1 ] === '/' && !paren ) ) ){
+      const end = src[ i + 1 ] === '*' ? skipComment( src, i ) : skipLine( src, i )
       /**
        * A comment before a declaration must not become part of the
        * property name, or `PROP_NAME` rejects it, the value is never
@@ -298,7 +503,14 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
     }
     if( c === '"' || c === "'" ){
       const end = skipString( src, i )
-      out += src.slice( i, end ); i = end; continue
+      emit( src.slice( i, end ) )
+      i = end
+      continue
+    }
+    if( WS.test( c ) ){
+      gap = true
+      i++
+      continue
     }
 
     if( c === '(' ) paren++
@@ -314,22 +526,27 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
       const name = src.slice( stmt, i ).trim()
 
       if( PROP_NAME.test( name ) ){
-        const value = readValue( src, i + 1, at =>
+        const parsed = readValue( src, i + 1, at => {
+          unterminated = true
           report( 'LIPS-S004',
             'Unterminated interpolation',
             at, src.length - at,
-            'Close the expression with `}`.' ) )
+            'Close the expression with `}`.' )
+        })
 
-        if( value ){
-          const slots = value.parts.filter( p => typeof p !== 'string' ) as
+        if( parsed ){
+          const slots = parsed.parts.filter( p => typeof p !== 'string' ) as
             { expr: string, unit: string, at: number }[]
 
           for( const s of slots ) checkExpr( s )
 
+          // `color :red` — the space before the colon carries nothing
+          gap = false
+
           if( !slots.length ){
-            // fully static — emit untouched
-            out += src.slice( i, value.end )
-            i = value.end
+            // fully static — emit as written
+            emit( value( parsed.parts.join('') ) )
+            i = parsed.end
             continue
           }
 
@@ -344,19 +561,19 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
             name.startsWith('--')
             && slots.length === 1
             && !slots[ 0 ].unit
-            && value.parts.every( p => typeof p !== 'string' || !p.trim() )
+            && parsed.parts.every( p => typeof p !== 'string' || !p.trim() )
 
           if( bare ){
             binds.push({ prop: name, e: slot( slots[ 0 ].expr ) })
             // drop the declaration entirely — the value lives inline on the root
-            out = out.slice( 0, out.length - ( i - stmt ) )
-            i = value.end + ( src[ value.end ] === ';' ? 1 : 0 )
+            drop()
+            i = parsed.end + ( src[ parsed.end ] === ';' ? 1 : 0 )
             stmt = i
             continue
           }
 
-          let text = ':'
-          for( const part of value.parts ){
+          let text = ''
+          for( const part of parsed.parts ){
             if( typeof part === 'string' ){ text += part; continue }
 
             const
@@ -383,8 +600,8 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
             text += part.unit ? `calc(var(${prop}) * 1${part.unit})` : `var(${prop})`
           }
 
-          out += text
-          i = value.end
+          emit( value( text ) )
+          i = parsed.end
           continue
         }
         // readValue aborted — this was a selector (`a:hover {`), fall through
@@ -423,121 +640,81 @@ function scan( src: string, nsp: string, diagnostics: TemplateDiagnostic[] ): Sc
         }
       }
 
-      depth++
-      out += c; i++; stmt = i
+      open()
+      stmt = ++i
       continue
     }
 
-    if( c === '}' || c === ';' ){
-      if( c === '}' ) depth--
-      out += c; i++; stmt = i
+    if( c === '}' ){
+      /**
+       * A stray `}` would close the scope wrap early and leak every rule
+       * after it out unscoped. Drop it, loudly.
+       */
+      if( stack.length > 1 ) close()
+      else {
+        warn( 'LIPS-S007', 'Unmatched `}` dropped', i, 1 )
+        // it still ended whatever declaration it followed
+        cur && flush(';')
+      }
+
+      stmt = ++i
       continue
     }
 
-    out += c; i++
+    if( c === ';' ){
+      if( stack.length === 1 && HOISTED_STATEMENT.test( cur ) ) statements += drop() + ';'
+      else flush(';')
+
+      stmt = ++i
+      continue
+    }
+
+    emit( c )
+    i++
   }
 
-  return { css: out, exprs, binds, props }
+  if( stack.length > 1 ){
+    unterminated || warn( 'LIPS-S007', 'Unclosed `{` closed at the end', src.length, 0 )
+    while( stack.length > 1 ) close()
+  }
+
+  // A trailing declaration with no `;`
+  flush('')
+
+  return { css: out, statements, hoisted, exprs, binds, props }
 }
 
 // ------------------------------------------------------------------ compile
 /**
  * Compile a component stylesheet to StyleIR.
  *
- * The scanner MUST run before Stylis: a brace in a declaration value breaks
- * its block parsing, so interpolations are replaced with `var()` first.
+ * The scanner MUST run before any preprocessor: a brace in a declaration
+ * value breaks Stylis's block parsing, so interpolations are replaced
+ * with `var()` first.
  */
-/**
- * At-rules that are NOT valid inside a style rule.
- *
- * `@media`, `@supports`, `@container` and `@layer` all nest natively —
- * they wrap style rules, so they belong INSIDE the scope wrap. These do
- * not: CSS nesting only admits at-rules whose body is itself a rule
- * list, so a `@keyframes` left inside `[rel="x"] { … }` is dropped by
- * the parser. Stylis used to hoist them on our behalf; without it we
- * hoist them ourselves — and they are document-global anyway, exactly
- * like the `@property` registrations already emitted outside the wrap.
- */
-const HOISTED_AT = /^@(-\w+-)?(keyframes|font-face|property|counter-style|font-feature-values|page|import|charset)\b/
-
-/**
- * Split top-level at-rules that cannot nest out of `css`.
- *
- * Brace-aware and string/comment aware, so a `{` inside `content: "{"`
- * or a comment does not throw the depth off.
- */
-function hoistAtRules( css: string ){
-  let hoisted = '', rest = '', i = 0
-
-  while( i < css.length ){
-    const c = css[ i ]
-
-    if( c === '"' || c === "'" ){
-      const end = skipString( css, i )
-      rest += css.slice( i, end )
-      i = end
-      continue
-    }
-    if( c === '/' && css[ i + 1 ] === '*' ){
-      const end = skipComment( css, i )
-      rest += css.slice( i, end )
-      i = end
-      continue
-    }
-
-    if( c !== '@' || !HOISTED_AT.test( css.slice( i ) ) ){
-      rest += c
-      i++
-      continue
-    }
-
-    // Consume the whole at-rule: prelude, then a balanced body or a `;`
-    let j = i, depth = 0, opened = false
-    while( j < css.length ){
-      const d = css[ j ]
-
-      if( d === '"' || d === "'" ){ j = skipString( css, j ); continue }
-      if( d === '/' && css[ j + 1 ] === '*' ){ j = skipComment( css, j ); continue }
-
-      if( d === '{' ){ depth++; opened = true }
-      else if( d === '}' ){
-        depth--
-        if( !depth ){ j++; break }
-      }
-      // A statement at-rule (`@import …;`) ends at the semicolon
-      else if( d === ';' && !opened ){ j++; break }
-      j++
-    }
-
-    hoisted += css.slice( i, j )
-    i = j
-  }
-
-  return { hoisted, rest }
-}
-
 export function compileStyle( src: string, options: StyleCompileOptions ): StyleCompileResult {
   const
   diagnostics: TemplateDiagnostic[] = [],
-  { css, exprs, binds, props } = scan( src, options.nsp, diagnostics )
+  preprocess = options.preprocess || PREPROCESSOR,
+  { css, statements, hoisted, exprs, binds, props } = scan( src, options, !preprocess, diagnostics )
 
   const empty: StyleIR = { v: 1, nsp: options.nsp, css: '', exprs: [], binds: [] }
 
   /**
-   * The scope wrap IS nesting — `[rel="x"] { .a { … } }`. Stylis used to
-   * flatten it, and is now opt-in (`@lipsjs/lips/stylis`), so without it
-   * the sheet is emitted as-is and the browser's own CSS nesting resolves
-   * it. Same selectors, same cascade; what the preprocessor still buys is
-   * vendor prefixing and support for engines older than native nesting.
+   * The scope wrap IS nesting — `[rel="x"] { .a { … } }`. Without a
+   * preprocessor the sheet ships nested and the browser's own CSS nesting
+   * resolves it: same selectors, same cascade. A preprocessor (opt-in,
+   * `@lipsjs/lips/stylis`) flattens it instead, for engines that predate
+   * nesting.
    *
-   * At-rules that cannot legally nest are lifted out first — see
-   * `hoistAtRules`.
+   * Hoisting happens either way, so a preprocessor of your own — a
+   * minifier, say — is never handed a `@keyframes` stuck inside a style
+   * rule.
    */
   const
-  preprocess = options.preprocess || PREPROCESSOR,
-  { hoisted, rest } = preprocess ? { hoisted: '', rest: css } : hoistAtRules( css ),
-  scoped = options.meta ? rest : `[rel="${options.nsp}"] { ${rest} }`,
-  source = options.layer ? `@layer ${options.layer} { ${hoisted}${scoped} }` : hoisted + scoped
+  scoped = options.meta ? css : `[rel="${options.nsp}"]{${css}}`,
+  body = hoisted + scoped,
+  source = options.layer ? `@layer ${options.layer}{${body}}` : body
 
   let sheet: string
 
@@ -560,7 +737,11 @@ export function compileStyle( src: string, options: StyleCompileOptions ): Style
     .map( p => `@property ${p.name}{syntax:"${p.syntax}";inherits:${p.inherits};initial-value:${p.initial}}` )
     .join('')
 
-  const ir: StyleIR = { v: 1, nsp: options.nsp, css: registrations + sheet, exprs, binds }
+  /**
+   * Statement at-rules go first, ahead of the registrations and outside
+   * any `@layer` block — anywhere else the browser ignores them.
+   */
+  const ir: StyleIR = { v: 1, nsp: options.nsp, css: statements + registrations + sheet, exprs, binds }
   if( props.length ) ir.props = props
 
   return { ir, diagnostics }

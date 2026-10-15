@@ -5,31 +5,72 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
-### Changed — Stylis is opt-in, and the full bundle is 1.9 KB smaller
+### Changed — Stylis is opt-in, and the full bundle is 1.5 KB smaller
 
-- The scope wrap `[rel="card"] { … }` **is** CSS nesting, which browsers have
-  resolved natively since 2023. So the preprocessor was flattening something
-  the engine already understands. It is now opt-in:
+- The scope wrap `[rel="card"] { … }` **is** CSS nesting, which every engine
+  with native nesting resolves — Chrome/Edge 112+, Safari 16.5+, Firefox 117+.
+  So by default the preprocessor was flattening something the engine already
+  understands. It is now opt-in:
 
   ```js
   import { stylisPreprocessor } from '@lipsjs/lips/stylis'
   const lips = new Lips({ stylePreprocessor: stylisPreprocessor })
+
+  // build time — precompile() and the plugin take it per call too
+  precompile( template, { name: 'card', preprocess: stylisPreprocessor })
+  lipsPlugin({ preprocess: stylisPreprocessor })
   ```
 
-  Wire it for vendor prefixing, flattening for pre-nesting engines, or a
-  preprocessor of your own. Without it the sheet ships as written and renders
-  identically — verified in a browser, not only in jsdom.
+  Wire it if you support engines older than native nesting, which drop a
+  nested sheet **whole**, or to keep Stylis-only syntax such as `&-suffix`
+  concatenation. It flattens; it does **not** vendor-prefix — the full build
+  never did (`src/stylis.ts` shows how to add Stylis's `prefixer` if you want
+  it).
 
-- The preprocessor is handed over as a **value**, not wired by importing the
-  module for its side effect. `@lipsjs/lips` and `@lipsjs/lips/stylis` are
-  separate bundles with separate copies of the style module, so a global set
-  from one is invisible to the other. `useStylis()` still sets it
-  process-wide for a single-module-graph setup — notably a build script
-  calling `precompile()`, which takes no Lips config.
+- The preprocessor is handed over as a **value**, never wired by importing a
+  module for its side effect. `@lipsjs/lips`, `@lipsjs/lips/precompile` and
+  `@lipsjs/lips/stylis` are separate bundles, each with its own copy of the
+  style compiler, so a global set from one is invisible to the others.
 
-- `full` drops 27.0 → 25.4 KB gzipped and its budget is ratcheted **down**
-  28 → 26. The earlier estimate of 4.4 KB came from gzipping Stylis's
-  standalone UMD build; in context bun tree-shakes it to 1.89 KB.
+- `full` drops 27.0 → 25.5 KB gzipped and its budget is ratcheted **down**
+  28 → 26. `precompile` goes 12.5 → 13.2 for the scanner work below; its
+  budget moves 13 → 14.
+
+### Changed — the native path emits what the browser accepts
+
+The compiler now does the jobs Stylis did implicitly, in its one scanner:
+
+- **At-rules that cannot nest are hoisted** out of the scope wrap: CSS
+  nesting only admits at-rules whose body is a rule list, so a `@keyframes`
+  left inside `[rel="x"] { … }` is dropped and the animation silently does
+  nothing. Hoisted: `@keyframes`, `@font-face`, `@property`, `@counter-style`,
+  `@font-feature-values`, `@font-palette-values`, `@page`, `@view-transition`,
+  `@position-try`, `@color-profile`. One found inside `@media`/`@supports`
+  carries its condition out with it, so a reduced-motion `@keyframes`
+  override stays conditional. `@media`, `@supports`, `@container`, `@layer`,
+  `@scope` and `@starting-style` stay inside the wrap, where they must be to
+  remain scoped.
+- **`@import`, `@charset` and `@namespace` open the sheet** — ahead of the
+  generated `@property` registrations and outside any `styleLayer` block,
+  the only places a browser honours them.
+- **Identifier-led nested selectors get `&`**: `button { … }` becomes
+  `& button { … }`, the same selector. Strict-nesting engines (Chrome
+  112–119, Safari 16.5–17.1) read a nested line starting with an identifier
+  as a declaration and drop it.
+- **Output is compact**: comments dropped, whitespace folded. Stylis used to
+  minify; without it every banner and indent shipped in each `<style>` and
+  each precompiled module. `//` line comments — Stylis syntax, not CSS — are
+  stripped rather than glued onto the next selector.
+- Hoisting runs **whatever the preprocessor**, so one of your own (a
+  minifier, say) is never handed a `@keyframes` stuck inside a style rule.
+
+### Added — `LIPS-S007` / `LIPS-S008` style diagnostics
+
+- `LIPS-S007` (warning): an unmatched `}` is dropped — it used to close the
+  scope wrap early and leak every rule after it out unscoped — and an
+  unclosed `{` is closed at the end of the sheet.
+- `LIPS-S008` (warning): `&-suffix` / `&__elem` concatenation on the native
+  path, which CSS nesting cannot express and drops.
 
 ### Fixed — a build script importing only `./precompile` lost every stylesheet
 
@@ -41,16 +82,6 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
   The no-preprocessor path now emits the scoped sheet instead of nothing, so
   precompiled styles survive on their own.
-
-### Fixed — at-rules that cannot nest are hoisted out of the scope wrap
-
-- CSS nesting only admits at-rules whose body is a rule list, so a
-  `@keyframes` left inside `[rel="x"] { … }` is dropped by the parser and the
-  animation silently does nothing. Stylis used to hoist these; the compiler
-  now does it itself, for `@keyframes`, `@font-face`, `@property`,
-  `@counter-style`, `@font-feature-values`, `@page`, `@import` and
-  `@charset`. `@media`, `@supports`, `@container` and `@layer` nest fine and
-  stay inside the wrap, where they must be to remain scoped.
 
 ### Added — a `<context>` layer owns what it declares
 

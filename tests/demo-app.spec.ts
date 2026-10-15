@@ -10,8 +10,8 @@
  *   two pages with no `name`     the second page's stylesheet never injects
  *   @text=i + 1                  an unquoted value ends at the first space
  *
- * Importing `../src/lips` is what wires Stylis, so `compileStyle` here
- * behaves exactly as it does in the browser build.
+ * No preprocessor is wired, so `compileStyle` here takes the same native
+ * nesting path as the default browser build.
  */
 import { describe, it, expect } from 'vitest'
 import '../src/lips'
@@ -32,9 +32,7 @@ import * as Compose from '../demos/app/client/pages/compose'
 import * as Account from '../demos/app/client/pages/account'
 import * as Product from '../demos/app/client/pages/product'
 
-// Asserts flattened selectors — opt into the preprocessor
-import { useStylis } from '../src/stylis'
-useStylis()
+import { stylisPreprocessor } from '../src/stylis'
 
 type Source = {
   default?: string
@@ -132,7 +130,8 @@ describe('demos/app wiring invariants', () => {
     const rootStyled = [ 'counter', 'nav-bar', 'lang-switch', 'theme-switch', 'stat-tile', 'site-footer' ]
 
     for( const name of rootStyled ){
-      const { ir } = compileStyle( ( COMPONENTS[ name ] as Source ).stylesheet!, { nsp: name })
+      // Flattened, so a bare `[rel="x"]{…}` rule exists only for root declarations
+      const { ir } = compileStyle( ( COMPONENTS[ name ] as Source ).stylesheet!, { nsp: name, preprocess: stylisPreprocessor })
       expect( ir.css, `<${name}> root declarations` ).toMatch(
         new RegExp(`\\[rel="${name}"\\]\\{[^}]`) )
     }

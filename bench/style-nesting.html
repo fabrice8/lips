@@ -17,6 +17,7 @@
 <body>
 <h1>Style modes</h1>
 <div id="stage"></div>
+<i class="after-stray" id="outside"></i>
 <h3>checks</h3><div id="out"></div>
 <div id="summary"></div>
 <h3>emitted sheet</h3><pre id="sheet"></pre>
@@ -40,13 +41,22 @@ const lips = new Lips()
 lips.root({
   state: { w: 60 },
   stylesheet: `
+    /* banner comment — must not ship */
     .box { width: {state.w}px; height: 20px; background: #3b82f6; animation: pulse 8s infinite }
     .box:hover { background: #ef4444 }
     @media (min-width: 1px) { .box { outline: 2px solid #111 } }
     @keyframes pulse { 0% { opacity: 1 } 100% { opacity: 0.25 } }
     @font-face { font-family: Fake; src: local("Arial") }
+
+    // a Stylis-style line comment
+    b { font-weight: 300; color: rgb(1, 2, 3) }
+    .shape { animation: grow 8s infinite paused; background: url(img@page.png) }
+    @keyframes grow { from { width: 11px } to { width: 11px } }
+    @media (max-width: 1px) { @keyframes grow { from { width: 99px } to { width: 99px } } }
+    .tail { color: rgb(0, 128, 0) } }
+    .after-stray { color: rgb(0, 0, 255) }
   `,
-  default: `<div><div class="box" id="b"></div></div>`
+  default: `<div><div class="box" id="b"></div><b id="bold">b</b><div class="shape" id="shape"></div><i class="after-stray" id="stray"></i></div>`
 }, '#stage')
 
 await tick( 120 )
@@ -57,8 +67,8 @@ const sheet = document.head.querySelector('style[rel]')?.textContent || ''
 document.getElementById('sheet').textContent = sheet
 
 // --- the sheet is genuinely NOT flattened: this is the native path
-check('sheet is nested, not flattened', sheet.includes('[rel="__ROOT__"] {'), true)
-check('no preprocessor ran (declaration spacing intact)', /width:\s\s*calc\(/.test( sheet ) || sheet.includes('width: calc('), true)
+check('sheet is nested, not flattened', sheet.includes('[rel="__ROOT__"]{'), true)
+check('sheet is compact (comments and indentation dropped)', /\/\*|\n|banner|line comment/.test( sheet ), false)
 
 // --- native nesting resolves the scope wrap
 check('nested class rule applies', cs.width, '60px')
@@ -70,8 +80,20 @@ check('reactive custom property bound on the scope root', scopeRoot.style.getPro
 check('nested @media applies', cs.outlineWidth, '2px')
 
 // --- the hoisting the compiler had to do itself
-check('@keyframes hoisted OUT of the wrap', sheet.indexOf('@keyframes pulse') < sheet.indexOf('[rel="__ROOT__"] {'), true)
-check('@font-face hoisted OUT of the wrap', sheet.indexOf('@font-face') < sheet.indexOf('[rel="__ROOT__"] {'), true)
+check('@keyframes hoisted OUT of the wrap', sheet.indexOf('@keyframes pulse') < sheet.indexOf('[rel="__ROOT__"]{'), true)
+check('@font-face hoisted OUT of the wrap', sheet.indexOf('@font-face') < sheet.indexOf('[rel="__ROOT__"]{'), true)
+
+// --- review fixes, checked in the engine that matters
+// strict-nesting engines drop an identifier-led nested rule; `& b` parses everywhere
+check('element selector rewritten for strict nesting', sheet.includes('& b{'), true)
+check('element selector applies', getComputedStyle( document.getElementById('bold') ).color, 'rgb(1, 2, 3)')
+// a @keyframes hoisted from a FALSE @media keeps its condition — it must not win
+check('conditional @keyframes keeps its condition', sheet.includes('@media (max-width: 1px){@keyframes grow'), true)
+check('…and does not override the unconditional one', getComputedStyle( document.getElementById('shape') ).width, '11px')
+check('an @ inside url() is not an at-rule', sheet.includes('url(img@page.png)'), true)
+// a stray `}` must not close the scope wrap early
+check('rule after a stray } still applies in scope', getComputedStyle( document.getElementById('stray') ).color, 'rgb(0, 0, 255)')
+check('…and does not leak out of it', getComputedStyle( document.getElementById('outside') ).color === 'rgb(0, 0, 255)', false)
 
 // the real proof: a hoisted @keyframes still resolves as an animation
 check('animation name applied', cs.animationName, 'pulse')
