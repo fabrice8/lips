@@ -22,10 +22,11 @@ import { routerTemplate } from './ir/router'
  * components out entirely.
  *
  * Stylis is deliberately NOT wired here. The scope wrap is ordinary CSS
- * nesting and browsers resolve it natively, so the preprocessor buys
- * vendor prefixing and pre-2023 engine support — worth ~1.9 KB gzipped
- * to those who need it, and nothing to everyone else. Opt in with
- * `import '@lipsjs/lips/stylis'`.
+ * nesting and browsers resolve it natively, so the preprocessor only buys
+ * support for engines that predate nesting — worth ~1.9 KB gzipped to
+ * those who need it, and nothing to everyone else. Opt in by VALUE:
+ * `new Lips({ stylePreprocessor })` with `stylisPreprocessor` from
+ * `@lipsjs/lips/stylis` (a side-effect import cannot reach this bundle).
  */
 setCompiler( compileTemplate )
 setStyleCompiler( compileStyle )

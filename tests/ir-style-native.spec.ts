@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest'
 import { compileStyle, hasStylePreprocessor } from '../src/ir/style'
 import { precompile } from '../src/precompile'
+import { stylisPreprocessor } from '../src/stylis'
 
 const css = ( src: string, nsp = 'demo' ) => compileStyle( src, { nsp }).ir.css
 
@@ -23,9 +24,7 @@ describe('style compiler without a preprocessor', () => {
 
     // The bug this replaced: an empty string and a console warning
     expect( out ).not.toBe('')
-    expect( out ).toContain('[rel="demo"]')
-    expect( out ).toContain('.track')
-    expect( out ).toContain('background: #1a1a1c')
+    expect( out ).toBe('[rel="demo"]{.track{background:#1a1a1c}}')
   })
 
   it('still lifts reactive values into custom properties', () => {
@@ -38,14 +37,14 @@ describe('style compiler without a preprocessor', () => {
 
   it('leaves the wrap nested — that IS the scoping', () => {
     const out = css(`.a { color: red }`)
-    // `[rel="demo"] { .a { … } }`, resolved by native CSS nesting
-    expect( out.indexOf('[rel="demo"] {') ).toBeLessThan( out.indexOf('.a') )
+    // `[rel="demo"]{.a{…}}`, resolved by native CSS nesting
+    expect( out ).toBe('[rel="demo"]{.a{color:red}}')
   })
 
   it('keeps nestable at-rules INSIDE the wrap', () => {
     // @media nests natively and must stay scoped
     const out = css(`@media (max-width: 720px) { .grid { gap: 1px } }`)
-    expect( out.indexOf('[rel="demo"] {') ).toBeLessThan( out.indexOf('@media') )
+    expect( out ).toBe('[rel="demo"]{@media (max-width: 720px){.grid{gap:1px}}}')
   })
 
   it('hoists @keyframes out — it cannot nest', () => {
@@ -56,25 +55,22 @@ describe('style compiler without a preprocessor', () => {
      */
     const out = css(`.a { color: red }\n@keyframes glow { 50% { opacity: 0 } }`)
 
-    expect( out.indexOf('@keyframes glow') ).toBeLessThan( out.indexOf('[rel="demo"] {') )
-    expect( out ).toContain('50%')
+    expect( out ).toBe('@keyframes glow{50%{opacity:0}}[rel="demo"]{.a{color:red}}')
   })
 
   it('hoists @font-face and @property too', () => {
     const out = css(`@font-face { font-family: X; src: url(x.woff2) }\n.a { color: red }`)
-    expect( out.indexOf('@font-face') ).toBeLessThan( out.indexOf('[rel="demo"] {') )
+    expect( out ).toBe('@font-face{font-family:X;src:url(x.woff2)}[rel="demo"]{.a{color:red}}')
   })
 
   it('hoists a statement at-rule that ends in a semicolon', () => {
     const out = css(`@import url("x.css");\n.a { color: red }`)
-    expect( out.indexOf('@import') ).toBeLessThan( out.indexOf('[rel="demo"] {') )
-    expect( out ).toContain('@import url("x.css");')
+    expect( out ).toBe('@import url("x.css");[rel="demo"]{.a{color:red}}')
   })
 
   it('does not mistake a brace inside a string for a block', () => {
     const out = css(`.a { content: "@keyframes {" }`)
-    expect( out ).toContain('content: "@keyframes {"')
-    expect( out ).toContain('[rel="demo"]')
+    expect( out ).toBe('[rel="demo"]{.a{content:"@keyframes {"}}')
   })
 
   it('still registers @property for unit-suffixed slots', () => {
@@ -89,8 +85,7 @@ describe('style compiler without a preprocessor', () => {
       { nsp: 'demo', layer: 'components' }
     ).ir.css
 
-    expect( out ).toContain('@layer components {')
-    expect( out.indexOf('@layer components {') ).toBeLessThan( out.indexOf('@keyframes') )
+    expect( out ).toBe('@layer components{@keyframes glow{50%{opacity:0}}[rel="demo"]{.a{color:red}}}')
   })
 })
 
@@ -122,13 +117,29 @@ describe('LipsConfig.stylePreprocessor', () => {
     expect( out ).toContain('REPLACED')
   })
 
-  it('leaves at-rules unhoisted when a preprocessor is given — it hoists them itself', () => {
-    const out = compileStyle(
+  it('hoists before ANY preprocessor runs — a minifier does not hoist', () => {
+    const seen: string[] = []
+    compileStyle(
       `.a { color: red }\n@keyframes k { 50% { opacity: 0 } }`,
-      { nsp: 'x', preprocess: css => css }
+      { nsp: 'x', preprocess: css => ( seen.push( css ), css ) }
+    )
+    // the preprocessor is never handed a @keyframes stuck inside a style rule
+    expect( seen[0] ).toBe('@keyframes k{50%{opacity:0}}[rel="x"]{.a{color:red}}')
+  })
+
+  it('Stylis flattens the same hoisted, &-prefixed sheet to plain descendant selectors', () => {
+    const out = compileStyle(
+      `button, .b { color: red }\n@keyframes k { to { opacity: 1 } }`,
+      { nsp: 'x', preprocess: stylisPreprocessor }
     ).ir.css
-    // handed through untouched: @keyframes still inside the wrap
-    expect( out.indexOf('[rel="x"] {') ).toBeLessThan( out.indexOf('@keyframes') )
+    expect( out ).toBe('@keyframes k{to{opacity:1;}}[rel="x"] button,[rel="x"] .b{color:red;}')
+  })
+
+  it('a Stylis-only selector is accepted without a warning', () => {
+    const { ir, diagnostics } = compileStyle(`.btn { &-active { color: red } }`,
+      { nsp: 'x', preprocess: stylisPreprocessor })
+    expect( diagnostics ).toEqual([])
+    expect( ir.css ).toBe('[rel="x"] .btn-active{color:red;}')
   })
 })
 
@@ -151,5 +162,225 @@ describe('precompile without a preprocessor', () => {
     expect( template.style!.css ).not.toBe('')
     expect( template.style!.css ).toContain('calc(var(--pre-0) * 1px)')
     expect( template.style!.binds ).toHaveLength( 1 )
+  })
+
+  it('takes a preprocessor per call — the only wiring that crosses bundles', () => {
+    const { template } = precompile({
+      default: `<b class="s">x</b>`,
+      stylesheet: `.s { b { color: red } }`
+    }, { name: 'pre', preprocess: stylisPreprocessor })
+
+    expect( template.style!.css ).toBe('[rel="pre"] .s b{color:red;}')
+    expect( hasStylePreprocessor() ).toBe( false )
+  })
+})
+
+describe('hoisting edge cases', () => {
+  it('keeps the condition around an at-rule hoisted from inside @media', () => {
+    // The reduced-motion override must NOT become unconditional
+    const out = css(`@keyframes p { to { opacity: 1 } }
+      @media (prefers-reduced-motion: reduce) { @keyframes p { to { opacity: .5 } } }`)
+
+    // …and the emptied @media is dropped rather than shipped
+    expect( out ).toBe(
+      '@keyframes p{to{opacity:1}}'
+      + '@media (prefers-reduced-motion: reduce){@keyframes p{to{opacity:.5}}}' )
+  })
+
+  it('carries nested conditions, in order', () => {
+    const out = css(`@supports (display: grid) { @media print { @font-face { font-family: P } } }`)
+    expect( out.startsWith('@supports (display: grid){@media print{@font-face{font-family:P}}}') ).toBe( true )
+  })
+
+  it('lifts one out of a style rule — it was never valid there', () => {
+    expect( css(`.a { @keyframes k { to { opacity: 1 } } color: red }`) )
+      .toBe('@keyframes k{to{opacity:1}}[rel="demo"]{.a{color:red}}')
+  })
+
+  it('does not see an at-rule inside url() or an escaped class name', () => {
+    expect( css(`.a { background: url(img@page.png) } .b { color: blue }`) )
+      .toBe('[rel="demo"]{.a{background:url(img@page.png)}.b{color:blue}}')
+    expect( css(`.sm\\@property { color: red }`) )
+      .toBe('[rel="demo"]{.sm\\@property{color:red}}')
+  })
+
+  it('hoists the at-rules nesting cannot hold', () => {
+    for( const rule of [
+      '@font-palette-values --p{font-family:X}',
+      '@view-transition{navigation:auto}',
+      '@position-try --t{top:anchor(bottom)}',
+      '@counter-style thumbs{system:cyclic}',
+      '@page :first{margin:1in}'
+    ] )
+      expect( css(`${rule} .a { color: red }`) ).toBe(`${rule}[rel="demo"]{.a{color:red}}`)
+  })
+
+  it('opens the sheet with statement at-rules — ahead of @property and outside @layer', () => {
+    const out = compileStyle(
+      `@charset "utf-8"; @import url("x.css"); .a { width: {state.w}px }`,
+      { nsp: 'demo', layer: 'c' }
+    ).ir.css
+
+    expect( out.startsWith('@charset "utf-8";@import url("x.css");@property --demo-0{') ).toBe( true )
+    expect( out ).toContain('@layer c{[rel="demo"]{.a{width:calc(var(--demo-0) * 1px)}}}')
+  })
+
+  it('leaves a nestable at-rule inside a hoisted one alone', () => {
+    expect( css(`@font-feature-values Font One { @styleset { nice: 12 } }`) )
+      .toBe('@font-feature-values Font One{@styleset{nice:12}}')
+  })
+})
+
+describe('strict-nesting engines (Chrome 112–119, Safari 16.5–17.1)', () => {
+  /**
+   * Those parse a nested line that starts with an identifier as a
+   * declaration and drop it. `& button` is the same selector — a nested
+   * relative selector gets an implicit `& ` anyway.
+   */
+  it('prefixes identifier-led nested selectors with `&`', () => {
+    expect( css(`button { color: red }`) ).toBe('[rel="demo"]{& button{color:red}}')
+  })
+
+  it('does so per selector in a list, at every depth, and inside @media', () => {
+    expect( css(`h1, .x, *, span:hover { a { color: red } }
+      @media (max-width: 1px) { li { color: blue } }`) )
+      .toBe('[rel="demo"]{& h1,.x,& *,& span:hover{& a{color:red}}@media (max-width: 1px){& li{color:blue}}}')
+  })
+
+  it('does not split on commas inside :is() or attribute strings', () => {
+    expect( css(`a:is(.b, .c), [d="e,f"] { color: red }`) )
+      .toBe('[rel="demo"]{& a:is(.b, .c),[d="e,f"]{color:red}}')
+  })
+
+  it('wraps the lead of a selector that places `&` itself — `& ` cannot go in front', () => {
+    expect( css(`div & { color: red } a:has(&), svg|rect.x & { color: blue }`) )
+      .toBe('[rel="demo"]{:is(div) &{color:red}:is(a):has(&),:is(svg|rect).x &{color:blue}}')
+  })
+
+  it('leaves keyframe selectors alone', () => {
+    expect( css(`@keyframes k { from { opacity: 0 } to { opacity: 1 } }`) )
+      .toBe('@keyframes k{from{opacity:0}to{opacity:1}}')
+  })
+
+  it('treats an escape as one unit — no split on `\\,`, no fold or trim of `\\ `', () => {
+    expect( css(`.a\\,b { color: red } .c\\  d { color: blue } .e\\ { color: green }`) )
+      .toBe('[rel="demo"]{.a\\,b{color:red}.c\\  d{color:blue}.e\\ {color:green}}')
+  })
+
+  it('does not prefix the top level of a global (meta) sheet — it is not nested', () => {
+    expect( compileStyle(`body { margin: 0 } .a { span { color: red } }`, { nsp: 'g', meta: true }).ir.css )
+      .toBe('body{margin:0}.a{& span{color:red}}')
+  })
+})
+
+describe('Stylis-only syntax on the native path', () => {
+  it('strips `//` line comments at the start of a statement', () => {
+    expect( css(`// header\n.a { color: red; // note\n} // trailing\n.b { background: url(//cdn/x.png) }`) )
+      .toBe('[rel="demo"]{.a{color:red;}.b{background:url(//cdn/x.png)}}')
+  })
+
+  it('leaves `//` inside a value alone — it is not a comment there', () => {
+    const { ir, diagnostics } = compileStyle(`.a { --api: https://api.example.com; color: red }`, { nsp: 'demo' })
+    expect( ir.css ).toBe('[rel="demo"]{.a{--api:https://api.example.com;color:red}}')
+    expect( diagnostics ).toEqual([])
+  })
+
+  it('warns on `&-suffix` / `&__elem` concatenation, which native nesting cannot express', () => {
+    const { diagnostics } = compileStyle(
+      `.btn { &-active { color: red } &__icon { color: red } &.on { color: blue } &div { color: blue } }`,
+      { nsp: 'demo' })
+    expect( diagnostics.map( d => [ d.code, d.severity ] ) ).toEqual([
+      [ 'LIPS-S008', 'warning' ], [ 'LIPS-S008', 'warning' ]
+    ])
+  })
+
+  it('does not mistake an `&` inside a string for concatenation', () => {
+    expect( compileStyle(`[aria-label="Q&A"] { color: red }`, { nsp: 'demo' }).diagnostics ).toEqual([])
+  })
+})
+
+describe('malformed braces', () => {
+  it('drops a stray `}` instead of closing the scope wrap early', () => {
+    const { ir, diagnostics } = compileStyle(`.a { color: red } }\n.b { color: blue }`, { nsp: 'demo' })
+
+    // `.b` stays scoped
+    expect( ir.css ).toBe('[rel="demo"]{.a{color:red}.b{color:blue}}')
+    expect( diagnostics.map( d => d.code ) ).toEqual([ 'LIPS-S007' ])
+  })
+
+  it('closes an unclosed block at the end of the sheet', () => {
+    const { ir, diagnostics } = compileStyle(`.a { color: red; .b { color: blue }`, { nsp: 'demo' })
+
+    expect( ir.css ).toBe('[rel="demo"]{.a{color:red;.b{color:blue}}}')
+    expect( diagnostics.map( d => d.code ) ).toEqual([ 'LIPS-S007' ])
+  })
+})
+
+describe('compact output', () => {
+  it('drops comments and folds whitespace, but never inside a string', () => {
+    expect( css(`
+      /* banner */
+      .a  .b   {
+        margin :  0   auto ;  /* trailing */
+        content: "a   b";
+      }
+    `) ).toBe('[rel="demo"]{.a .b{margin:0 auto;content:"a   b";}}')
+  })
+
+  it('keeps the whitespace that is a combinator, and a selector glued by a comment', () => {
+    expect( css(`.a :hover { color: red } .b/**/.c { color: blue }`) )
+      .toBe('[rel="demo"]{.a :hover{color:red}.b.c{color:blue}}')
+  })
+
+  it('keeps an empty custom property a value', () => {
+    expect( css(`.a { --x: ; }`) ).toBe('[rel="demo"]{.a{--x: ;}}')
+  })
+
+  it('cuts a comment between two value tokens to a space, not to nothing', () => {
+    expect( css(`.a { border: 1px/**/solid red }`) ).toBe('[rel="demo"]{.a{border:1px solid red}}')
+  })
+
+  it('keeps two prelude tokens a comment separated apart', () => {
+    expect( css(`@media screen/**/and (min-width: 1px) { .a { color: red } }`) )
+      .toBe('[rel="demo"]{@media screen and (min-width: 1px){.a{color:red}}}')
+  })
+
+  it('still lifts a declaration with a comment before its colon', () => {
+    const { ir, diagnostics } = compileStyle(`.a { color/* c */: {state.c} }`, { nsp: 'demo' })
+    expect( diagnostics ).toEqual([])
+    expect( ir.css ).toBe('[rel="demo"]{.a{color:var(--demo-0)}}')
+    expect( ir.binds ).toEqual([{ prop: '--demo-0', e: 0 }])
+  })
+
+  it('keeps comments for a preprocessor — directives like rtl:ignore must reach it', () => {
+    const seen: string[] = []
+    compileStyle(`/* banner */ .a { /*rtl:ignore*/ left: 0; margin: 0 /*rtl:4px*/ }`,
+      { nsp: 'x', preprocess: css => ( seen.push( css ), css ) })
+    expect( seen[0] ).toBe('[rel="x"]{/* banner */.a{/*rtl:ignore*/left:0;margin:0 /*rtl:4px*/}}')
+  })
+
+  it('emits nothing for a sheet with nothing to scope', () => {
+    expect( css(`--accent: {state.c};`) ).toBe('')
+  })
+})
+
+describe('hoisting output stays tight', () => {
+  it('drops a group hoisting emptied, but never an @layer — it still declares order', () => {
+    expect( css(`@media (x) { @font-face { font-family: A } } @layer base { @font-face { font-family: B } }`) )
+      .toBe('@media (x){@font-face{font-family:A}}@layer base{@font-face{font-family:B}}[rel="demo"]{@layer base{}}')
+  })
+
+  it('shares one copy of the conditions between rules hoisted from the same group', () => {
+    expect( css(`@media (x) { @keyframes a { to { opacity: 1 } } @keyframes b { to { opacity: 0 } } .c { color: red } }`) )
+      .toBe('@media (x){@keyframes a{to{opacity:1}}@keyframes b{to{opacity:0}}}[rel="demo"]{@media (x){.c{color:red}}}')
+  })
+
+  it('hoists @function — a top-level-only rule', () => {
+    expect( css(`@function --x() { result: 1 } .a { width: --x() }`) )
+      .toBe('@function --x(){result:1}[rel="demo"]{.a{width:--x()}}')
+  })
+
+  it('opens the sheet with a trailing statement at-rule that has no `;`', () => {
+    expect( css(`.a { color: red } @import url(x.css)`) ).toBe('@import url(x.css);[rel="demo"]{.a{color:red}}')
   })
 })

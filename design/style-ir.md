@@ -276,6 +276,9 @@ they flow through the existing `CompileResult` channel.
 | `LIPS-S003` | error | expression references a name outside component scope (`<for>` iterator, `<let>`) |
 | `LIPS-S004` | error | unterminated interpolation |
 | `LIPS-S005` | warning | unit suffix on an expression that is a literal string |
+| `LIPS-S006` | error | the CSS preprocessor threw |
+| `LIPS-S007` | warning | unbalanced braces — a stray `}` is dropped (it would close the scope wrap early), an unclosed `{` is closed at the end |
+| `LIPS-S008` | warning | `&-suffix` / `&__elem` concatenation without a preprocessor — native nesting reads it as a type selector |
 
 Both structural cases fail **loudly**. Silently doing nothing is the worst outcome: the author
 sees a stylesheet that compiles and a page that ignores it.

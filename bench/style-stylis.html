@@ -54,7 +54,7 @@ const sheet = document.head.querySelector('style[rel]')?.textContent || ''
 document.getElementById('sheet').textContent = sheet
 
 check('preprocessor flattened the wrap', sheet.includes('[rel="__ROOT__"] .box'), true)
-check('…so the sheet is no longer nested', sheet.includes('[rel="__ROOT__"] {'), false)
+check('…so the sheet is no longer nested', sheet.includes('[rel="__ROOT__"]{'), false)
 check('@keyframes survives flattening', sheet.includes('@keyframes pulse'), true)
 check('styles still apply', getComputedStyle( el ).width, '60px')
 

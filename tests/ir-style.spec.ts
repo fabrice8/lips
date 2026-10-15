@@ -1,13 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from 'vitest'
 import Lips from '../src/lips'
-import { compileStyle } from '../src/ir/style'
+import { compileStyle, setStylePreprocessor } from '../src/ir/style'
 import { compileTemplate } from '../src/ir/compiler'
 import { precompile } from '../src/precompile'
 
-// These assert the FLATTENED, prefixed output, so they opt into the
-// preprocessor process-wide. The native-nesting path has its own file.
-import { useStylis } from '../src/stylis'
-useStylis()
+// These assert the FLATTENED output, so they opt into the preprocessor
+// for this file only. The native-nesting path has its own file.
+import { stylisPreprocessor } from '../src/stylis'
+beforeAll( () => setStylePreprocessor( stylisPreprocessor ) )
+afterAll( () => setStylePreprocessor( null ) )
 
 /**
  * StyleIR — reactive declarations (RFC-004 Layer 1).

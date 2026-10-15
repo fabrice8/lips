@@ -68,9 +68,9 @@ const KB = 1024
  * 2026-08-21b: full 28→26 — the Stylis split, taken. It measured 1.89 KB
  * gzipped in context, NOT the 4.4 KB the previous note estimated from
  * gzipping the standalone UMD build; bun tree-shakes it far smaller. The
- * feared cost — "nested CSS silently not working" — turned out not to
- * exist: the scope wrap IS CSS nesting, which browsers have resolved
- * natively since 2023, so dropping the preprocessor changes the emitted
+ * feared cost — "nested CSS silently not working" — mostly did not
+ * exist: the scope wrap IS CSS nesting, which every engine with native
+ * nesting resolves (see the 2026-10-15 note for the exceptions), so dropping the preprocessor changes the emitted
  * text and not the rendered result. The compiler now hoists the at-rules
  * that cannot legally nest (@keyframes, @font-face, …) out of the wrap
  * itself, which is the one job Stylis was doing that native nesting does
@@ -79,13 +79,25 @@ const KB = 1024
  * The budget comes DOWN rather than staying loose: a ratchet that keeps
  * slack it no longer needs stops being a ratchet.
  *
+ * 2026-10-15: precompile 13→14 — the native path made correct. The
+ * first cut's hoister was a second tokenizer that pulled `@keyframes`
+ * out of `@media` (dropping the condition), tore sheets apart on
+ * `url(a@page.png)`, let a stray `}` leak rules out of the scope wrap,
+ * and was skipped whenever ANY preprocessor was set. It now lives in
+ * the scanner, which also `&`-prefixes identifier-led nested selectors
+ * (strict-nesting Safari 16.5–17.1 drops `button {…}` otherwise),
+ * compacts the output (comments and indentation used to ship verbatim),
+ * respects escapes, and reports braces and `&-suffix`. ~1.0 KB gz on
+ * every entry that carries the style compiler; full still fits under 26
+ * (25.8) — the next style feature there needs a saving first.
+ *
  * Remaining lever: the `<router>` builtin is registered eagerly in
  * lips.ts, so it cannot tree-shake for apps that never route.
  */
 const BUDGETS = {
   'dist/lips.min.js': 26,        // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
-  'dist/precompile.min.js': 13,  // build-time: parser + compiler + style compiler
+  'dist/precompile.min.js': 14,  // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3        // opt-in preprocessor — not loaded unless asked for
 }
 
