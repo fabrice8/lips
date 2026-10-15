@@ -181,10 +181,10 @@ describe('hoisting edge cases', () => {
     const out = css(`@keyframes p { to { opacity: 1 } }
       @media (prefers-reduced-motion: reduce) { @keyframes p { to { opacity: .5 } } }`)
 
+    // …and the emptied @media is dropped rather than shipped
     expect( out ).toBe(
       '@keyframes p{to{opacity:1}}'
-      + '@media (prefers-reduced-motion: reduce){@keyframes p{to{opacity:.5}}}'
-      + '[rel="demo"]{@media (prefers-reduced-motion: reduce){}}' )
+      + '@media (prefers-reduced-motion: reduce){@keyframes p{to{opacity:.5}}}' )
   })
 
   it('carries nested conditions, in order', () => {
@@ -227,7 +227,7 @@ describe('hoisting edge cases', () => {
 
   it('leaves a nestable at-rule inside a hoisted one alone', () => {
     expect( css(`@font-feature-values Font One { @styleset { nice: 12 } }`) )
-      .toBe('@font-feature-values Font One{@styleset{nice:12}}[rel="demo"]{}')
+      .toBe('@font-feature-values Font One{@styleset{nice:12}}')
   })
 })
 
@@ -252,10 +252,19 @@ describe('strict-nesting engines (Chrome 112–119, Safari 16.5–17.1)', () => 
       .toBe('[rel="demo"]{& a:is(.b, .c),[d="e,f"]{color:red}}')
   })
 
-  it('leaves a selector that places `&` itself, and keyframe selectors, alone', () => {
-    expect( css(`div & { color: red }`) ).toBe('[rel="demo"]{div &{color:red}}')
+  it('wraps the lead of a selector that places `&` itself — `& ` cannot go in front', () => {
+    expect( css(`div & { color: red } a:has(&), svg|rect.x & { color: blue }`) )
+      .toBe('[rel="demo"]{:is(div) &{color:red}:is(a):has(&),:is(svg|rect).x &{color:blue}}')
+  })
+
+  it('leaves keyframe selectors alone', () => {
     expect( css(`@keyframes k { from { opacity: 0 } to { opacity: 1 } }`) )
-      .toBe('@keyframes k{from{opacity:0}to{opacity:1}}[rel="demo"]{}')
+      .toBe('@keyframes k{from{opacity:0}to{opacity:1}}')
+  })
+
+  it('treats an escape as one unit — no split on `\\,`, no fold or trim of `\\ `', () => {
+    expect( css(`.a\\,b { color: red } .c\\  d { color: blue } .e\\ { color: green }`) )
+      .toBe('[rel="demo"]{.a\\,b{color:red}.c\\  d{color:blue}.e\\ {color:green}}')
   })
 
   it('does not prefix the top level of a global (meta) sheet — it is not nested', () => {
@@ -265,14 +274,28 @@ describe('strict-nesting engines (Chrome 112–119, Safari 16.5–17.1)', () => 
 })
 
 describe('Stylis-only syntax on the native path', () => {
-  it('strips `//` line comments instead of gluing them onto the next selector', () => {
-    expect( css(`// header\n.a { color: red } // trailing\n.b { background: url(//cdn/x.png) }`) )
-      .toBe('[rel="demo"]{.a{color:red}.b{background:url(//cdn/x.png)}}')
+  it('strips `//` line comments at the start of a statement', () => {
+    expect( css(`// header\n.a { color: red; // note\n} // trailing\n.b { background: url(//cdn/x.png) }`) )
+      .toBe('[rel="demo"]{.a{color:red;}.b{background:url(//cdn/x.png)}}')
   })
 
-  it('warns on `&-suffix` concatenation, which native nesting cannot express', () => {
-    const { diagnostics } = compileStyle(`.btn { &-active { color: red } &.on { color: blue } }`, { nsp: 'demo' })
-    expect( diagnostics.map( d => [ d.code, d.severity ] ) ).toEqual([[ 'LIPS-S008', 'warning' ]])
+  it('leaves `//` inside a value alone — it is not a comment there', () => {
+    const { ir, diagnostics } = compileStyle(`.a { --api: https://api.example.com; color: red }`, { nsp: 'demo' })
+    expect( ir.css ).toBe('[rel="demo"]{.a{--api:https://api.example.com;color:red}}')
+    expect( diagnostics ).toEqual([])
+  })
+
+  it('warns on `&-suffix` / `&__elem` concatenation, which native nesting cannot express', () => {
+    const { diagnostics } = compileStyle(
+      `.btn { &-active { color: red } &__icon { color: red } &.on { color: blue } &div { color: blue } }`,
+      { nsp: 'demo' })
+    expect( diagnostics.map( d => [ d.code, d.severity ] ) ).toEqual([
+      [ 'LIPS-S008', 'warning' ], [ 'LIPS-S008', 'warning' ]
+    ])
+  })
+
+  it('does not mistake an `&` inside a string for concatenation', () => {
+    expect( compileStyle(`[aria-label="Q&A"] { color: red }`, { nsp: 'demo' }).diagnostics ).toEqual([])
   })
 })
 
@@ -311,5 +334,53 @@ describe('compact output', () => {
 
   it('keeps an empty custom property a value', () => {
     expect( css(`.a { --x: ; }`) ).toBe('[rel="demo"]{.a{--x: ;}}')
+  })
+
+  it('cuts a comment between two value tokens to a space, not to nothing', () => {
+    expect( css(`.a { border: 1px/**/solid red }`) ).toBe('[rel="demo"]{.a{border:1px solid red}}')
+  })
+
+  it('keeps two prelude tokens a comment separated apart', () => {
+    expect( css(`@media screen/**/and (min-width: 1px) { .a { color: red } }`) )
+      .toBe('[rel="demo"]{@media screen and (min-width: 1px){.a{color:red}}}')
+  })
+
+  it('still lifts a declaration with a comment before its colon', () => {
+    const { ir, diagnostics } = compileStyle(`.a { color/* c */: {state.c} }`, { nsp: 'demo' })
+    expect( diagnostics ).toEqual([])
+    expect( ir.css ).toBe('[rel="demo"]{.a{color:var(--demo-0)}}')
+    expect( ir.binds ).toEqual([{ prop: '--demo-0', e: 0 }])
+  })
+
+  it('keeps comments for a preprocessor — directives like rtl:ignore must reach it', () => {
+    const seen: string[] = []
+    compileStyle(`/* banner */ .a { /*rtl:ignore*/ left: 0; margin: 0 /*rtl:4px*/ }`,
+      { nsp: 'x', preprocess: css => ( seen.push( css ), css ) })
+    expect( seen[0] ).toBe('[rel="x"]{/* banner */.a{/*rtl:ignore*/left:0;margin:0 /*rtl:4px*/}}')
+  })
+
+  it('emits nothing for a sheet with nothing to scope', () => {
+    expect( css(`--accent: {state.c};`) ).toBe('')
+  })
+})
+
+describe('hoisting output stays tight', () => {
+  it('drops a group hoisting emptied, but never an @layer — it still declares order', () => {
+    expect( css(`@media (x) { @font-face { font-family: A } } @layer base { @font-face { font-family: B } }`) )
+      .toBe('@media (x){@font-face{font-family:A}}@layer base{@font-face{font-family:B}}[rel="demo"]{@layer base{}}')
+  })
+
+  it('shares one copy of the conditions between rules hoisted from the same group', () => {
+    expect( css(`@media (x) { @keyframes a { to { opacity: 1 } } @keyframes b { to { opacity: 0 } } .c { color: red } }`) )
+      .toBe('@media (x){@keyframes a{to{opacity:1}}@keyframes b{to{opacity:0}}}[rel="demo"]{@media (x){.c{color:red}}}')
+  })
+
+  it('hoists @function — a top-level-only rule', () => {
+    expect( css(`@function --x() { result: 1 } .a { width: --x() }`) )
+      .toBe('@function --x(){result:1}[rel="demo"]{.a{width:--x()}}')
+  })
+
+  it('opens the sheet with a trailing statement at-rule that has no `;`', () => {
+    expect( css(`.a { color: red } @import url(x.css)`) ).toBe('@import url(x.css);[rel="demo"]{.a{color:red}}')
   })
 })

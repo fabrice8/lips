@@ -183,6 +183,7 @@ type ValuePart = string | { expr: string, unit: string, at: number }
 function readValue(
   src: string,
   from: number,
+  keepComments: boolean,
   onUnterminated?: ( at: number ) => void
 ): { end: number, parts: ValuePart[] } | null {
   const parts: ValuePart[] = []
@@ -192,10 +193,19 @@ function readValue(
     const c = src[ i ]
 
     if( c === '"' || c === "'" ){ i = skipString( src, i ); continue }
-    // Comments are cut out of the value, not carried in its text
-    if( c === '/' && ( src[ i + 1 ] === '*' || ( src[ i + 1 ] === '/' && !paren ) ) ){
-      parts.push( src.slice( lit, i ) )
-      i = lit = src[ i + 1 ] === '*' ? skipComment( src, i ) : skipLine( src, i )
+    /**
+     * A comment is cut to a space — it separates tokens, so `1px`, a
+     * comment and `solid` must not fuse into `1pxsolid` — unless a
+     * preprocessor will read it.
+     * `//` is NOT a comment here: `--api: https://x` is a valid value.
+     */
+    if( c === '/' && src[ i + 1 ] === '*' ){
+      const end = skipComment( src, i )
+      if( !keepComments ){
+        parts.push( src.slice( lit, i ), ' ' )
+        lit = end
+      }
+      i = end
       continue
     }
     if( c === '(' ){ paren++; i++; continue }
@@ -248,7 +258,7 @@ function readValue(
  * wrap — they are document-global anyway, exactly like the `@property`
  * registrations emitted outside it.
  */
-const HOISTED_BLOCK = /^@(-\w+-)?(keyframes|font-face|property|counter-style|font-feature-values|font-palette-values|page|view-transition|position-try|color-profile)\b/i
+const HOISTED_BLOCK = /^@(-\w+-)?(keyframes|font-face|property|counter-style|font-feature-values|font-palette-values|page|view-transition|position-try|color-profile|function)\b/i
 /**
  * Statement at-rules that must open the sheet: `@import` is ignored after
  * any other rule, `@charset` must be first, `@namespace` must precede
@@ -271,12 +281,22 @@ const GROUP_AT = /^@(media|supports|container|layer|scope|starting-style|documen
  * gets an implicit `& ` anyway — and parses wherever nesting does.
  */
 const TYPE_LEAD = /^([a-zA-Z_*\\]|[^\x00-\x7f])/
-/** Stylis/Sass `&-suffix` concatenation — native nesting has no equivalent */
-const CONCAT = /&[-\w]/
+/** The identifier-ish token a selector opens with — `div`, `svg|rect`, `*` */
+const LEAD_TOKEN = /^(?:[-\w*|]|[^\x00-\x7f]|\\[\s\S])+/
+/**
+ * Stylis/Sass `&-suffix` / `&__elem` concatenation. Native nesting reads
+ * `-suffix` as a type selector instead, so the rule silently matches
+ * nothing. (`&div` is fine natively — `&` may precede a type selector.)
+ */
+const CONCAT = /&[-_]/
 
 const WS = /\s/
 const BREAK = /[{};]/
-const STRING_OR_SPACE = /("(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')|\s+/g
+const IDENT_CHAR = /[-\w]/
+const QUOTED = /"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g
+const STRING_OR_SPACE = new RegExp(`(${ QUOTED.source })|\\s+`, 'g')
+const COMMENTS = /\/\*[\s\S]*?\*\//g
+const LAYER = /^@layer\b/i
 
 /** Fold whitespace runs outside strings to one space */
 const squash = ( text: string ) => text.replace( STRING_OR_SPACE, ( _, str ) => str || ' ' )
@@ -289,6 +309,7 @@ function nestSelector( prelude: string ){
   for( let i = 0; i < prelude.length; i++ ){
     const c = prelude[ i ]
 
+    if( c === '\\' ){ i++; continue }
     if( c === '"' || c === "'" ){ i = skipString( prelude, i ) - 1; continue }
     if( c === '(' || c === '[' ) nest++
     else if( c === ')' || c === ']' ) nest--
@@ -301,9 +322,18 @@ function nestSelector( prelude: string ){
 
   return parts
     .map( p => {
-      const s = p.trim()
-      // `div &` names its own parent — leave it be
-      return TYPE_LEAD.test( s ) && !s.includes('&') ? `& ${s}` : s
+      // Trim — but not an escaped trailing space (`.a\ `), which is part of the name
+      let s = p.trimStart(), e = s.length
+      while( e && WS.test( s[ e - 1 ] ) && s[ e - 2 ] !== '\\' ) e--
+      s = s.slice( 0, e )
+
+      if( !TYPE_LEAD.test( s ) ) return s
+      /**
+       * `div &` places its parent itself, so `& ` cannot go in front;
+       * wrapping the leading token (`:is(div) &`) is the same selector,
+       * same specificity, and no longer starts with an identifier.
+       */
+      return s.includes('&') ? s.replace( LEAD_TOKEN, ':is($&)' ) : `& ${s}`
     })
     .join(',')
 }
@@ -317,6 +347,9 @@ interface Block {
   ctx: 'style' | 'top' | 'opaque'
   /** Prelude of a conditional group rule, carried out by anything hoisted from inside it */
   group?: string
+  /** Output offsets of a group's prelude and body — to drop it if hoisting empties it */
+  at?: number
+  body?: number
   /** Offset in the output where an at-rule being hoisted starts */
   hoist?: number
 }
@@ -377,13 +410,11 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
           'Stylesheets see state, input, static, context and self — not <for> iterators or <let> names, '
           + 'which are local to a template position.' )
 
-    if( s.unit && ast.t === 'lit' && typeof ast.v === 'string' )
-      diagnostics.push({
-        code: 'LIPS-S005', severity: 'warning',
-        message: `Unit '${s.unit}' after a string value`,
-        hint: `A unit suffix multiplies a number: drop the unit, or return ${s.unit === '%' ? '50' : '8'} instead of a string.`,
-        loc: locOf( src, s.at, length )
-      })
+    s.unit && ast.t === 'lit' && typeof ast.v === 'string'
+    && warn( 'LIPS-S005',
+      `Unit '${s.unit}' after a string value`,
+      s.at, length,
+      `A unit suffix multiplies a number: drop the unit, or return ${s.unit === '%' ? '50' : '8'} instead of a string.` )
   }
 
   /**
@@ -430,6 +461,8 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
   /** Statement start in the source */
   stmt = 0,
   statements = '', hoisted = '',
+  /** Conditions the last hoisted rule was carried out with */
+  lastGroups = '',
   /** An interpolation that ate a closing brace — already reported as the cause */
   unterminated = false
 
@@ -445,12 +478,12 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
 
     if( prelude[ 0 ] === '@' ){
       if( parent.ctx !== 'opaque' && HOISTED_BLOCK.test( prelude ) ) block = { ctx: 'opaque', hoist: out.length }
-      else if( GROUP_AT.test( prelude ) ) block = { ctx: parent.ctx, group: prelude }
+      else if( GROUP_AT.test( prelude ) ) block = { ctx: parent.ctx, group: prelude, at: out.length }
       else block = { ctx: 'opaque' }
     }
     else {
       if( parent.ctx === 'style' ){
-        native && CONCAT.test( prelude )
+        native && CONCAT.test( prelude.replace( QUOTED, '' ) )
         && warn( 'LIPS-S008', `'${prelude}' joins '&' to a name`, stmt, i - stmt,
           'Native nesting cannot: write the full selector, or use stylisPreprocessor.' )
 
@@ -462,10 +495,23 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
 
     stack.push( block )
     flush('{')
+    block.group && ( block.body = out.length )
   }
 
   const close = () => {
     const block = stack.pop()!
+
+    /**
+     * A group that hoisting emptied conditions nothing — drop it. Not an
+     * `@layer`: an empty one still declares the layer order.
+     */
+    if( block.group && !cur && out.length === block.body && !LAYER.test( block.group ) ){
+      out = out.slice( 0, block.at )
+      tail = ''
+      gap = false
+      return
+    }
+
     flush('}')
 
     if( block.hoist === undefined ) return
@@ -473,31 +519,60 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
     // Carry any enclosing conditions out with it — `@media (…) { @keyframes … }`
     const
     text = out.slice( block.hoist ),
-    groups = stack.filter( b => b.group )
+    groups = stack.filter( b => b.group ),
+    key = groups.map( b => b.group ).join('{'),
+    shut = '}'.repeat( groups.length )
 
     out = out.slice( 0, block.hoist )
     tail = ''
 
-    hoisted += groups.map( b => b.group + '{' ).join('') + text + '}'.repeat( groups.length )
+    // Consecutive rules hoisted from the same conditions share one copy of them
+    hoisted = key && key === lastGroups
+      ? hoisted.slice( 0, hoisted.length - shut.length ) + text + shut
+      : hoisted + groups.map( b => b.group + '{' ).join('') + text + shut
+
+    lastGroups = key
   }
 
   while( i < src.length ){
     const c = src[ i ]
 
+    // An escape is one unit: `\,` does not split a list, `\ ` is not folded
+    if( c === '\\' ){
+      emit( src.slice( i, i + 2 ) )
+      i += 2
+      continue
+    }
+
     /**
-     * Comments are dropped. `//` is not CSS, but Stylis accepted it as a
-     * line comment and sheets were written against Stylis; left in, it
-     * would glue itself onto the next selector and void the rule.
+     * Block comments are dropped — or kept, when a preprocessor will read
+     * them (`rtl:ignore`-style directives). `//` is not CSS, but Stylis
+     * accepted it as a line comment and sheets were written against
+     * Stylis: at the start of a statement it is stripped, where left in
+     * it would glue itself onto the next selector and void the rule.
+     * Anywhere else it is left alone — `--api: https://x` is a value.
      */
-    if( c === '/' && ( src[ i + 1 ] === '*' || ( src[ i + 1 ] === '/' && !paren ) ) ){
-      const end = src[ i + 1 ] === '*' ? skipComment( src, i ) : skipLine( src, i )
+    const leading = c === '/' && !src.slice( stmt, i ).trim()
+
+    if( c === '/' && ( src[ i + 1 ] === '*' || ( src[ i + 1 ] === '/' && leading ) ) ){
+      const
+      line = src[ i + 1 ] === '/',
+      end = line ? skipLine( src, i ) : skipComment( src, i )
+
+      if( !line && !native ){
+        // Between statements it goes straight out, so preludes stay clean
+        cur ? emit( src.slice( i, end ) ) : ( out += src.slice( i, end ) )
+      }
+      // It separated two tokens — `screen`, comment, `and` must not fuse
+      else IDENT_CHAR.test( tail ) && IDENT_CHAR.test( src[ end ] || '' ) && ( gap = true )
+
       /**
        * A comment before a declaration must not become part of the
        * property name, or `PROP_NAME` rejects it, the value is never
        * scanned, and any interpolation inside it is misread further
        * down (an at-rule condition, at worst) instead of being lifted.
        */
-      !src.slice( stmt, i ).trim() && ( stmt = end )
+      leading && ( stmt = end )
       i = end
       continue
     }
@@ -523,10 +598,11 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
      * A selector that gets this far (`a:hover {`) is rejected by readValue.
      */
     if( c === ':' && paren === 0 ){
-      const name = src.slice( stmt, i ).trim()
+      // `color/* … */: …` is still the property `color`
+      const name = src.slice( stmt, i ).replace( COMMENTS, '' ).trim()
 
       if( PROP_NAME.test( name ) ){
-        const parsed = readValue( src, i + 1, at => {
+        const parsed = readValue( src, i + 1, !native, at => {
           unterminated = true
           report( 'LIPS-S004',
             'Unterminated interpolation',
@@ -678,6 +754,8 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
     while( stack.length > 1 ) close()
   }
 
+  // A statement at-rule may end at EOF without its `;`
+  HOISTED_STATEMENT.test( cur ) && ( statements += drop() + ';' )
   // A trailing declaration with no `;`
   flush('')
 
@@ -712,7 +790,7 @@ export function compileStyle( src: string, options: StyleCompileOptions ): Style
    * rule.
    */
   const
-  scoped = options.meta ? css : `[rel="${options.nsp}"]{${css}}`,
+  scoped = options.meta || !css ? css : `[rel="${options.nsp}"]{${css}}`,
   body = hoisted + scoped,
   source = options.layer ? `@layer ${options.layer}{${body}}` : body
 

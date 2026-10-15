@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
-### Changed — Stylis is opt-in, and the full bundle is 1.5 KB smaller
+### Changed — Stylis is opt-in, and the full bundle is 1.2 KB smaller
 
 - The scope wrap `[rel="card"] { … }` **is** CSS nesting, which every engine
   with native nesting resolves — Chrome/Edge 112+, Safari 16.5+, Firefox 117+.
@@ -32,8 +32,8 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   `@lipsjs/lips/stylis` are separate bundles, each with its own copy of the
   style compiler, so a global set from one is invisible to the others.
 
-- `full` drops 27.0 → 25.5 KB gzipped and its budget is ratcheted **down**
-  28 → 26. `precompile` goes 12.5 → 13.2 for the scanner work below; its
+- `full` drops 27.0 → 25.8 KB gzipped and its budget is ratcheted **down**
+  28 → 26. `precompile` goes 12.5 → 13.5 for the scanner work below; its
   budget moves 13 → 14.
 
 ### Changed — the native path emits what the browser accepts
@@ -45,24 +45,28 @@ The compiler now does the jobs Stylis did implicitly, in its one scanner:
   left inside `[rel="x"] { … }` is dropped and the animation silently does
   nothing. Hoisted: `@keyframes`, `@font-face`, `@property`, `@counter-style`,
   `@font-feature-values`, `@font-palette-values`, `@page`, `@view-transition`,
-  `@position-try`, `@color-profile`. One found inside `@media`/`@supports`
-  carries its condition out with it, so a reduced-motion `@keyframes`
-  override stays conditional. `@media`, `@supports`, `@container`, `@layer`,
+  `@position-try`, `@color-profile`, `@function`. One found inside
+  `@media`/`@supports` carries its condition out with it, so a
+  reduced-motion `@keyframes` override stays conditional; a group left empty
+  by hoisting is dropped (never an `@layer`, which still declares order). `@media`, `@supports`, `@container`, `@layer`,
   `@scope` and `@starting-style` stay inside the wrap, where they must be to
   remain scoped.
 - **`@import`, `@charset` and `@namespace` open the sheet** — ahead of the
   generated `@property` registrations and outside any `styleLayer` block,
   the only places a browser honours them.
 - **Identifier-led nested selectors get `&`**: `button { … }` becomes
-  `& button { … }`, the same selector. Strict-nesting engines (Chrome
-  112–119, Safari 16.5–17.1) read a nested line starting with an identifier
-  as a declaration and drop it.
-- **Output is compact**: comments dropped, whitespace folded. Stylis used to
-  minify; without it every banner and indent shipped in each `<style>` and
-  each precompiled module. `//` line comments — Stylis syntax, not CSS — are
-  stripped rather than glued onto the next selector.
+  `& button { … }`, and `div & { … }` becomes `:is(div) & { … }` — the same
+  selectors. Strict-nesting engines (Chrome 112–119, Safari 16.5–17.1) read a
+  nested line starting with an identifier as a declaration and drop it.
+- **Output is compact**: comments dropped, whitespace folded, escapes
+  respected. Stylis used to minify; without it every banner and indent
+  shipped in each `<style>` and each precompiled module. `//` line comments
+  — Stylis syntax, not CSS — are stripped at the start of a statement
+  rather than glued onto the next selector; inside a value they are left
+  alone (`--api: https://x` is a value).
 - Hoisting runs **whatever the preprocessor**, so one of your own (a
   minifier, say) is never handed a `@keyframes` stuck inside a style rule.
+  It gets the comments, so directives such as `/*rtl:ignore*/` reach it.
 
 ### Added — `LIPS-S007` / `LIPS-S008` style diagnostics
 
@@ -70,7 +74,8 @@ The compiler now does the jobs Stylis did implicitly, in its one scanner:
   scope wrap early and leak every rule after it out unscoped — and an
   unclosed `{` is closed at the end of the sheet.
 - `LIPS-S008` (warning): `&-suffix` / `&__elem` concatenation on the native
-  path, which CSS nesting cannot express and drops.
+  path. CSS nesting reads `-suffix` as a type selector, so the rule silently
+  matches nothing. (`&div` is valid native nesting and is not flagged.)
 
 ### Fixed — a build script importing only `./precompile` lost every stylesheet
 

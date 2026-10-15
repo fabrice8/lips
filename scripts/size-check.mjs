@@ -87,8 +87,9 @@ const KB = 1024
  * the scanner, which also `&`-prefixes identifier-led nested selectors
  * (strict-nesting Safari 16.5–17.1 drops `button {…}` otherwise),
  * compacts the output (comments and indentation used to ship verbatim),
- * and reports braces and `&-suffix`. ~0.7 KB gz on every entry that
- * carries the style compiler; full still fits under 26 (25.5).
+ * respects escapes, and reports braces and `&-suffix`. ~1.0 KB gz on
+ * every entry that carries the style compiler; full still fits under 26
+ * (25.8) — the next style feature there needs a saving first.
  *
  * Remaining lever: the `<router>` builtin is registered eagerly in
  * lips.ts, so it cannot tree-shake for apps that never route.

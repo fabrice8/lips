@@ -165,10 +165,11 @@ export type LipsConfig<Context extends Object = {}> = {
    *   new Lips({ stylePreprocessor: stylisPreprocessor })
    *
    * Wire it to flatten for pre-nesting engines, or pass a preprocessor
-   * of your own; it receives the scoped sheet with non-nestable at-rules
-   * already hoisted. It is passed here rather than imported for its side
-   * effect because the two entries are separate bundles with separate
-   * module state.
+   * of your own: it receives the scoped sheet, comments kept, with the
+   * at-rules that cannot nest already hoisted. `@import`, `@charset` and
+   * `@namespace` are placed ahead of its output as written. It is passed
+   * here rather than imported for its side effect because the two
+   * entries are separate bundles with separate module state.
    */
   stylePreprocessor?: ( css: string ) => string
   /**

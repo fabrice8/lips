@@ -3,7 +3,7 @@
  * counted so shared components clean up correctly. Native DOM only.
  *
  * Compilation lives in `ir/style.ts` and happens at COMPILE time: what
- * arrives here is final, flat, scoped, prefixed CSS (StyleIR.css). That
+ * arrives here is final, scoped, compact CSS (StyleIR.css). That
  * is what lets the precompiled-only `./runtime` build ship styles with
  * no CSS preprocessor at all — see RFC-004 §1.
  */
