@@ -114,10 +114,26 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
 }
 
 /**
+ * The page lifecycle the native engine calls on the main thread. Lips
+ * renders from the background, so there is nothing to do in them — but
+ * they must exist: the Lynx 4.1 engine calls `renderPage` and throws
+ * when it is missing (Lynx for Web does not call it). An app's own
+ * definitions win.
+ */
+const LIFECYCLE = {
+  processData: ( data: unknown ) => data,
+  renderPage(){},
+  updatePage(){}
+}
+
+/**
  * Wire an applier to the real thread bridge. On the main thread
  * `lynx.getJSContext()` is the endpoint connected to the background.
  */
 export function connectMain( page: Ref ){
+  for( const [ name, fn ] of Object.entries( LIFECYCLE ) )
+    typeof ( globalThis as any )[ name ] === 'function' || ( ( globalThis as any )[ name ] = fn )
+
   const bridge = lynx.getJSContext()
   const apply = createApplier( page, wire => bridge.dispatchEvent({ type: DOM_EVENT, data: wire }) )
 

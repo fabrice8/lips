@@ -254,6 +254,26 @@ describe('Lynx: both threads through the testing environment', () => {
     expect( app.html() ).toBe('<view><text data-x="1"><text>in</text></text></view>')
   })
 
+  /**
+   * Lynx's native background engine has no `queueMicrotask` (found at tier
+   * B: the real engine reported `ReferenceError` from `notifyUpdate`). The
+   * runtime must schedule with promise jobs only.
+   */
+  it('runs without queueMicrotask, as on the native background engine', async () => {
+    const saved = G.queueMicrotask
+    G.queueMicrotask = undefined
+    try {
+      let updates = 0
+      const app = await boot( `<p data-k="n">{state.n}</p><button data-k="b" on-click( inc )><span>+</span></button>`,
+        { state: { n: 0 }, handlers: { inc( this: any ){ this.state.n++ }, onUpdate(){ updates++ } } } )
+
+      await app.fire('[data-k="b"]')
+      expect( app.q('[data-k="n"]').textContent ).toBe('1')
+      expect( updates ).toBe( 1 )
+    }
+    finally { G.queueMicrotask = saved }
+  })
+
   it('dispose empties the page and stops listening', async () => {
     let taps = 0
     const app = await boot( `<button data-k="b" on-click( hit )><span>b</span></button>`,

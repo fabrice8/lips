@@ -214,7 +214,12 @@ function makeHooks( self: any ): ComponentHooks {
       if( !isReady || scheduled ) return
       scheduled = true
 
-      queueMicrotask( () => {
+      /**
+       * A promise job, not `queueMicrotask`: Lynx's native background
+       * engine has no `queueMicrotask`, and this runs outside the effect's
+       * error guard, so a throw here aborted the effects after it.
+       */
+      Promise.resolve().then( () => {
         scheduled = false
         try {
           typeof self.onUpdate === 'function' && self.onUpdate()

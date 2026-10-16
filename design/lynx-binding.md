@@ -294,8 +294,17 @@ API calls only on the main thread, serializable patches from the background.
     shims the pair.
   - Its `__SetAttribute` rejects `class`, `id`, `style`, `data-*`, `key`
     and `bind*`, which is why the applier routes them.
+  - **Tier B only:** the native engine calls a global `renderPage` on the
+    main thread and throws when it is missing; Lynx for Web never calls
+    it. `connectMain` installs no-op `renderPage`, `updatePage` and
+    `processData` unless the app defines its own.
+  - **Tier B only:** the native background engine has no
+    `queueMicrotask`. The core runtime used it to schedule `onUpdate`,
+    outside the effect's error guard, so the throw could abort the effects
+    after it. It now uses a promise job (runtime 4 bytes smaller), and the
+    tier-A spec runs one test with `queueMicrotask` removed.
 - **Tests, tier A.**
-  - `tests/lynx-binding.spec.ts` (10 specs) runs both threads through the
+  - `tests/lynx-binding.spec.ts` (11 specs) runs both threads through the
     testing environment's real bridge. After every step it requires the
     main thread's element tree to equal the shadow tree's real nodes. Three
     deliberate host bugs were each caught.
@@ -303,8 +312,21 @@ API calls only on the main thread, serializable patches from the background.
     **Lynx for Web** bundle in Chromium: first render from the background,
     taps round-tripping both threads, keyed insert and reverse. All 7
     checks pass.
-- **Still open for the L1 exit.**
-  - Tier B: the real engine, headless. Needs the allowed host from §6.
+- **Tests, tier B (2026-10-16).** `demos/lynx/native/run.sh` runs the demo's
+  native bundle in the real Lynx 4.1 engine (`libLynx_clay`, Linux
+  x86_64), headless.
+  - It drives the engine through lynx-stack's `lynx-headless-rust-test-runner`
+    at the pinned commit. The runtime and core script are checked against
+    lynx-stack's pinned SHA-256s.
+  - 10 checks pass: first render, the Lynx element mapping, no markers or
+    stray text in the engine's DOM, taps round-tripping both threads (by
+    native node id), keyed insert and reverse with row identity kept, and
+    the native CSS engine matching the classes the binding sets
+    (`background-color`, `font-size`).
+  - It fails on any JS error the engine reports, not just unmet checks.
+    The `queueMicrotask` bug passed every functional check and was caught
+    only by that.
+  - L1's exit is met at tiers A and B.
 - **Known limits, owned by later steps.**
   - Text outside a text element is not rendered and not yet reported:
     L3 decides between a diagnostic and auto-wrap (§9.2).

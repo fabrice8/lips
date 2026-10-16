@@ -1,0 +1,14 @@
+# RFC-006 test tier B: the real Lynx engine, headless.
+#
+# The runner crates are not published; `run.sh` copies them from
+# lynx-family/lynx-stack at the commit RFC-006 pins into `.cache/`, which
+# is why they are workspace members here and supply these pins.
+[workspace]
+resolver = "2"
+members = [ "harness", ".cache/engine-bridge/lynx", ".cache/headless-rust-test-runner" ]
+
+[workspace.dependencies]
+hex = "0.4.3"
+serde = "1.0.229"
+serde_json = "1.0.151"
+sha2 = "0.11.0"
