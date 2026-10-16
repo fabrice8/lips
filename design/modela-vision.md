@@ -95,6 +95,9 @@ contained change *provided nothing else DOM-shaped leaks into the IR first*.
 
 Deferred, not declined. Revisit when a real export target demands it.
 
+> **2026-10-16:** revisited in [RFC-006](./lynx-binding.md). Lynx is the
+> native target; the node tree and host interface above are its first phase.
+
 ## Prior art
 
 Surveyed 2026-08-03. A search snapshot, not an exhaustive review.
