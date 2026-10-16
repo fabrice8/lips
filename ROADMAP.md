@@ -127,6 +127,23 @@ Consequences that re-rank the phases:
 - [ ] Published js-framework-benchmark results; starter templates
 - [ ] Semver policy, release cadence, second maintainer (bus factor is currently 1)
 
+## Phase 5 — Native target: Lips on Lynx
+
+*The native export target RFC-003 deferred. Same templates, a second host. Each step ends in an exit check; L4 is a go/no-go gate. Minimum Lynx SDK: 4.0.*
+
+> **Design doc:** [design/lynx-binding.md](design/lynx-binding.md) (RFC-006) — verified ground
+> (what Lynx's CSS engine and element API actually do), architecture, test tiers, risks.
+
+- [ ] **L0 — Host seam** in Lips core: `BlockIR.nodes` beside `html`, a `Host` interface, today's behaviour as the DOM host, scope stamping and `@html` made host decisions. Exit: full suite green on the DOM host; an in-memory test host runs the IR runtime specs
+- [ ] **L1 — Renderer spike**: background-thread runtime, main-thread applier over the element API, text/attribute/class binds, `<if>`/`<for>`, `tap`. Exit: counter + keyed list render in `@lynx-js/testing-environment`, Lynx for Web, and the real engine headless
+- [ ] **L2 — Style pipeline**: mandatory flattening, class scope, Lynx lint diagnostics, variables via `__SetInlineStyles`, full-value binds where `calc()` is unsupported. Exit: StyleIR specs assert computed styles in the real engine
+- [ ] **L3 — Inputs, scroll, list, vocabulary diagnostics** (`setValue` write path, raw-text rule)
+- [ ] **L4 — Decision gate**: one real screen in ReactLynx and in Lips; first frame, update latency, per-thread CPU, update size, memory on a mid-range Android device; then a template pushed into the running app without a rebuild. Go/no-go recorded in RFC-006
+- [ ] **L5 — Runtime templates** (Modela export path)
+- [ ] **L6 — Optimisations**: element templates for precompiled blocks, instant first frame, main-thread gesture handlers
+
+**Exit criteria:** L4 recorded as go · `@lipsjs/lips/lynx` entry within its size budget · tier-B real-engine suite in CI.
+
 ---
 
 ## Measurement plan
