@@ -31,10 +31,27 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   dispose. The in-memory host is not in any published entry yet; where it
   ships is RFC-006's open packaging decision.
 
-- Size: the seam costs ~0.32 KB gzipped on `runtime` (14.6 → 14.9, still
-  inside 15) and the tree target ~0.28 KB on the compiler-bearing entries.
-  `full` carries both, 25.8 → 26.4, and its budget moves 26 → 27 (see
+- Size: the seam costs ~0.37 KB gzipped on `runtime` (14.62 → 14.99, inside
+  15) and the tree target ~0.29 KB on the compiler-bearing entries. `full`
+  carries both, 25.79 → 26.44, and its budget moves 26 → 26.5 (see
   `scripts/size-check.mjs`).
+
+- Speed: measured side by side in Chromium at 10k rows, with isolated
+  timers and a forced GC before each op, four rounds of 30 alternating
+  iterations. The seam alone is within ±2% of the previous runtime on every
+  op except `remove` (+2–4%). The host takes whole ranges (`range`,
+  `insertAfter`), so a range walk or move is one call with the loop inside.
+
+### Performance — keyed `<for>` no longer goes quadratic
+
+- Every change to a keyed list ran `ordered.includes( item )` for each old
+  row, which is O(n²): at 10k rows, 50 million comparisons to remove one
+  row. Kept rows now carry a pass stamp, so the test is O(1).
+- Measured with the same harness against the runtime before the seam
+  (first round of 30 iterations): remove 0.95, clear 0.92, update 0.97,
+  swap 0.98, replace 0.98, append 0.98. So with the seam in, list
+  operations end up slightly faster than before it. `create` (1.03) never
+  runs this code.
 
 ### Changed — Stylis is opt-in, and the full bundle is 1.2 KB smaller
 

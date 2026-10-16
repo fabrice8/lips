@@ -94,24 +94,25 @@ const KB = 1024
  * Remaining lever: the `<router>` builtin is registered eagerly in
  * lips.ts, so it cannot tree-shake for apps that never route.
  *
- * 2026-10-16: full 26→27 — the host seam (RFC-006 L0). The runtime now
+ * 2026-10-16: full 26→26.5 — the host seam (RFC-006 L0). The runtime now
  * reaches every node through a `Host`, and the DOM host object is ~1 KB
- * of method table the minifier cannot rename: +0.32 KB gz on `runtime`
- * (14.6 → 14.9), absorbed inside its budget. The compiler's `'tree'`
- * target (`BlockIR.nodes`, LIPS-C021) adds ~0.28 KB to both
- * compiler-bearing entries; `precompile` absorbs it (13.5 → 13.8). `full`
- * carries both, 25.8 → 26.4, so it moves.
+ * of method table the minifier cannot rename: +0.37 KB gz on `runtime`
+ * (14.62 → 14.99), absorbed inside its budget with 8 BYTES to spare. The
+ * compiler's `'tree'` target (`BlockIR.nodes`, LIPS-C021) adds ~0.29 KB to
+ * both compiler-bearing entries; `precompile` absorbs it (13.50 → 13.79).
+ * `full` carries both, 25.79 → 26.44, so it moves — to 26.5, not a round
+ * 27: the ratchet stays tight.
  *
- * Savings were looked for first: folding `setText` into `content` and a
- * shared render-and-place helper paid back almost nothing, because gzip
- * had already collapsed the repetition they removed. Levers, in order: the
- * eager `<router>` above, then putting the tree emitter behind an injected
- * hook like `setStyleCompiler`, since DOM-only apps never compile for
- * `'tree'`. `runtime` now has ~0.06 KB of headroom — the next runtime
- * feature needs a saving first.
+ * Savings were looked for first: a shared render-and-place helper paid
+ * back almost nothing, because gzip had already collapsed the repetition
+ * it removed. `<router>` stays eagerly registered by decision. The lever
+ * left is putting the tree emitter behind an injected hook like
+ * `setStyleCompiler`, since DOM-only apps never compile for `'tree'`.
+ * `runtime` is AT its budget: the next runtime change (L1 adds one) moves
+ * it, deliberately and by the least that fits.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 27,        // full: runtime + parser/compiler + style compiler + router
+  'dist/lips.min.js': 26.5,      // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
   'dist/precompile.min.js': 14,  // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3        // opt-in preprocessor — not loaded unless asked for

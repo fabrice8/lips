@@ -184,9 +184,14 @@ even if the Lynx work stops.
 
 - **`src/ir/host.ts`: the `Host` interface and `domHost`.**
   - Covers creating, placing and walking nodes: `clone`, `fragment`,
-    `element`, `text`, `marker`, `child`, `next`, `parent`, `insert`,
-    `remove`, `isElement`, `connected` and `precedes`.
-  - Covers mutating them: `content`, `attr`, `styleVar` and `listen`.
+    `element`, `text`, `marker`, `child`, `next`, `insert`, `remove`,
+    `isElement`, `connected` and `precedes`.
+  - Ranges are one call: `range( first, last )` walks a block's nodes and
+    `insertAfter( ref, nodes )` moves them, with the loop inside the host.
+    That keeps the hot loops where they were, and lets a native host send
+    one move instead of one per node.
+  - Covers mutating them: `setText`, `content`, `attr`, `styleVar` and
+    `listen`.
   - The host decisions are `scope` (`rel` on the DOM), optional `html`
     and optional `keepFocus`.
   - The runtime holds no DOM reference. `RuntimeOptions.host` picks the
@@ -221,12 +226,19 @@ even if the Lynx work stops.
   text updates, a wrong `precedes`, an `insert` that ignores its
   reference, an outer scope overwriting an inner one), each caught.
 - **Cost.**
-  - Size: +0.32 KB gzipped on `runtime` (within budget) and +0.28 KB on the
-    compiler entries. `full` moved 26 → 27 KB; the note is in
-    `scripts/size-check.mjs`.
-  - Speed: in a side-by-side Chromium A/B at 1k rows (25 and 40
-    alternating iterations), create, replace, update, append and clear
-    stayed within ±5%. Remove was ~+6% in both runs (3.1 → 3.3 ms).
+  - Size: +0.37 KB gzipped on `runtime` (14.99, inside 15 with 8 bytes
+    left) and +0.29 KB on the compiler entries. `full` moved 26 → 26.5 KB;
+    the note is in `scripts/size-check.mjs`.
+  - Speed: side-by-side Chromium A/B at 10k rows, isolated timers, forced
+    GC, four rounds of 30 alternating iterations. Median ratios against the
+    previous runtime: create 1.00, replace 1.01, update 1.00, swap 0.99,
+    remove 1.04, append 1.02, clear 0.94. A per-node host shape measured
+    the same, so the range shape stays for Lynx's sake.
+  - The same pass fixed a pre-existing O(n²) in keyed `<for>` (every
+    change ran `ordered.includes` per row). With it, the list operations
+    measure at or below the pre-seam runtime (first round: remove 0.95,
+    clear 0.92, update 0.97), and create, which never runs that code, at
+    1.03.
 
 ### 4.2 Threads and the change protocol
 
