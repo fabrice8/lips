@@ -129,7 +129,7 @@ Consequences that re-rank the phases:
 
 ## Phase 5 — Native target: Lips on Lynx
 
-*The native export target RFC-003 deferred. Same templates, a second host. Each step ends in an exit check; L4 is a go/no-go gate.*
+*The native export target RFC-003 deferred. Same templates, a second host. Each step ends in an exit check; L4 is a go/no-go gate. Minimum Lynx SDK: 4.0.*
 
 > **Design doc:** [design/lynx-binding.md](design/lynx-binding.md) (RFC-006) — verified ground
 > (what Lynx's CSS engine and element API actually do), architecture, test tiers, risks.

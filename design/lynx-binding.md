@@ -1,6 +1,6 @@
 # RFC-006 — Lips on Lynx: a native host for the IR
 
-**Status:** proposal · 2026-10-16
+**Status:** proposal · 2026-10-16 · minimum Lynx SDK decided: 4.0 (§9)
 **Depends on:** RFC-001 (template IR), RFC-004 (StyleIR)
 **Revisits:** RFC-003 §"Platform posture" — the native export target it deferred
 **Tracked in:** [ROADMAP.md](../ROADMAP.md), Phase 5
@@ -255,7 +255,8 @@ the existing `mode: 'interpreted'`. Nothing depends on `eval`.
 - An Rspeedy plugin (`@lipsjs/lips/lynx-plugin`) compiles templates and
   `.lips` files into the main-thread and background entries, routes CSS
   through §4.4, and sets the page config this design needs
-  (`enableCSSInlineVariables`, and `enableCSSRule` when targeting SDK 4.0+).
+  (`enableCSSInlineVariables` and `enableCSSRule`; both exist on the
+  SDK 4.0 floor, §9).
 - A runtime entry (`@lipsjs/lips/lynx`) holds the background host and the
   main-thread applier, with its own size budget in `scripts/size-check.mjs`.
 
@@ -334,8 +335,13 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
 
 ## 9. Open decisions
 
-1. **Minimum Lynx SDK:** 4.0 (gets `@media`) or 3.7 (floor for runtime
-   stylesheets).
+1. ~~**Minimum Lynx SDK:** 4.0 or 3.7.~~ **Decided 2026-10-16: 4.0.**
+   - `@media` needs it (§3.3), and responsive layout is not optional.
+   - It is above the 3.7 floor for runtime stylesheets (§3.7), so L5 keeps
+     that option.
+   - The tier-B headless runtime is 4.1, so the floor is close to what the
+     tests run against.
+   - Cost: an app pinned below 4.0 cannot adopt Lips without upgrading.
 2. **Raw text outside text elements:** always an error, or auto-wrap when the
    wrapper is unambiguous.
 3. **Packaging:** subpath entries of `@lipsjs/lips`, or a separate
