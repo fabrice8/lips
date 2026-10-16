@@ -180,6 +180,54 @@ Exit: the full suite passes on the DOM host unchanged, and an in-memory test
 host runs the IR runtime specs. This step stands on its own (test host, SSR)
 even if the Lynx work stops.
 
+**As built (2026-10-16).**
+
+- **`src/ir/host.ts`: the `Host` interface and `domHost`.**
+  - Covers creating, placing and walking nodes: `clone`, `fragment`,
+    `element`, `text`, `marker`, `child`, `next`, `parent`, `insert`,
+    `remove`, `isElement`, `connected` and `precedes`.
+  - Covers mutating them: `content`, `attr`, `styleVar` and `listen`.
+  - The host decisions are `scope` (`rel` on the DOM), optional `html`
+    and optional `keepFocus`.
+  - The runtime holds no DOM reference. `RuntimeOptions.host` picks the
+    host, and the DOM is the default.
+- **The stylesheet hook stays where it was.** It is
+  `RuntimeOptions.createStylesheet`, supplied by the facade, rather than a
+  `Host` member. Change 2 above assumed it had to move. The facade
+  (`facade.ts`, including `appendTo`'s `querySelector`) and `stylesheet.ts`
+  are the DOM front end, so they stay DOM. A Lynx entry gets its own
+  (L1, §4.7).
+- **`compileTemplate( src, { target: 'tree' } )`.**
+  - Adds `BlockIR.nodes`, a tree of `'text' | 0 (anchor) | [ tag, attrs?,
+    children? ]`.
+  - Paths are shared with `html`, and the compiler coalesces text in both
+    forms the same way.
+  - The tree target drops template comments, which mean nothing off the
+    DOM.
+  - `@html` is LIPS-C021.
+  - `precompile` and `lipsPlugin` take the same option.
+  - The default target's output is unchanged.
+- **`src/ir/tree.ts` is the in-memory host.**
+  - It is a sibling-linked tree with O(1) `next`/`insert`/`remove`: the
+    shadow-tree shape a background-thread host needs (§4.2).
+  - It records scope in a field rather than styling anything.
+  - It is not in a published entry yet (§9, packaging).
+- **How "runs the IR runtime specs" was met.** The existing runtime specs
+  assert through DOM APIs (`querySelector`, `click()`), so they cannot run
+  on another host as written. `tests/ir-host.spec.ts` instead renders every
+  executor, events, lifecycle, styles, swap with salvage, and dispose
+  through *both* hosts, and requires identical trees after every step. The
+  check was proven able to fail by four deliberate tree-host bugs (dropped
+  text updates, a wrong `precedes`, an `insert` that ignores its
+  reference, an outer scope overwriting an inner one), each caught.
+- **Cost.**
+  - Size: +0.32 KB gzipped on `runtime` (within budget) and +0.28 KB on the
+    compiler entries. `full` moved 26 → 27 KB; the note is in
+    `scripts/size-check.mjs`.
+  - Speed: in a side-by-side Chromium A/B at 1k rows (25 and 40
+    alternating iterations), create, replace, update, append and clear
+    stayed within ±5%. Remove was ~+6% in both runs (3.1 → 3.3 ms).
+
 ### 4.2 Threads and the change protocol
 
 - **Background thread:** the Lips runtime: signals, bindings, handlers,

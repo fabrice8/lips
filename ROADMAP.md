@@ -134,7 +134,8 @@ Consequences that re-rank the phases:
 > **Design doc:** [design/lynx-binding.md](design/lynx-binding.md) (RFC-006) — verified ground
 > (what Lynx's CSS engine and element API actually do), architecture, test tiers, risks.
 
-- [ ] **L0 — Host seam** in Lips core: `BlockIR.nodes` beside `html`, a `Host` interface, today's behaviour as the DOM host, scope stamping and `@html` made host decisions. Exit: full suite green on the DOM host; an in-memory test host runs the IR runtime specs
+- [x] **L0 — Host seam** in Lips core: `BlockIR.nodes` beside `html`, a `Host` interface, today's behaviour as the DOM host, scope stamping and `@html` made host decisions. Exit: full suite green on the DOM host; an in-memory test host runs the IR runtime specs
+  > **2026-10-16:** `src/ir/host.ts` (interface + DOM host), `src/ir/tree.ts` (in-memory host), `compileTemplate( src, { target: 'tree' } )`. The 507 existing specs pass unchanged on the DOM host; `tests/ir-host.spec.ts` renders every executor through both hosts and requires identical trees after each step (RFC-006 §4.1, "As built").
 - [ ] **L1 — Renderer spike**: background-thread runtime, main-thread applier over the element API, text/attribute/class binds, `<if>`/`<for>`, `tap`. Exit: counter + keyed list render in `@lynx-js/testing-environment`, Lynx for Web, and the real engine headless
 - [ ] **L2 — Style pipeline**: mandatory flattening, class scope, Lynx lint diagnostics, variables via `__SetInlineStyles`, full-value binds where `calc()` is unsupported. Exit: StyleIR specs assert computed styles in the real engine
 - [ ] **L3 — Inputs, scroll, list, vocabulary diagnostics** (`setValue` write path, raw-text rule)

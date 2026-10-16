@@ -50,6 +50,9 @@ export {
 export type {
   TemplateIR,
   BlockIR,
+  NodeIR,
+  CompileOptions,
+  Host,
   BindIR,
   ChildIR,
   CompileResult,

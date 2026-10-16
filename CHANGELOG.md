@@ -5,6 +5,37 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — the host seam (RFC-006 L0)
+
+- The IR runtime no longer touches the DOM directly. Every node operation
+  goes through a `Host` (`src/ir/host.ts`): creating, placing, walking and
+  mutating nodes, plus two decisions that differ by host: how a stylesheet
+  scope marks an element, and whether markup can be parsed. The DOM is the
+  default host and behaves exactly as before.
+
+  ```js
+  renderIR( ir, setup, { host: myHost })
+  ```
+
+- `compileTemplate( src, { target: 'tree' } )` (also `precompile` and
+  `lipsPlugin`) adds `BlockIR.nodes`, the skeleton as a structural tree, for
+  hosts with no HTML parser. Its paths are the same ones `html` uses. The
+  tree target drops template comments, and `@html` becomes **LIPS-C021**,
+  because there is nothing to parse the markup with. The default target's
+  output is unchanged byte for byte.
+
+- `src/ir/tree.ts` is an in-memory host over plain objects, and the base a
+  native binding builds on. `tests/ir-host.spec.ts` renders every construct
+  through both hosts and requires identical trees after every step. It
+  covers all executors, events, lifecycle, styles, swap with salvage, and
+  dispose. The in-memory host is not in any published entry yet; where it
+  ships is RFC-006's open packaging decision.
+
+- Size: the seam costs ~0.32 KB gzipped on `runtime` (14.6 → 14.9, still
+  inside 15) and the tree target ~0.28 KB on the compiler-bearing entries.
+  `full` carries both, 25.8 → 26.4, and its budget moves 26 → 27 (see
+  `scripts/size-check.mjs`).
+
 ### Changed — Stylis is opt-in, and the full bundle is 1.2 KB smaller
 
 - The scope wrap `[rel="card"] { … }` **is** CSS nesting, which every engine
