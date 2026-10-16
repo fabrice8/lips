@@ -63,12 +63,5 @@ export const LYNX_TAG: Record<string, string> = Object.fromEntries([
   [ 'img', 'image' ]
 ])
 
-/**
- * The class a stylesheet scope stamps on a component's roots — what its
- * `.lips-<nsp>` rules select (RFC-006 §4.4). Attribute selectors never
- * match on Lynx, so the DOM's `rel` cannot be used.
- */
-export const scopeClass = ( nsp: string ) => `lips-${nsp.replace( /[^\w-]/g, '-' )}`
-
 /** Template event name → Lynx event name: DOM spellings keep working */
 export const LYNX_EVENT: Record<string, string> = { click: 'tap' }

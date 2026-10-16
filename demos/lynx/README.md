@@ -1,4 +1,4 @@
-# Lips on Lynx — renderer and styles (RFC-006 L1, L2)
+# Lips on Lynx — renderer spike (RFC-006 L1)
 
 One HTML-shaped Lips template, rendered natively by Lynx through the
 two-thread binding in `src/lynx/`:
@@ -8,23 +8,6 @@ two-thread binding in `src/lynx/`:
   which records changes as protocol ops.
 - `src/main-thread.ts` creates the page and the applier. The applier is the
   only code that calls Element PAPI.
-
-## Styles
-
-`src/app.lips.css` is the component's sheet, in Lips syntax: `{state.x}`
-binds a value. `lips-styles.ts` is an Rsbuild plugin that compiles it at
-build time, because Lynx cannot add a stylesheet at runtime:
-
-- `main-thread.ts` imports it, and the bundle gets flat CSS scoped by
-  `.lips-app`. Lint errors (`LIPS-L…`) fail the build.
-- `background.ts` imports it with `?raw` and gets the binds, which the
-  runtime writes as variables on the root.
-- The plugin sets the page config those rely on: inline variables,
-  `@media` and CSS inheritance.
-
-Import a Lips sheet from a script, not with `@import` from `style.css`:
-css-loader sends an `@import` past every configured loader, so the sheet
-would reach Lynx uncompiled.
 
 ## Run it
 
@@ -50,16 +33,8 @@ lynx-stack's headless runner crates at the commit RFC-006 pins, plus the Lynx
 SHA-256s. It then builds the bundle and runs `native/harness`:
 
 - first render, taps and keyed moves are checked in the engine's own DOM;
-- the sheet's computed styles are read from its native CSS engine, before
-  and after a state change rewrites the binds;
+- computed styles are read from its native CSS engine;
 - the frame is written to `dist/native.bmp`.
-
-To explore instead of check, `probe` loads a bundle and runs steps in
-order:
-
-```bash
-native/target/debug/lips-tierb probe dist/main.lynx.bundle tap=#theme 'style=#count:color,font-size' dom shot=/tmp/f.bmp
-```
 
 Any JS error the engine reports fails the run. If the demo's
 `node_modules` is missing, it runs `npm ci` first.

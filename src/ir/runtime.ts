@@ -347,9 +347,9 @@ function stampScope( h: Host, inst: BlockInstance, nsp: string ){
  * declaration falls through to an ancestor's value — that is what makes
  * "use mine if given, otherwise inherit" free (RFC-004 §7.3, §12.2).
  */
-function writeStyleVar( h: Host, roots: N[], prop: string, value: any, unit = '' ){
+function writeStyleVar( h: Host, roots: N[], prop: string, value: any ){
   for( const root of roots )
-    h.styleVar( root, prop, value === null || value === undefined || value === false ? null : value + unit )
+    h.styleVar( root, prop, value === null || value === undefined || value === false ? null : String( value ) )
 }
 
 /** Stamp the scope, then inject via the facade's factory. Returns a clear disposer */
@@ -582,7 +582,7 @@ class IRRenderer {
     roots = scopeRoots( this.h, inst ),
     handles = style.binds.map( b => {
       const run = this.srcRunner( style.exprs[ b.e ], [] )
-      return this.guarded( () => writeStyleVar( this.h, roots, b.prop, run( env ), b.u ) )
+      return this.guarded( () => writeStyleVar( this.h, roots, b.prop, run( env ) ) )
     })
 
     return () => { for( const h of handles ) h.dispose() }

@@ -13,8 +13,6 @@
     "@lynx-js/types": "4.2.1",
     "@lynx-js/vanilla-rsbuild-plugin": "0.1.2",
     "@lynx-js/web-core": "0.26.2",
-    "jiti": "2.7.0",
-    "stylis": "4.3.6",
     "typescript": "5.8.2"
   }
 }

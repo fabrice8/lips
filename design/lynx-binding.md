@@ -324,11 +324,11 @@ API calls only on the main thread, serializable patches from the background.
     the native CSS engine matching the classes the binding sets
     (`background-color`, `font-size`).
   - It fails on any JS error the engine reports, not just unmet checks.
-    The `queueMicrotask` bug passed every functional check and was caught
-    only by that.
   - CI runs it (`.github/workflows/lynx-native.yml`) on changes to `src/`
     or `demos/lynx/`, on GitHub's Ubuntu 24.04 runners. The engine needs
     glibc 2.18 or newer and `libepoxy0`.
+    The `queueMicrotask` bug passed every functional check and was caught
+    only by that.
   - L1's exit is met at tiers A and B.
 - **Known limits, owned by later steps.**
   - Text outside a text element is not rendered and not yet reported:
@@ -375,96 +375,6 @@ full-value rule from §3.2.
 restricts them to classes from precompiled sheets plus inline styles. A later
 version may encode their CSS server-side into a CSS-only bundle and adopt it
 with `__LoadStyleSheet`, which is internal (§8).
-
-**As built, L2 (2026-10-16).**
-
-- **`src/lynx/style.ts`: `compileLynxStyle( source, { nsp, preprocess })`.**
-  It returns the usual StyleIR: `css` for the bundle, `binds` for the
-  background.
-  - **Flat, class-scoped.** The preprocessor is a required argument, and
-    the scope wrap is `.lips-<nsp>`. The `& `/`:is()` rewrite now runs
-    only when a sheet ships nested, on any target. A preprocessor resolves
-    `div &` itself, and `:is()` never matches on Lynx.
-  - **Full values everywhere.** The RFC planned `calc()` on lengths and a
-    full value elsewhere. Every bind writes its full value instead, so
-    there is no table of length properties to keep right.
-    `padding: {x}px` becomes `var(--card-0-px)`, bound with its unit, and
-    the runtime writes `12px`. One expression used with two units is two
-    variables. There are no `@property` registrations.
-  - **Lint**, reported on the source with locations:
-
-    | Code | Severity | What (§) |
-    |---|---|---|
-    | LIPS-L001 | error | attribute selector (§3.1) |
-    | LIPS-L002 | error | pseudo-element, `::x` or legacy `:before` (§3.1) |
-    | LIPS-L003 | error | pseudo-class other than `:not` `:active` `:focus` `:root` (§3.1) |
-    | LIPS-L004 | warning | `:hover`, desktop only (§3.1) |
-    | LIPS-L005 | error | HTML type selector: `div` renders as `view` (§4.3) |
-    | LIPS-L006 | error | unsupported at-rule: `@container`, `@property`, `@charset`, … (§3.2, §3.3) |
-    | LIPS-L007 | warning | `@supports`, `@layer`: untested (§3.3) |
-    | LIPS-L008 | warning | not a Lynx property (the `@lynx-js/types` 4.2.1 list) |
-    | LIPS-L009 | error | `min()`, `max()`, `clamp()` (§3.3) |
-    | LIPS-L010 | error | `calc()` off a length property (§3.2) |
-    | LIPS-L011 | warning | `!important` (§3.3) |
-
-    Every CSS limit in §3.1–§3.3 has one. Layout defaults (§3.3) cannot be
-    seen in a sheet.
-  - **`LYNX_PAGE_CONFIG`**: `enableCSSInlineVariables`, `enableCSSRule`
-    and `enableCSSInheritance`, all `true`.
-- **The core cost.** The style compiler gained a `scope` option and a
-  `lint` hook. Its statements now start at their first character, so every
-  diagnostic, not just Lynx's, points at the right column. That costs 69
-  bytes on the compiler-bearing bundles. The runtime writes a bind's unit,
-  for 6 bytes. Compiling a 4,000-rule sheet is ~20% faster than before,
-  with identical output.
-- **Build route: `demos/lynx/lips-styles.ts`.** This is the CSS half of
-  §4.7's plugin, kept with the demo until packaging is decided.
-  - A `*.lips.css` file is compiled ahead of Lynx's CSS pipeline. Its file
-    name is the scope.
-  - A `?raw` import of it gives the background its IR.
-  - `beforeEncode` sets the page config.
-  - Any error diagnostic fails the build.
-- **Found on the way (tier B, real engine).**
-  - The three flags are **page config** (`sourceContent.config`). As
-    compiler options they do nothing.
-  - `__SetInlineStyles` with a **string** carries custom properties in 4.1,
-    not just the object form (§3.2). The engine logs `illegal css key:239`
-    once per inline variable and applies it anyway.
-  - `opacity: calc(…)` stays an unevaluated string, so §3.2 holds.
-    `calc(var(--n) * 1px)` on `width` works.
-  - `var()` in a shorthand renders (`border-radius`). The computed-style
-    map reports the shorthand, not the longhands.
-  - Without `enableCSSInheritance`, a text inside a coloured container is
-    black. With it, `color` and `font-size` inherit as on the web. The
-    computed-style map does not show inherited `color`; the frame does.
-- **Found on the way (build).**
-  - css-loader requests an `@import` past every configured loader, so a
-    Lips sheet `@import`ed from `style.css` reached Lynx uncompiled. Error
-    recovery dropped its scoped rules without a word. The sheet is
-    imported from `main-thread.ts` instead.
-  - Rspeedy loads its config with Node's own loader. That needs file
-    extensions, which Lips's sources do not use, so the plugin loads them
-    with `jiti`. The demo also declares `typescript`, which that loader
-    imports. It had been resolving from the repo root, which CI does not
-    install.
-- **Tests.**
-  - Tier A: `tests/lynx-style.spec.ts` (18 specs) covers the output shape,
-    full values and every lint code, with locations and with no false
-    alarms. It also checks that the demo's sheet compiles clean.
-  - Tier A: `tests/lynx-binding.spec.ts` checks the scope class and the
-    full-value binds on the main thread. The web e2e (`demos/lynx/e2e.mjs`)
-    adds three style checks: 10/10.
-  - Tier B: `run.sh` adds four checks on the demo's sheet, read from the
-    engine's computed styles. 14/14 pass.
-    - The scope class reaches the root.
-    - Scoped rules match, and `@media` applies.
-    - Text properties inherit.
-    - The binds apply (accent colour, padding in px, radius in px, width
-      in %), and a state change rewrites all four.
-  - Two mutations were each caught at tier B: dropping
-    `enableCSSInlineVariables` failed the bind checks, and renaming the
-    scope class failed the root-class check.
-  - L2's exit is met.
 
 ### 4.5 Events and inputs
 

@@ -10,11 +10,6 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['tests/**/*.spec.ts'],
     // Framework updates flow through microtask queues — generous but bounded
-    testTimeout: 10000,
-    /**
-     * CSS imports are empty in tests by default, `?raw` included. Lips
-     * sheets (`*.lips.css`, the Lynx demo's) are read as text by the specs.
-     */
-    css: { include: [ /\.lips\.css/ ] }
+    testTimeout: 10000
   }
 })

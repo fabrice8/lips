@@ -21,8 +21,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { LynxTestingEnv } from '@lynx-js/testing-environment'
 import { compileTemplate } from '../src/ir/compiler'
-import { compileLynxStyle } from '../src/lynx/style'
-import { stylisPreprocessor } from '../src/stylis'
+import { compileStyle } from '../src/ir/style'
 import { renderIR, type RenderSetup, type RuntimeOptions } from '../src/ir/runtime'
 import { createBackgroundHost, connectBackground, type LynxNode, type BackgroundHost } from '../src/lynx/background'
 import { connectMain } from '../src/lynx/main'
@@ -235,24 +234,16 @@ describe('Lynx: both threads through the testing environment', () => {
   it('a component scope merges with its class, and style variables ride inline', async () => {
     const card = {
       ir: tree(`<div class="card"><span>{input.label}</span></div>`),
-      stylesheet: compileLynxStyle(`.card { width: {input.w}px; color: {input.c} }`, { nsp: 'ui/card', preprocess: stylisPreprocessor }).ir
+      stylesheet: compileStyle(`.card { width: {input.w}px }`, { nsp: 'card' }).ir
     }
-    const app = await boot( `<card label=state.l w=state.w c=state.c/>`, { state: { l: 'L', w: 10, c: 'red' } }, { components: { card } } )
+    const app = await boot( `<card label=state.l w=state.w/>`, { state: { l: 'L', w: 10 } }, { components: { card } } )
 
-    // The scope class, cleaned as the compiled sheet's selector is
     const el = app.q('view')
-    expect( el.className ).toBe('card lips-ui-card')
-    expect( card.stylesheet.css ).toContain('.lips-ui-card .card{')
-
-    // A unit-suffixed bind carries its unit: Lynx's calc() covers lengths only
-    expect( el.getAttribute('style') ).toBe('--ui-card-1: red; --ui-card-0-px: 10px')
+    expect( el.className ).toBe('card lips-card')
+    expect( el.getAttribute('style') ).toBe('--card-0: 10')
 
     await app.act( () => app.inst.state.w = 20 )
-    expect( el.getAttribute('style') ).toBe('--ui-card-1: red; --ui-card-0-px: 20px')
-
-    // Nullish removes the variable, so an ancestor's value shows through
-    await app.act( () => app.inst.state.c = null )
-    expect( el.getAttribute('style') ).toBe('--ui-card-0-px: 20px')
+    expect( el.getAttribute('style') ).toBe('--card-0: 20')
   })
 
   it('dynamic tags map through the same vocabulary', async () => {
