@@ -1,0 +1,23 @@
+/*
+ * The demo's component sheet, in Lips syntax: compiled at build time to
+ * flat CSS scoped by `.lips-app` (see ../lips-styles.ts). The braces bind
+ * state; the background writes them as variables on the root.
+ */
+--accent: {state.accent};
+padding: {state.pad}px;
+font-size: 15px;
+
+.title { font-size: 20px; margin-bottom: 12px; color: var(--accent); }
+.row { display: flex; flex-direction: row; margin-bottom: 12px; }
+.btn {
+  padding: 8px 12px;
+  margin-right: 8px;
+  background-color: #e2e8f0;
+  border-radius: {state.radius}px;
+}
+.swatch { height: 8px; width: {state.width}%; margin-bottom: 12px; background-color: var(--accent); }
+.item { padding: 6px 0; }
+
+@media (max-width: 500px) {
+  .title { letter-spacing: 1px; }
+}

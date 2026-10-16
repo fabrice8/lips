@@ -30,6 +30,12 @@ export interface StyleBindIR {
   prop: string
   /** Index into StyleIR.exprs */
   e: number
+  /**
+   * Unit appended to the value when it is written: a full-value bind, for
+   * engines whose `calc()` cannot multiply a number back into it (Lynx,
+   * RFC-006 §3.2)
+   */
+  u?: string
 }
 
 export interface PropertyIR {
@@ -72,7 +78,25 @@ export interface StyleCompileOptions {
    * the call is the only wiring that survives that boundary.
    */
   preprocess?: StylePreprocessor
+  /**
+   * The scope wrap's selector, for a host that does not scope by `rel`
+   * (Lynx scopes by class, RFC-006 §4.4). Default `[rel="<nsp>"]`.
+   */
+  scope?: string
+  /**
+   * What the target cannot do, reported on the source. Passed per call,
+   * like the preprocessor, so a target's rules — and their bytes — stay
+   * out of the DOM bundles.
+   */
+  lint?: StyleLint
 }
+
+/**
+ * Called on every selector (`text`), at-rule prelude (`text` starting
+ * with `@`) and declaration (`text` the property, plus its `value`).
+ * Returns its diagnostics; the compiler adds where it is in the source.
+ */
+export type StyleLint = ( text: string, value?: string ) => Omit<TemplateDiagnostic, 'loc'>[] | undefined
 
 export interface StyleCompileResult {
   ir: StyleIR
@@ -380,7 +404,10 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
   report = ( code: string, message: string, offset: number, length: number, hint?: string ) =>
     diagnostics.push({ code, severity: 'error', message, hint, loc: locOf( src, offset, length ) }),
   warn = ( code: string, message: string, offset: number, length: number, hint?: string ) =>
-    diagnostics.push({ code, severity: 'warning', message, hint, loc: locOf( src, offset, length ) })
+    diagnostics.push({ code, severity: 'warning', message, hint, loc: locOf( src, offset, length ) }),
+  /** The target's lint, located on the statement `from`…`to` */
+  lint = ( text: string, from: number, to: number, value?: string ) =>
+    options.lint?.( text, value )?.forEach( d => diagnostics.push({ ...d, loc: locOf( src, from, to - from ) }) )
 
   const slot = ( expr: string ) => {
     let e = exprs.indexOf( expr )
@@ -476,6 +503,9 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
 
     let block: Block
 
+    // Keyframe selectors (`from`, `50%`) are not style selectors
+    parent.ctx === 'opaque' || lint( prelude, stmt, i )
+
     if( prelude[ 0 ] === '@' ){
       if( parent.ctx !== 'opaque' && HOISTED_BLOCK.test( prelude ) ) block = { ctx: 'opaque', hoist: out.length }
       else if( GROUP_AT.test( prelude ) ) block = { ctx: parent.ctx, group: prelude, at: out.length }
@@ -483,11 +513,18 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
     }
     else {
       if( parent.ctx === 'style' ){
-        native && CONCAT.test( prelude.replace( QUOTED, '' ) )
-        && warn( 'LIPS-S008', `'${prelude}' joins '&' to a name`, stmt, i - stmt,
-          'Native nesting cannot: write the full selector, or use stylisPreprocessor.' )
+        /**
+         * Only a sheet that ships nested needs the rewrite. A preprocessor
+         * resolves `div &` itself, and `:is()` does not match everywhere
+         * (Lynx, RFC-006 §3.1).
+         */
+        if( native ){
+          CONCAT.test( prelude.replace( QUOTED, '' ) )
+          && warn( 'LIPS-S008', `'${prelude}' joins '&' to a name`, stmt, i - stmt,
+            'Native nesting cannot: write the full selector, or use stylisPreprocessor.' )
 
-        cur = nestSelector( prelude )
+          cur = nestSelector( prelude )
+        }
       }
 
       block = { ctx: parent.ctx === 'opaque' ? 'opaque' : 'style' }
@@ -583,6 +620,8 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
       continue
     }
     if( WS.test( c ) ){
+      // A statement starts at its first character, for its diagnostics
+      stmt === i && stmt++
       gap = true
       i++
       continue
@@ -618,13 +657,6 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
 
           // `color :red` — the space before the colon carries nothing
           gap = false
-
-          if( !slots.length ){
-            // fully static — emit as written
-            emit( value( parsed.parts.join('') ) )
-            i = parsed.end
-            continue
-          }
 
           /**
            * RFC-004 §7.4 — a custom property whose value is one bare
@@ -676,6 +708,7 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
             text += part.unit ? `calc(var(${prop}) * 1${part.unit})` : `var(${prop})`
           }
 
+          lint( name, stmt, parsed.end, text )
           emit( value( text ) )
           i = parsed.end
           continue
@@ -738,6 +771,8 @@ function scan( src: string, options: StyleCompileOptions, native: boolean, diagn
     }
 
     if( c === ';' ){
+      cur[ 0 ] === '@' && lint( cur, stmt, i )
+
       if( stack.length === 1 && HOISTED_STATEMENT.test( cur ) ) statements += drop() + ';'
       else flush(';')
 
@@ -790,7 +825,7 @@ export function compileStyle( src: string, options: StyleCompileOptions ): Style
    * rule.
    */
   const
-  scoped = options.meta || !css ? css : `[rel="${options.nsp}"]{${css}}`,
+  scoped = options.meta || !css ? css : `${options.scope || `[rel="${options.nsp}"]`}{${css}}`,
   body = hoisted + scoped,
   source = options.layer ? `@layer ${options.layer}{${body}}` : body
 
