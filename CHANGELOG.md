@@ -5,6 +5,37 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — Lynx renderer spike (RFC-006 L1)
+
+- **`src/lynx/`: Lips rendering natively on Lynx, over two threads.**
+  - The runtime runs on the background thread against a shadow-tree host
+    that records changes as a flat op stream.
+  - A small main-thread applier applies the ops through Element PAPI and
+    forwards events back.
+  - Templates stay HTML-shaped: `div`/`button` render as `view`,
+    `p`/`span` as `text`, and `click` handlers receive `tap`.
+- **`Host.remove( node, gone )`.** The runtime now says when a node is
+  destroyed rather than moved, so a host can free what it holds. The DOM
+  ignores it.
+- **`demos/lynx`.** One template built with Rspeedy into a Lynx for Web
+  bundle and a native bundle. `e2e.mjs` drives the web one in Chromium.
+  `native/run.sh` runs the native one in the real Lynx 4.1 engine,
+  headless. It fetches every input pinned and checksum-verified, and fails
+  on any JS error the engine reports.
+
+### Fixed — found by running the real Lynx engine
+
+- The runtime scheduled `onUpdate` with `queueMicrotask`, which Lynx's
+  native background engine does not have. The call sat outside the
+  effect's error guard, so the throw could abort the effects after it. It
+  now uses a promise job, which every engine has.
+- `connectMain` installs no-op `renderPage`, `updatePage` and `processData`
+  unless the app defines its own. The native engine calls `renderPage` and
+  threw without it.
+- Nothing in `src/lynx/` is in a published entry yet (RFC-006 §9,
+  packaging). Net effect on the DOM bundles: `runtime` 14.99 → 14.993 KB
+  gzipped (+5 bytes for the `gone` flag, −4 for the promise job).
+
 ### Added — the host seam (RFC-006 L0)
 
 - The IR runtime no longer touches the DOM directly. Every node operation

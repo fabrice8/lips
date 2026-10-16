@@ -1,0 +1,8 @@
+[package]
+name = "lips-tierb"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+lynx-headless-rust-test-runner = { path = "../.cache/headless-rust-test-runner" }

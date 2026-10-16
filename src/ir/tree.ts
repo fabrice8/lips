@@ -39,7 +39,8 @@ export interface TreeNode {
   next: TreeNode | null
 }
 
-const make = ( type: string, value = '' ): TreeNode => ({
+/** A fresh, unattached node — also the base of the Lynx background host's nodes */
+export const treeNode = ( type: string, value = '' ): TreeNode => ({
   type, value,
   attrs: {}, vars: {}, listeners: {},
   parent: null, first: null, last: null, prev: null, next: null
@@ -47,7 +48,7 @@ const make = ( type: string, value = '' ): TreeNode => ({
 
 const isElement = ( n: TreeNode ) => n.type[ 0 ] !== '#'
 
-function unlink( n: TreeNode ){
+export function unlink( n: TreeNode ){
   const p = n.parent
   if( !p ) return
 
@@ -57,7 +58,7 @@ function unlink( n: TreeNode ){
 }
 
 /** DOM `insertBefore`: the node leaves wherever it was first */
-function insert( parent: TreeNode, n: TreeNode, ref: TreeNode | null ){
+export function link( parent: TreeNode, n: TreeNode, ref: TreeNode | null ){
   unlink( n )
   n.parent = parent
 
@@ -75,13 +76,13 @@ function insert( parent: TreeNode, n: TreeNode, ref: TreeNode | null ){
 }
 
 function build( n: NodeIR ): TreeNode {
-  if( typeof n === 'string' ) return make( '#text', n )
-  if( n === 0 ) return make( '#marker', '$' )
+  if( typeof n === 'string' ) return treeNode( '#text', n )
+  if( n === 0 ) return treeNode( '#marker', '$' )
 
   const [ tag, attrs, children ] = n
-  const el = make( tag )
+  const el = treeNode( tag )
   attrs && Object.assign( el.attrs, attrs )
-  children?.forEach( c => insert( el, build( c ), null ) )
+  children?.forEach( c => link( el, build( c ), null ) )
   return el
 }
 
@@ -97,14 +98,14 @@ export const treeHost: Host<TreeNode> = {
     if( !block.nodes )
       throw new Error(`[lips] this IR has no node tree: compile it with { target: 'tree' } to render on a tree host`)
 
-    const frag = make('#fragment')
-    for( const n of block.nodes ) insert( frag, build( n ), null )
+    const frag = treeNode('#fragment')
+    for( const n of block.nodes ) link( frag, build( n ), null )
     return frag
   },
-  fragment: () => make('#fragment'),
-  element: tag => make( tag ),
-  text: value => make( '#text', value ),
-  marker: label => make( '#marker', label ),
+  fragment: () => treeNode('#fragment'),
+  element: tag => treeNode( tag ),
+  text: value => treeNode( '#text', value ),
+  marker: label => treeNode( '#marker', label ),
 
   child( parent, index ){
     let n = parent.first
@@ -120,13 +121,13 @@ export const treeHost: Host<TreeNode> = {
     }
     return out
   },
-  insert,
+  insert: link,
   insertAfter( ref, nodes ){
     const parent = ref.parent
     if( !parent ) return
     let anchor = ref
     for( const n of nodes ){
-      insert( parent, n, anchor.next )
+      link( parent, n, anchor.next )
       anchor = n
     }
   },
@@ -158,7 +159,7 @@ export const treeHost: Host<TreeNode> = {
   setText: ( n, value ) => { n.value = value },
   content( el, value ){
     while( el.first ) unlink( el.first )
-    value && insert( el, make( '#text', value ), null )
+    value && link( el, treeNode( '#text', value ), null )
   },
   attr: ( el, name, value ) => { value === null ? delete el.attrs[ name ] : el.attrs[ name ] = value },
   styleVar: ( el, prop, value ) => { value === null ? delete el.vars[ prop ] : el.vars[ prop ] = value },
@@ -170,7 +171,7 @@ export const treeHost: Host<TreeNode> = {
 }
 
 /** A live root to mount into: what is under it counts as connected */
-export const treeRoot = () => make('#root')
+export const treeRoot = () => treeNode('#root')
 
 export function childrenOf( n: TreeNode ){
   const out: TreeNode[] = []

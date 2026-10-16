@@ -43,7 +43,12 @@ export interface Host<N = any> {
   insert( parent: N, node: N, ref: N | null ): void
   /** Place `nodes`, in order, right after `ref` — nothing when `ref` has no parent */
   insertAfter( ref: N, nodes: N[] ): void
-  remove( node: N ): void
+  /**
+   * `gone`: the node will never be inserted again — the runtime is
+   * destroying it, not moving it. A host may release what it holds for
+   * it (the Lynx host frees its ids); the DOM has nothing to free.
+   */
+  remove( node: N, gone?: boolean ): void
   isElement( node: N ): boolean
   /** In the live tree — what `onAttach` waits for */
   connected( node: N ): boolean

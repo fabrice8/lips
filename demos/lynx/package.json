@@ -1,0 +1,17 @@
+{
+  "name": "lips-lynx-demo",
+  "private": true,
+  "type": "module",
+  "description": "RFC-006 L1 — a Lips template rendered by Lynx through the two-thread binding",
+  "scripts": {
+    "build": "rspeedy build",
+    "e2e": "node e2e.mjs"
+  },
+  "devDependencies": {
+    "@lynx-js/rspeedy": "0.18.0",
+    "@lynx-js/type-element-api": "0.0.10",
+    "@lynx-js/types": "4.2.1",
+    "@lynx-js/vanilla-rsbuild-plugin": "0.1.2",
+    "@lynx-js/web-core": "0.26.2"
+  }
+}
