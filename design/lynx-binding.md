@@ -235,10 +235,10 @@ even if the Lynx work stops.
     remove 1.04, append 1.02, clear 0.94. A per-node host shape measured
     the same, so the range shape stays for Lynx's sake.
   - The same pass fixed a pre-existing O(n²) in keyed `<for>` (every
-    change ran `ordered.includes` per row). With it, the list operations
-    measure at or below the pre-seam runtime (first round: remove 0.95,
-    clear 0.92, update 0.97), and create, which never runs that code, at
-    1.03.
+    change ran `ordered.includes` per row). With it, every list operation
+    measures at or below the pre-seam runtime (two rounds: remove 0.91,
+    clear 0.95, update 0.97, append 0.97, replace 0.98, swap 0.99), and
+    create, which never runs that code, at 1.02.
 
 ### 4.2 Threads and the change protocol
 

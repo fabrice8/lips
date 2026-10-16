@@ -47,10 +47,10 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - Every change to a keyed list ran `ordered.includes( item )` for each old
   row, which is O(n²): at 10k rows, 50 million comparisons to remove one
   row. Kept rows now carry a pass stamp, so the test is O(1).
-- Measured with the same harness against the runtime before the seam
-  (first round of 30 iterations): remove 0.95, clear 0.92, update 0.97,
-  swap 0.98, replace 0.98, append 0.98. So with the seam in, list
-  operations end up slightly faster than before it. `create` (1.03) never
+- Measured with the same harness against the runtime before the seam (two
+  rounds of 30 iterations, mean ratio): remove 0.91, clear 0.95, update
+  0.97, append 0.97, replace 0.98, swap 0.99. So with the seam in, every
+  list operation is as fast as before it or faster. `create` (1.02) never
   runs this code.
 
 ### Changed — Stylis is opt-in, and the full bundle is 1.2 KB smaller
