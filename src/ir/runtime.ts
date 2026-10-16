@@ -1,9 +1,10 @@
 /**
  * Phase 2 — IR runtime (RFC-001 §6, §8)
  *
- * TemplateIR → live DOM:
- *  - skeletons parsed ONCE per block into <template>, instantiated
- *    per use via content.cloneNode(true) + a bind walk over
+ * TemplateIR → live nodes, through a `Host` (RFC-006 §4.1; the DOM
+ * unless told otherwise):
+ *  - skeletons instantiated per use by the host (on the DOM: parsed
+ *    ONCE per block into <template>, then cloned) + a bind walk over
  *    precomputed integer paths
  *  - every bind is its own effect over per-key signals — updates are
  *    O(changed bindings), no digest, no clones, no deep equality
@@ -27,6 +28,8 @@ import { parseExpression, compileExpression, interpretExpression } from './expre
 import { signal, effect, untrack, reactive } from './signal'
 import type { SwapChange, SwapReport } from './swap'
 import type { StyleIR } from './style'
+import type { Host } from './host'
+import { domHost } from './host'
 import { sameBinds, sameChild, sameLets } from './swap'
 
 // ------------------------------------------------------------------- types
@@ -51,6 +54,12 @@ export interface IRComponentDef {
 
 export interface RuntimeOptions {
   mode?: 'compiled' | 'interpreted'
+  /**
+   * What the IR renders into (RFC-006 §4.1). Defaults to the DOM. A host
+   * that builds nodes one by one (`treeHost` in `./tree`) needs IR compiled
+   * with `{ target: 'tree' }`, which carries the node tree it builds from.
+   */
+  host?: Host
   components?: Record<string, IRComponentDef>
   /**
    * Resolve a plain template object (e.g. a route's `template`)
@@ -99,27 +108,31 @@ export interface RenderSetup {
   nsp?: string
 }
 
-export interface IRInstance {
+/** `N` is the host's node type — `Node` on the DOM */
+export interface IRInstance<N = Node> {
   state: Record<string, any>
   self: Record<string, any>
-  nodes: Node[]
-  mount( container: Element ): void
+  nodes: N[]
+  mount( container: N ): void
   swap( newIR: TemplateIR ): SwapReport
   dispose(): void
 }
 
 type RunEnv = ExprEnv
 
+/** A host node — opaque to the runtime */
+type N = any
+
 interface BindHandle {
   bind: BindIR
-  node: Node
-  textNode?: Text
+  node: N
+  textNode?: N
   dispose: () => void
 }
 interface ChildHandle {
   child: ChildIR
   exprs: string[]
-  anchor: Comment
+  anchor: N
   dispose: () => void
 }
 
@@ -140,7 +153,7 @@ interface LiveComp {
   input: Record<string, any>
   inst: BlockInstance
   /** Anchor of the child that currently owns it */
-  anchor: Comment
+  anchor: N
   /** Parent-side wiring: input effects + event listeners */
   wiring: ( () => void )[]
   gen: number
@@ -150,13 +163,13 @@ interface LiveComp {
 
 /** A rendered block: bracketed range + retained structure for swap */
 interface BlockInstance {
-  start: Comment
-  end: Comment
+  start: N
+  end: N
   block: BlockIR
   exprs: string[]
   penv: RunEnv                    // parent env (for full re-render)
   benv: RunEnv                    // env with this block's scope layer
-  pathNodes: Map<string, Node>    // pathKey → resolved node (binds + anchors)
+  pathNodes: Map<string, N>       // pathKey → resolved node (binds + anchors)
   bindHandles: BindHandle[]
   childHandles: ChildHandle[]
 }
@@ -218,7 +231,7 @@ function makeHooks( self: any ): ComponentHooks {
  * are actually in the document (root mount, or immediate when the
  * insertion point is already live).
  */
-const PENDING_ATTACH: { node: () => Node | undefined, fn: () => void }[] = []
+const PENDING_ATTACH: { live: () => boolean, fn: () => void }[] = []
 
 /**
  * `entry.fn()` runs `onAttach`, and an `onAttach` may RENDER — that is
@@ -243,8 +256,7 @@ function flushAttach(){
     progressed = false
 
     for( const entry of [ ...PENDING_ATTACH ].reverse() ){
-      const node = entry.node()
-      if( !node || !node.isConnected ) continue
+      if( !entry.live() ) continue
 
       // A re-entrant pass may have claimed it already
       const at = PENDING_ATTACH.indexOf( entry )
@@ -267,45 +279,24 @@ function astOf( src: string ): Expr {
   return ast
 }
 
-const SKELETONS = new WeakMap<BlockIR, HTMLTemplateElement>()
-function skeleton( block: BlockIR ): HTMLTemplateElement {
-  let tpl = SKELETONS.get( block )
-  if( !tpl ){
-    tpl = document.createElement('template')
-    tpl.innerHTML = block.html
-    SKELETONS.set( block, tpl )
-  }
-  return tpl
-}
-
 const pathKey = ( p: Path ) => p.join(',')
 
-function resolvePath( root: ParentNode, p: Path ): Node {
-  let node: any = root
-  for( const i of p ) node = node.childNodes[ i ]
+function resolvePath( h: Host, root: N, p: Path ): N {
+  let node = root
+  for( const i of p ) node = h.child( node, i )
   return node
 }
 
-function nodesOf( inst: BlockInstance ): Node[] {
-  const out: Node[] = []
-  let n: Node | null = inst.start
-  while( n ){
-    out.push( n )
-    if( n === inst.end ) break
-    n = n.nextSibling
-  }
-  return out
-}
+const nodesOf = ( h: Host, inst: BlockInstance ): N[] => h.range( inst.start, inst.end )
 /**
  * Does `n` sit between two markers in document order? Position, not
  * ancestry — a component nested deep in the skeleton's markup still
  * counts, which is what makes a region-wide sweep possible. Nodes in
  * another tree compare as disconnected, so both bits fail.
  */
-const within = ( from: Node, to: Node, n: Node ) =>
+const within = ( h: Host, from: N, to: N, n: N ) =>
   n === from // a child's own component is anchored on the marker itself
-  || ( !!( from.compareDocumentPosition( n ) & 4 /* FOLLOWING */ )
-       && !!( to.compareDocumentPosition( n ) & 2 /* PRECEDING */ ) )
+  || ( h.precedes( from, n ) && h.precedes( n, to ) )
 
 /**
  * Hand a live component to a salvage pass: its old owner loses the
@@ -314,38 +305,31 @@ const within = ( from: Node, to: Node, n: Node ) =>
  * adoption runs would otherwise sweep those nodes out of the DOM
  * along with its own range.
  */
-function release( rec: LiveComp ){
+function release( h: Host, rec: LiveComp ){
   rec.gen++
   for( const d of rec.wiring ) d()
   rec.wiring = []
-  document.createDocumentFragment().append( ...nodesOf( rec.inst ) as ChildNode[] )
+  const park = h.fragment()
+  for( const n of nodesOf( h, rec.inst ) ) h.insert( park, n, null )
 }
 
-function insertAfter( ref: Node, nodes: Node[] ){
-  const parent = ref.parentNode
-  if( !parent ) return
-  let anchor = ref
-  for( const n of nodes ){
-    parent.insertBefore( n, anchor.nextSibling )
-    anchor = n
-  }
-}
-
-/**
- * Scoped stylesheet: stamp `rel="<nsp>"` on the component's top-level
- * element roots so the injected `[rel="<nsp>"] { … }` sheet matches,
- * then inject via the host factory. The `!rel` guard lets an inner
- * component's scope win on a shared root. Returns a clear disposer.
- */
-function stampScope( inst: BlockInstance, nsp: string ){
-  for( const n of nodesOf( inst ) )
-    if( n.nodeType === 1 /* ELEMENT_NODE */ && !( n as Element ).hasAttribute('rel') )
-      ( n as Element ).setAttribute('rel', nsp )
+/** Put a rendered block's range right after `ref` */
+function place( h: Host, ref: N, inst: BlockInstance ){
+  h.insertAfter( ref, nodesOf( h, inst ) )
+  return inst
 }
 
 /** The element roots a scoped sheet matches, and its variables live on */
-function scopeRoots( inst: BlockInstance ){
-  return nodesOf( inst ).filter( n => n.nodeType === 1 ) as HTMLElement[]
+const scopeRoots = ( h: Host, inst: BlockInstance ) => nodesOf( h, inst ).filter( n => h.isElement( n ) )
+
+/**
+ * Scoped stylesheet: mark the component's top-level element roots with
+ * the scope so the injected sheet matches — on the DOM `rel="<nsp>"` for
+ * `[rel="<nsp>"] { … }`, where an inner component's scope wins on a
+ * shared root (the host decides, RFC-006 §4.1).
+ */
+function stampScope( h: Host, inst: BlockInstance, nsp: string ){
+  for( const n of scopeRoots( h, inst ) ) h.scope( n, nsp )
 }
 
 /**
@@ -358,20 +342,20 @@ function scopeRoots( inst: BlockInstance ){
  * declaration falls through to an ancestor's value — that is what makes
  * "use mine if given, otherwise inherit" free (RFC-004 §7.3, §12.2).
  */
-function writeStyleVar( roots: HTMLElement[], prop: string, value: any ){
+function writeStyleVar( h: Host, roots: N[], prop: string, value: any ){
   for( const root of roots )
-    value === null || value === undefined || value === false
-      ? root.style.removeProperty( prop )
-      : root.style.setProperty( prop, String( value ) )
+    h.styleVar( root, prop, value === null || value === undefined || value === false ? null : String( value ) )
 }
 
+/** Stamp the scope, then inject via the facade's factory. Returns a clear disposer */
 function applyScopedStyles(
+  h: Host,
   options: RuntimeOptions,
   inst: BlockInstance,
   nsp: string,
   style: StyleIR
 ): ( () => void ) | undefined {
-  stampScope( inst, nsp )
+  stampScope( h, inst, nsp )
 
   const sheet = style.css ? options.createStylesheet?.( nsp, style.css ) : undefined
   return sheet ? () => sheet.clear() : undefined
@@ -380,10 +364,10 @@ function disposeInstance( inst: BlockInstance ){
   for( const h of inst.bindHandles ) h.dispose()
   for( const h of inst.childHandles ) h.dispose()
 }
-function destroy( inst: BlockInstance | null ){
+function destroy( h: Host, inst: BlockInstance | null ){
   if( !inst ) return
   disposeInstance( inst )
-  for( const n of nodesOf( inst ) ) ( n as ChildNode ).remove()
+  for( const n of nodesOf( h, inst ) ) h.remove( n )
 }
 
 /** Split an instruction on top-level commas (strings/brackets opaque) */
@@ -412,11 +396,8 @@ function splitTopLevel( src: string ): string[] {
   return out.map( s => s.trim() ).filter( Boolean )
 }
 
-const applyAttr = ( el: Element, name: string, v: any ) => {
-  v === false || v == null
-    ? el.removeAttribute( name )
-    : el.setAttribute( name, v === true ? '' : String( v ) )
-}
+const applyAttr = ( h: Host, el: N, name: string, v: any ) =>
+  h.attr( el, name, v === false || v == null ? null : v === true ? '' : String( v ) )
 
 const defineGetter = ( scope: any, name: string, get: () => any ) =>
   Object.defineProperty( scope, name, { get, enumerable: true, configurable: true } )
@@ -454,7 +435,7 @@ function writeContext( ctx: any, key: string, value: any, global?: ( k: string, 
  * them once and freeze the result. Own properties still shadow it, so
  * the host's `expose` and a template's handlers keep winning.
  */
-function selfBus( langOf: () => string ){
+function selfBus( h: Host, langOf: () => string ){
   const listeners = new Map<string, ( ( ...args: any[] ) => void )[]>()
   const fire = ( event: string, ...args: any[] ) => listeners.get( event )?.forEach( fn => fn( ...args ) )
 
@@ -469,7 +450,7 @@ function selfBus( langOf: () => string ){
      */
     get node(){
       const inst = instOf()
-      return inst ? nodesOf( inst ).filter( n => n.nodeType === 1 ) as Element[] : []
+      return inst ? scopeRoots( h, inst ) : []
     },
     /** Active language, read reactively — scoped when under `<i18n lang=…>` */
     get lang(){ return langOf() },
@@ -518,7 +499,12 @@ class IRRenderer {
      * instances outlive the IR that first rendered them.
      */
     readonly live: LiveComp[] = []
-  ){}
+  ){
+    this.h = options.host || domHost
+  }
+
+  /** Every node operation goes through here (RFC-006 §4.1) */
+  readonly h: Host
 
   /** Records offered to the render pass currently running, if any */
   private pool: LiveComp[] | null = null
@@ -588,10 +574,10 @@ class IRRenderer {
     if( !style.binds.length ) return () => {}
 
     const
-    roots = scopeRoots( inst ),
+    roots = scopeRoots( this.h, inst ),
     handles = style.binds.map( b => {
       const run = this.srcRunner( style.exprs[ b.e ], [] )
-      return this.guarded( () => writeStyleVar( roots, b.prop, run( env ) ) )
+      return this.guarded( () => writeStyleVar( this.h, roots, b.prop, run( env ) ) )
     })
 
     return () => { for( const h of handles ) h.dispose() }
@@ -611,30 +597,36 @@ class IRRenderer {
   }
 
   renderBlock( block: BlockIR, env: RunEnv ): BlockInstance {
-    const frag = skeleton( block ).content.cloneNode( true ) as DocumentFragment
+    const
+    h = this.h,
+    frag = h.clone( block )
 
     /**
      * Resolve every bind/anchor path BEFORE any mutation —
      * runtime insertions (text nodes, markers, arm content)
      * shift childNodes indices.
      */
-    const pathNodes = new Map<string, Node>()
+    const pathNodes = new Map<string, N>()
     const bindNodes = block.binds.map( b => {
-      const node = resolvePath( frag, b.p )
+      const node = resolvePath( h, frag, b.p )
       pathNodes.set( pathKey( b.p ), node )
       return node
     })
     const anchorNodes = block.blocks.map( b => {
-      const node = resolvePath( frag, b.p ) as Comment
+      const node = resolvePath( h, frag, b.p )
       pathNodes.set( pathKey( b.p ), node )
       return node
     })
 
-    // Bracket the block content as an owned range
-    const start = document.createComment('^')
-    const end = document.createComment('$')
-    frag.insertBefore( start, frag.firstChild )
-    frag.appendChild( end )
+    /**
+     * Bracket the block content as an owned range. `end` goes in first
+     * so the container is never empty when `start` looks for its first
+     * child.
+     */
+    const start = h.marker('^')
+    const end = h.marker('$')
+    h.insert( frag, end, null )
+    h.insert( frag, start, h.child( frag, 0 ) )
 
     // Scope chain for this block
     const scope = Object.create( env.scope ?? null )
@@ -693,68 +685,73 @@ class IRRenderer {
   }
 
   /** Wire one bind onto its node; returns a swap-capable handle */
-  private bindOne( bind: BindIR, node: Node, benv: RunEnv, scopeNames: string[], reuseText?: Text ): BindHandle {
+  private bindOne( bind: BindIR, node: N, benv: RunEnv, scopeNames: string[], reuseText?: N ): BindHandle {
+    const h = this.h
+
     switch( bind.t ){
       case 'text': {
-        const textNode = reuseText ?? document.createTextNode('')
-        !reuseText && insertAfter( node, [ textNode ] )
+        const textNode = reuseText ?? h.text('')
+        !reuseText && h.insertAfter( node, [ textNode ] )
         const run = this.runner( bind.e, scopeNames )
         const i18n = bind.i18n ? this.options.i18n : undefined
-        const h = this.guarded( () => {
+        const eff = this.guarded( () => {
           const v = run( benv )
           const text = v == null ? '' : String( v )
-          textNode.data = i18n ? i18n.translate( text, bind.ik, benv.lang?.() ) : text
+          h.setText( textNode, i18n ? i18n.translate( text, bind.ik, benv.lang?.() ) : text )
         })
-        return { bind, node, textNode, dispose: h.dispose }
+        return { bind, node, textNode, dispose: eff.dispose }
       }
       case 'attr': {
         const run = this.runner( bind.e, scopeNames )
         const i18n = bind.i18n ? this.options.i18n : undefined
-        const h = this.guarded( () => {
+        const eff = this.guarded( () => {
           const v = run( benv )
-          applyAttr( node as Element, bind.name,
+          applyAttr( h, node, bind.name,
             i18n && v != null ? i18n.translate( String( v ), bind.ik, benv.lang?.() ) : v )
         })
-        return { bind, node, dispose: h.dispose }
+        return { bind, node, dispose: eff.dispose }
       }
       case 'prop': {
         const run = this.runner( bind.e, scopeNames )
 
         if( bind.name === 'format' ){
           const ref = bind.ref || ''
-          const h = this.guarded( () => {
+          const eff = this.guarded( () => {
             const params = run( benv )
             const text = this.options.i18n?.format( ref, params, benv.lang?.() )
-            ;( node as Element ).textContent = text == null ? '' : String( text )
+            h.content( node, text == null ? '' : String( text ) )
           })
-          return { bind, node, dispose: h.dispose }
+          return { bind, node, dispose: eff.dispose }
         }
 
-        const h = this.guarded( () => {
+        const eff = this.guarded( () => {
           const v = run( benv )
-          bind.name === 'html'
-            ? ( node as Element ).innerHTML = v == null ? '' : String( v )
-            // 'text' | 'format' — format is the i18n plugin hook (Phase 3)
-            : ( node as Element ).textContent = v == null ? '' : String( v )
+          const s = v == null ? '' : String( v )
+          /**
+           * 'text' | 'format' — format is the i18n plugin hook (Phase 3).
+           * A host with no HTML parser renders `@html` as text: the
+           * `'tree'` target already reported it (LIPS-C021), and text is
+           * the reading that can never inject anything.
+           */
+          bind.name === 'html' && h.html ? h.html( node, s ) : h.content( node, s )
         })
-        return { bind, node, dispose: h.dispose }
+        return { bind, node, dispose: eff.dispose }
       }
       case 'event': {
         const handler = this.eventDispatcher( this.ir.exprs[ bind.e ], scopeNames, benv )
-        ;( node as Element ).addEventListener( bind.name, handler )
-        return { bind, node, dispose: () => ( node as Element ).removeEventListener( bind.name, handler ) }
+        return { bind, node, dispose: h.listen( node, bind.name, handler ) }
       }
       case 'spread': {
         const run = this.runner( bind.e, scopeNames )
         let prev = new Set<string>()
-        const h = this.guarded( () => {
+        const eff = this.guarded( () => {
           const obj = run( benv ) || {}
           const next = new Set<string>( Object.keys( obj ) )
-          for( const k of prev ) !next.has( k ) && ( node as Element ).removeAttribute( k )
-          for( const k of next ) applyAttr( node as Element, k, obj[ k ] )
+          for( const k of prev ) !next.has( k ) && h.attr( node, k, null )
+          for( const k of next ) applyAttr( h, node, k, obj[ k ] )
           prev = next
         })
-        return { bind, node, dispose: h.dispose }
+        return { bind, node, dispose: eff.dispose }
       }
     }
   }
@@ -784,7 +781,7 @@ class IRRenderer {
       if( nodes.some( n => !n ) )
         return this.rebuild( inst, newBlock, report, path )
 
-      const oldTexts = new Map<string, Text>()
+      const oldTexts = new Map<string, N>()
       inst.bindHandles.forEach( h => h.textNode && oldTexts.set( pathKey( h.bind.p ), h.textNode ) )
       inst.bindHandles.forEach( h => h.dispose() )
 
@@ -796,7 +793,7 @@ class IRRenderer {
         return this.bindOne( b, nodes[ i ]!, inst.benv, newBlock.scope, reuse )
       })
       // Text nodes whose bind disappeared
-      oldTexts.forEach( ( tn, key ) => !reused.has( key ) && tn.remove() )
+      oldTexts.forEach( ( tn, key ) => !reused.has( key ) && this.h.remove( tn ) )
 
       report.push({ kind: 'binds', path })
     }
@@ -820,8 +817,8 @@ class IRRenderer {
        * everything the template puts inside it lives under there.
        */
       const records = this.live.filter( r =>
-        within( oldH.anchor, inst.childHandles[ i + 1 ]?.anchor ?? inst.end, r.anchor ) )
-      for( const r of records ) release( r )
+        within( this.h, oldH.anchor, inst.childHandles[ i + 1 ]?.anchor ?? inst.end, r.anchor ) )
+      for( const r of records ) release( this.h, r )
 
       oldH?.dispose()
       inst.childHandles[ i ] = {
@@ -844,21 +841,23 @@ class IRRenderer {
      * render. What the revision still wants keeps its state and its
      * DOM subtree; what it dropped is destroyed by `withSalvage`.
      */
-    const records = this.live.filter( r => within( inst.start, inst.end, r.anchor ) )
-    for( const r of records ) release( r )
+    const records = this.live.filter( r => within( this.h, inst.start, inst.end, r.anchor ) )
+    for( const r of records ) release( this.h, r )
 
     const fresh = this.withSalvage( records, () => this.renderBlock( newBlock, inst.penv ) )
 
-    insertAfter( inst.end, nodesOf( fresh ) )
-    destroy( inst )
+    place( this.h, inst.end, fresh )
+    destroy( this.h, inst )
     report.push({ kind: 'skeleton', path })
     return fresh
   }
 
   // -------------------------------------------------------------- executors
   /** Execute a control-flow/component block; returns its disposer */
-  private execBlock( child: ChildIR, anchor: Comment, benv: RunEnv, scopeNames: string[] ): () => void {
-    const disposers: ( () => void )[] = []
+  private execBlock( child: ChildIR, anchor: N, benv: RunEnv, scopeNames: string[] ): () => void {
+    const
+    h = this.h,
+    disposers: ( () => void )[] = []
 
     switch( child.t ){
       case 'if': {
@@ -866,7 +865,7 @@ class IRRenderer {
         let current: BlockInstance | null = null
         let activeIdx = -2
 
-        const h = effect( () => {
+        const eff = effect( () => {
           let idx = -1
           for( let i = 0; i < child.branches.length; i++ ){
             const run = runs[ i ]
@@ -876,16 +875,15 @@ class IRRenderer {
           activeIdx = idx
 
           untrack( () => {
-            destroy( current )
+            destroy( h, current )
             current = null
             if( idx >= 0 ){
-              current = this.renderBlock( child.branches[ idx ].block, benv )
-              insertAfter( anchor, nodesOf( current ) )
+              current = place( h, anchor, this.renderBlock( child.branches[ idx ].block, benv ) )
             }
           })
         })
 
-        disposers.push( () => { h.dispose(); destroy( current ) } )
+        disposers.push( () => { eff.dispose(); destroy( h, current ) } )
         break
       }
 
@@ -896,7 +894,7 @@ class IRRenderer {
         let current: BlockInstance | null = null
         let activeIdx = -2
 
-        const h = effect( () => {
+        const eff = effect( () => {
           const value = onRun( benv )
           let idx = -1, defaultIdx = -1
 
@@ -912,16 +910,15 @@ class IRRenderer {
           activeIdx = idx
 
           untrack( () => {
-            destroy( current )
+            destroy( h, current )
             current = null
             if( idx >= 0 ){
-              current = this.renderBlock( child.cases[ idx ].block, benv )
-              insertAfter( anchor, nodesOf( current ) )
+              current = place( h, anchor, this.renderBlock( child.cases[ idx ].block, benv ) )
             }
           })
         })
 
-        disposers.push( () => { h.dispose(); destroy( current ) } )
+        disposers.push( () => { eff.dispose(); destroy( h, current ) } )
         break
       }
 
@@ -992,9 +989,8 @@ class IRRenderer {
           })
         }).dispose )
 
-        const inst = this.renderBlock( child.block, { ...benv, arguments: args, scope })
-        insertAfter( anchor, nodesOf( inst ) )
-        disposers.push( () => destroy( inst ) )
+        const inst = place( h, anchor, this.renderBlock( child.block, { ...benv, arguments: args, scope }) )
+        disposers.push( () => destroy( h, inst ) )
         break
       }
 
@@ -1008,7 +1004,7 @@ class IRRenderer {
         let token = 0
 
         const swapTo = ( arm: { args: string[], block: BlockIR } | BlockIR | undefined, value?: any ) => {
-          destroy( current )
+          destroy( h, current )
           current = null
           if( !arm ) return
 
@@ -1018,11 +1014,10 @@ class IRRenderer {
             const [ get ] = signal( value )
             defineGetter( scope2, arm.args[0], get )
           }
-          current = this.renderBlock( isArm ? arm.block : arm, { ...benv, scope: scope2 } )
-          insertAfter( anchor, nodesOf( current ) )
+          current = place( h, anchor, this.renderBlock( isArm ? arm.block : arm, { ...benv, scope: scope2 } ) )
         }
 
-        const h = effect( () => {
+        const eff = effect( () => {
           const p = awaitRun( benv )
           const my = ++token
 
@@ -1036,7 +1031,7 @@ class IRRenderer {
           })
         })
 
-        disposers.push( () => { token++; h.dispose(); destroy( current ) } )
+        disposers.push( () => { token++; eff.dispose(); destroy( h, current ) } )
         break
       }
 
@@ -1108,9 +1103,8 @@ class IRRenderer {
           }
         }
 
-        const inner = this.renderBlock( child.block, { ...benv, context: ctx, lang })
-        insertAfter( anchor, nodesOf( inner ) )
-        disposers.push( () => destroy( inner ) )
+        const inner = place( h, anchor, this.renderBlock( child.block, { ...benv, context: ctx, lang }) )
+        disposers.push( () => destroy( h, inner ) )
         break
       }
 
@@ -1133,7 +1127,7 @@ class IRRenderer {
         let inner: ( () => void )[] = []
         let activeVerb: any = Symbol('init')
 
-        const h = effect( () => {
+        const eff = effect( () => {
           const verb = tagRun( benv )
           if( verb === activeVerb ) return
           activeVerb = verb
@@ -1154,9 +1148,8 @@ class IRRenderer {
               for( const [ name, ci ] of Object.entries( child.inputs ) )
                 argvalues[ name ] = 'lit' in ci ? ci.lit : this.runner( ci.e, scopeNames )( benv )
 
-              const slotInst = verb.render( argvalues )
-              insertAfter( anchor, nodesOf( slotInst ) )
-              inner.push( () => destroy( slotInst ) )
+              const slotInst = place( h, anchor, verb.render( argvalues ) )
+              inner.push( () => destroy( h, slotInst ) )
               return
             }
 
@@ -1177,7 +1170,7 @@ class IRRenderer {
           })
         })
 
-        disposers.push( () => { h.dispose(); for( const d of inner ) d() } )
+        disposers.push( () => { eff.dispose(); for( const d of inner ) d() } )
         break
       }
     }
@@ -1188,15 +1181,18 @@ class IRRenderer {
   /** Keyed <for> — per-item scope signals, range moves, natural entry keys */
   private execFor(
     child: ChildIR & { t: 'for' },
-    anchor: Comment,
+    anchor: N,
     benv: RunEnv,
     scopeNames: string[],
     disposers: ( () => void )[]
   ){
+    const h = this.h
     type Item = {
       key: any
       sigs: [ () => any, ( v: any ) => void, () => void ][]
       inst: BlockInstance
+      /** The pass that last kept it — see the removal sweep */
+      pass: number
     }
 
     const
@@ -1206,7 +1202,7 @@ class IRRenderer {
     inputVal = ( ci: CompInput | undefined, env: RunEnv ) =>
       ci === undefined ? undefined : 'lit' in ci ? ci.lit : this.runner( ci.e, scopeNames )( env )
 
-    let items: Item[] = []
+    let items: Item[] = [], pass = 0
     const byKey = new Map<any, Item>()
 
     /** Normalize source → [{ key, values(aligned with args) }] */
@@ -1248,11 +1244,12 @@ class IRRenderer {
       return []
     }
 
-    const h = effect( () => {
+    const eff = effect( () => {
       const next = tuples() // tracked reads
       untrack( () => {
         const seen = new Set<any>()
         const ordered: Item[] = []
+        const mark = ++pass
 
         for( const t of next ){
           let key = t.key
@@ -1276,6 +1273,7 @@ class IRRenderer {
                 ? touch()
                 : set( nv )
             })
+            existing.pass = mark
             ordered.push( existing )
           }
           else {
@@ -1284,24 +1282,28 @@ class IRRenderer {
             child.args.forEach( ( name, j ) => sigs[ j ] && defineGetter( scope2, name, sigs[ j ][0] ) )
 
             const inst = this.renderBlock( child.block, { ...benv, scope: scope2 } )
-            const item: Item = { key, sigs, inst }
+            const item: Item = { key, sigs, inst, pass: mark }
             byKey.set( key, item )
             ordered.push( item )
           }
         }
 
-        // Remove disappeared keys
+        /**
+         * Remove disappeared keys. Kept items carry this pass's stamp, so
+         * the test is O(1) — `ordered.includes( item )` made every update
+         * O(n²): at 10k rows, 50M comparisons to remove ONE row.
+         */
         for( const item of items )
-          if( !ordered.includes( item ) ){
+          if( item.pass !== mark ){
             byKey.delete( item.key )
-            destroy( item.inst )
+            destroy( h, item.inst )
           }
 
         // Pointer walk: enforce order with range moves
-        let pointer: Node = anchor
+        let pointer: N = anchor
         for( const item of ordered ){
-          if( pointer.nextSibling !== item.inst.start )
-            insertAfter( pointer, nodesOf( item.inst ) )
+          if( h.next( pointer ) !== item.inst.start )
+            place( h, pointer, item.inst )
           pointer = item.inst.end
         }
 
@@ -1310,8 +1312,8 @@ class IRRenderer {
     })
 
     disposers.push( () => {
-      h.dispose()
-      for( const item of items ) destroy( item.inst )
+      eff.dispose()
+      for( const item of items ) destroy( h, item.inst )
       items = []
       byKey.clear()
     })
@@ -1402,7 +1404,7 @@ class IRRenderer {
   private adoptComponent(
     rec: LiveComp,
     child: { inputs: Record<string, CompInput>, spreads: E[], events?: { name: string, e: E }[], contents?: ArmIR },
-    anchor: Comment,
+    anchor: N,
     benv: RunEnv,
     scopeNames: string[],
     disposers: ( () => void )[]
@@ -1427,7 +1429,7 @@ class IRRenderer {
     rec.anchor = anchor
 
     const gen = rec.gen
-    insertAfter( anchor, nodesOf( rec.inst ) )
+    place( this.h, anchor, rec.inst )
 
     disposers.push( () => {
       if( gen !== rec.gen ) return // salvaged away; wiring already released
@@ -1442,7 +1444,7 @@ class IRRenderer {
   private execComponent(
     def: IRComponentDef,
     child: { inputs: Record<string, CompInput>, spreads: E[], events?: { name: string, e: E }[], contents?: ArmIR },
-    anchor: Comment,
+    anchor: N,
     benv: RunEnv,
     scopeNames: string[],
     disposers: ( () => void )[],
@@ -1484,7 +1486,7 @@ class IRRenderer {
      * way to show the current language, which is what pushed apps into
      * mirroring it into context by hand (RFC-005 §2).
      */
-    const bus = selfBus( () => benv.lang?.() ?? irr.options.i18n?.lang() ?? '' )
+    const bus = selfBus( this.h, () => benv.lang?.() ?? irr.options.i18n?.lang() ?? '' )
 
     const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
       ...( this.options.expose || {} ),
@@ -1541,13 +1543,13 @@ class IRRenderer {
      */
     const
     clearStyles = def.stylesheet
-      ? applyScopedStyles( this.options, inst, def.stylesheet.nsp || def.nsp || 'lips', def.stylesheet )
+      ? applyScopedStyles( this.h, this.options, inst, def.stylesheet.nsp || def.nsp || 'lips', def.stylesheet )
       : undefined,
     clearStyleBinds = def.stylesheet
       ? renderer.bindStyle( def.stylesheet, inst, cenv )
       : undefined
 
-    insertAfter( anchor, nodesOf( inst ) )
+    place( this.h, anchor, inst )
     hooks.ready()
 
     try {
@@ -1593,7 +1595,7 @@ class IRRenderer {
     let attached = false
     {
       PENDING_ATTACH.push({
-        node: () => inst.start,
+        live: () => this.h.connected( inst.start ),
         fn: () => {
           attached = true
           try {
@@ -1604,7 +1606,7 @@ class IRRenderer {
         }
       })
       // Parent already live → attach now
-      inst.start.isConnected && flushAttach()
+      this.h.connected( inst.start ) && flushAttach()
     }
 
     /**
@@ -1629,7 +1631,7 @@ class IRRenderer {
         unwatchContext?.()
         clearStyleBinds?.()
         clearStyles?.()
-        destroy( inst )
+        destroy( this.h, inst )
         try {
           if( attached ){
             typeof self.onDetach === 'function' && self.onDetach()
@@ -1656,34 +1658,33 @@ class IRRenderer {
   /** Unresolved component candidate → plain element with binds */
   private execElement(
     child: ChildIR & { t: 'comp' },
-    anchor: Comment,
+    anchor: N,
     benv: RunEnv,
     scopeNames: string[],
     disposers: ( () => void )[]
   ){
-    const el = document.createElement( child.name )
+    const
+    h = this.h,
+    el = h.element( child.name )
 
     for( const [ name, ci ] of Object.entries( child.inputs ) ){
-      if( 'lit' in ci ) applyAttr( el, name, ci.lit )
+      if( 'lit' in ci ) applyAttr( h, el, name, ci.lit )
       else {
         const run = this.runner( ci.e, scopeNames )
-        disposers.push( effect( () => applyAttr( el, name, run( benv ) ) ).dispose )
+        disposers.push( effect( () => applyAttr( h, el, name, run( benv ) ) ).dispose )
       }
     }
-    for( const ev of child.events ){
-      const handler = this.eventDispatcher( this.ir.exprs[ ev.e ], scopeNames, benv )
-      el.addEventListener( ev.name, handler )
-      disposers.push( () => el.removeEventListener( ev.name, handler ) )
-    }
+    for( const ev of child.events )
+      disposers.push( h.listen( el, ev.name, this.eventDispatcher( this.ir.exprs[ ev.e ], scopeNames, benv ) ) )
 
     if( child.contents ){
       const inst = this.renderBlock( child.contents.block, benv )
-      el.append( ...nodesOf( inst ) )
-      disposers.push( () => destroy( inst ) )
+      for( const n of nodesOf( h, inst ) ) h.insert( el, n, null )
+      disposers.push( () => destroy( h, inst ) )
     }
 
-    insertAfter( anchor, [ el ] )
-    disposers.push( () => el.remove() )
+    h.insertAfter( anchor, [ el ] )
+    disposers.push( () => h.remove( el ) )
   }
 
   /**
@@ -1722,15 +1723,16 @@ class IRRenderer {
 }
 
 // -------------------------------------------------------------------- API
-export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: RuntimeOptions = {} ): IRInstance {
+export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, options: RuntimeOptions = {} ): IRInstance<T> {
   const
+  h = options.host || domHost,
   state = reactive( setup.state || {}, setup.deep ?? false ),
   input = setup.input ? reactive( setup.input, setup.deep ?? false ) : undefined
 
   /** Set after the first render — backs `self.node` */
   let rootInst: BlockInstance | null = null
 
-  const bus = selfBus( () => options.i18n?.lang() ?? '' )
+  const bus = selfBus( h, () => options.i18n?.lang() ?? '' )
 
   const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
     state, input, static: setup.static,
@@ -1775,7 +1777,7 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
 
   // Scoped stylesheet for the root component
   const clearStyles = setup.stylesheet
-    ? applyScopedStyles( options, current, setup.stylesheet.nsp || setup.nsp || 'lips', setup.stylesheet )
+    ? applyScopedStyles( h, options, current, setup.stylesheet.nsp || setup.nsp || 'lips', setup.stylesheet )
     : undefined
 
   /**
@@ -1806,15 +1808,15 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
   return {
     state,
     self,
-    get nodes(){ return nodesOf( current ) },
-    mount( container: Element ){
-      container.append( ...nodesOf( current ) )
+    get nodes(){ return nodesOf( h, current ) },
+    mount( container: T ){
+      for( const n of nodesOf( h, current ) ) h.insert( container, n, null )
       /**
        * Ownership-based attach (RFC §6): mounting a live tree
        * settles this component and every child queued during
        * render — no document-wide MutationObserver.
        */
-      if( current.start.isConnected ){
+      if( h.connected( current.start ) ){
         attachSelf()
         flushAttach()
       }
@@ -1822,12 +1824,8 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
     swap( newIR: TemplateIR ): SwapReport {
       const
       changes: SwapChange[] = [],
-      /**
-       * Salvaged nodes are detached and re-inserted, which drops
-       * focus. The element survives the move, so put the caret back
-       * where the user left it.
-       */
-      focused = document.activeElement as HTMLElement | null
+      // Salvage moves nodes, which can drop focus — the host puts it back
+      restoreFocus = h.keepFocus?.()
 
       // The new renderer inherits the live components: they outlive the IR
       renderer = new IRRenderer( newIR, options, hooks, renderer.live )
@@ -1840,19 +1838,19 @@ export function renderIR( ir: TemplateIR, setup: RenderSetup = {}, options: Runt
        * component silently loses its styles on the first revision.
        */
       if( setup.stylesheet ){
-        stampScope( current, setup.stylesheet.nsp || setup.nsp || 'lips' )
+        stampScope( h, current, setup.stylesheet.nsp || setup.nsp || 'lips' )
         clearStyleBinds?.()
         clearStyleBinds = renderer.bindStyle( setup.stylesheet, current, env )
       }
 
-      focused && focused.isConnected && focused !== document.activeElement && focused.focus()
+      restoreFocus?.()
 
       return { changes, salvaged: renderer.salvaged }
     },
     dispose(){
       clearStyleBinds?.()
       clearStyles?.()
-      destroy( current )
+      destroy( h, current )
       try {
         if( attached ){
           typeof self.onDetach === 'function' && self.onDetach()

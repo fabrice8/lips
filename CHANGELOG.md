@@ -5,6 +5,54 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — the host seam (RFC-006 L0)
+
+- The IR runtime no longer touches the DOM directly. Every node operation
+  goes through a `Host` (`src/ir/host.ts`): creating, placing, walking and
+  mutating nodes, plus two decisions that differ by host: how a stylesheet
+  scope marks an element, and whether markup can be parsed. The DOM is the
+  default host and behaves exactly as before.
+
+  ```js
+  renderIR( ir, setup, { host: myHost })
+  ```
+
+- `compileTemplate( src, { target: 'tree' } )` (also `precompile` and
+  `lipsPlugin`) adds `BlockIR.nodes`, the skeleton as a structural tree, for
+  hosts with no HTML parser. Its paths are the same ones `html` uses. The
+  tree target drops template comments, and `@html` becomes **LIPS-C021**,
+  because there is nothing to parse the markup with. The default target's
+  output is unchanged byte for byte.
+
+- `src/ir/tree.ts` is an in-memory host over plain objects, and the base a
+  native binding builds on. `tests/ir-host.spec.ts` renders every construct
+  through both hosts and requires identical trees after every step. It
+  covers all executors, events, lifecycle, styles, swap with salvage, and
+  dispose. The in-memory host is not in any published entry yet; where it
+  ships is RFC-006's open packaging decision.
+
+- Size: the seam costs ~0.37 KB gzipped on `runtime` (14.62 → 14.99, inside
+  15) and the tree target ~0.29 KB on the compiler-bearing entries. `full`
+  carries both, 25.79 → 26.44, and its budget moves 26 → 26.5 (see
+  `scripts/size-check.mjs`).
+
+- Speed: measured side by side in Chromium at 10k rows, with isolated
+  timers and a forced GC before each op, four rounds of 30 alternating
+  iterations. The seam alone is within ±2% of the previous runtime on every
+  op except `remove` (+2–4%). The host takes whole ranges (`range`,
+  `insertAfter`), so a range walk or move is one call with the loop inside.
+
+### Performance — keyed `<for>` no longer goes quadratic
+
+- Every change to a keyed list ran `ordered.includes( item )` for each old
+  row, which is O(n²): at 10k rows, 50 million comparisons to remove one
+  row. Kept rows now carry a pass stamp, so the test is O(1).
+- Measured with the same harness against the runtime before the seam (two
+  rounds of 30 iterations, mean ratio): remove 0.91, clear 0.95, update
+  0.97, append 0.97, replace 0.98, swap 0.99. So with the seam in, every
+  list operation is as fast as before it or faster. `create` (1.02) never
+  runs this code.
+
 ### Changed — Stylis is opt-in, and the full bundle is 1.2 KB smaller
 
 - The scope wrap `[rel="card"] { … }` **is** CSS nesting, which every engine

@@ -43,6 +43,8 @@ export interface PrecompileOptions {
    * and `@lipsjs/lips/stylis` are separate bundles with separate state.
    */
   preprocess?: StylePreprocessor
+  /** The kind of host the IR is for — see `CompileOptions.target` */
+  target?: CompileOptions['target']
 }
 
 export interface PrecompileResult {
@@ -58,7 +60,7 @@ export interface PrecompileResult {
  */
 export function precompile( template: Record<string, any>, options: PrecompileOptions = {} ): PrecompileResult {
   const
-  copts: CompileOptions = { macros: template.macros },
+  copts: CompileOptions = { macros: template.macros, target: options.target },
   { ir, diagnostics } = compileTemplate( template.default || '', copts ),
   { default: _src, macros: _macros, stylesheet, ...rest } = template
 
@@ -84,6 +86,8 @@ export interface PluginOptions {
   reportDiagnostics?: boolean
   /** CSS preprocessor for lifted stylesheets — see `PrecompileOptions.preprocess` */
   preprocess?: StylePreprocessor
+  /** The kind of host the IR is for — see `CompileOptions.target` */
+  target?: CompileOptions['target']
 }
 
 /**
@@ -117,7 +121,7 @@ export function lipsPlugin( options: PluginOptions = {} ){
        * body is compiled to IR and merged into the default export.
        */
       const templateSrc = code.slice( script.length )
-      const { ir, diagnostics } = compileTemplate( templateSrc )
+      const { ir, diagnostics } = compileTemplate( templateSrc, { target: options.target })
 
       if( report )
         for( const d of diagnostics )

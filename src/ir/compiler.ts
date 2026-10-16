@@ -15,6 +15,10 @@
  * The output is JSON-serializable and deterministic — it is the
  * Modela artifact, the runtime render program, and the hot-swap
  * diff unit.
+ *
+ * With `target: 'tree'` every block also carries `nodes`, the same
+ * skeleton as a structural tree, for hosts that build nodes one by
+ * one rather than parse markup (RFC-006 §4.1).
  */
 
 import type {
@@ -41,8 +45,21 @@ export interface TemplateIR {
   root: BlockIR
 }
 
+/**
+ * One node of a block's structural skeleton (RFC-006 §4.1): the tree
+ * `html` encodes, for hosts with no HTML parser. Bind and block paths
+ * index it exactly as they index the parsed `html`.
+ *
+ *   'text'                       a static text run
+ *   0                            an anchor — where a text bind or a block attaches
+ *   [ tag, attrs?, children? ]   an element and its static attributes
+ */
+export type NodeIR = string | 0 | [ tag: string, attrs?: Record<string, string>, children?: NodeIR[] ]
+
 export interface BlockIR {
   html: string
+  /** The skeleton as a tree — present when compiled with `target: 'tree'` */
+  nodes?: NodeIR[]
   /**
    * Scope variable names visible to this block's binds
    * (iterator args, async arm args, let/const names —
@@ -105,6 +122,13 @@ export interface CompileResult {
 export interface CompileOptions {
   /** `<macro [argv] name="X">…</macro>` definitions, inlined at call sites */
   macros?: string
+  /**
+   * The kind of host the IR is for. `'dom'` (default) needs only the
+   * `html` skeletons. `'tree'` is for hosts with no HTML parser
+   * (RFC-006 §4.1): blocks also carry `nodes`, comments are dropped
+   * (they mean nothing off the DOM), and `@html` is an error.
+   */
+  target?: 'dom' | 'tree'
 }
 
 interface MacroDef {
@@ -225,7 +249,12 @@ class Compiler {
 
   readonly diagnostics: TemplateDiagnostic[] = []
 
-  constructor( private src: string, private macros = new Map<string, MacroDef>() ){}
+  constructor(
+    private src: string,
+    private macros = new Map<string, MacroDef>(),
+    /** `target: 'tree'` — emit `BlockIR.nodes` alongside `html` */
+    private tree = false
+  ){}
 
   // ---- diagnostics
   private locate( offset: number ){
@@ -314,21 +343,27 @@ class Compiler {
    * grow when <let>/<const> introduce names.
    */
   private block( children: TemplateNode[], scope: string[] ): BlockIR {
-    const block: BlockIR = { html: '', scope: [ ...scope ], binds: [], blocks: [] }
-    const html: string[] = []
+    const
+    block: BlockIR = { html: '', scope: [ ...scope ], binds: [], blocks: [] },
+    html: string[] = [],
+    tree = this.tree,
+    roots: NodeIR[] = []
 
     /**
      * Emit a sibling list at `path` depth. Returns nothing —
-     * appends to html / block.binds / block.blocks.
+     * appends to html / block.binds / block.blocks, and to `kids`
+     * (this level of the node tree) for the tree target.
      * The index simulation must match browser parsing:
-     * consecutive static text coalesces into ONE node.
+     * consecutive static text coalesces into ONE node — and the node
+     * tree coalesces the same way, so one path fits both.
      */
-    const emitSiblings = ( nodes: TemplateNode[], path: Path, i18nParent = false, i18nKey?: string ) => {
+    const emitSiblings = ( nodes: TemplateNode[], path: Path, kids: NodeIR[], i18nParent = false, i18nKey?: string ) => {
       let index = 0
       let lastWasText = false
 
       const anchor = (): Path => {
         html.push( ANCHOR )
+        tree && kids.push( 0 )
         lastWasText = false
         return [ ...path, index++ ]
       }
@@ -350,11 +385,18 @@ class Compiler {
             }
 
             html.push( escText( node.value ) )
+            tree && ( lastWasText ? kids[ kids.length - 1 ] += node.value : kids.push( node.value ) )
             if( !lastWasText ) index++
             lastWasText = true
             break
           }
           case 'comment': {
+            /**
+             * Dropped from BOTH forms for the tree target, so the text
+             * on either side coalesces alike and paths still agree.
+             */
+            if( tree ) break
+
             html.push( `<!--${node.value.replace( /--/g, '- -' )}-->` )
             lastWasText = false
             index++
@@ -422,7 +464,7 @@ class Compiler {
             }
 
             // Plain HTML element
-            this.emitElement( node, path, index++, html, block, emitSiblings )
+            this.emitElement( node, path, index++, html, block, emitSiblings, kids )
             lastWasText = false
             break
           }
@@ -430,8 +472,9 @@ class Compiler {
       }
     }
 
-    emitSiblings( children, [] )
+    emitSiblings( children, [], roots )
     block.html = html.join('')
+    if( tree ) block.nodes = roots
     return block
   }
 
@@ -442,10 +485,24 @@ class Compiler {
     index: number,
     html: string[],
     block: BlockIR,
-    emitSiblings: ( nodes: TemplateNode[], path: Path, i18nParent?: boolean, i18nKey?: string ) => void
+    emitSiblings: ( nodes: TemplateNode[], path: Path, kids: NodeIR[], i18nParent?: boolean, i18nKey?: string ) => void,
+    kids: NodeIR[]
   ){
     const p: Path = [ ...path, index ]
     let open = `<${node.tag}`
+
+    /**
+     * Tree target: the same element as a node. A repeated attribute
+     * keeps its FIRST value, which is what the HTML parser does with
+     * the `html` form.
+     */
+    const
+    el: [ string, Record<string, string>?, NodeIR[]? ] = [ node.tag ],
+    attrs: Record<string, string> = {},
+    put = ( name: string, value: string ) => {
+      Object.prototype.hasOwnProperty.call( attrs, name ) || ( attrs[ name ] = value )
+    }
+    this.tree && kids.push( el )
 
     /**
      * `i18n` marks an element's own text and its visual
@@ -483,6 +540,19 @@ class Compiler {
                       node.loc.offset, node.loc.length )
 
     for( const attr of node.attrs ){
+      /**
+       * `@html` hands markup to the host's HTML parser. A tree host has
+       * none, so the bind could only ever render as text — say so here
+       * rather than let the content arrive silently unparsed.
+       */
+      if( this.tree && 'name' in attr && attr.name === '@html' ){
+        this.report( 'LIPS-C021', 'error',
+          `@html on <${node.tag}>: the 'tree' target has no HTML parser`,
+          attr.loc.offset, attr.loc.length,
+          'Write the markup in the template, or use @text' )
+        continue
+      }
+
       /**
        * On an ELEMENT, `style=` is CSS text — `{…}` in it is an
        * interpolation slot, so a React-style object literal never reaches
@@ -532,10 +602,14 @@ class Compiler {
             break
           }
           open += ` ${attr.name}="${escAttr( attr.value )}"`
+          put( attr.name, attr.value )
           break
         case 'bool':
           // `i18n` is a compiler directive, not an output attribute
-          attr.name !== 'i18n' && attr.value && ( open += ` ${attr.name}` )
+          if( attr.name !== 'i18n' && attr.value ){
+            open += ` ${attr.name}`
+            put( attr.name, '' )
+          }
           break
         case 'expr': {
           if( attr.name === '@format' ){
@@ -598,6 +672,9 @@ class Compiler {
       }
     }
 
+    const kept = Object.keys( attrs ).length
+    kept && ( el[ 1 ] = attrs )
+
     if( VOID_ELEMENTS.has( node.tag ) ){
       html.push( open + '>' )
       return
@@ -627,7 +704,12 @@ class Compiler {
       key = undefined
     }
 
-    node.children.length && emitSiblings( node.children, p, i18n, key )
+    const children: NodeIR[] = []
+    node.children.length && emitSiblings( node.children, p, children, i18n, key )
+    if( children.length ){
+      el[ 1 ] = attrs // `{}` when there are none: children sit at index 2
+      el[ 2 ] = children
+    }
     html.push( `</${node.tag}>` )
   }
 
@@ -1059,7 +1141,7 @@ export function compileTemplate( src: string, options?: CompileOptions ): Compil
   const macros = parseMacros( options?.macros || '', diagnostics )
 
   const parsed = parseTemplate( src )
-  const compiler = new Compiler( src, macros )
+  const compiler = new Compiler( src, macros, options?.target === 'tree' )
   const ir = compiler.compile( parsed.root.children )
 
   return { ir, diagnostics: [ ...diagnostics, ...parsed.diagnostics, ...compiler.diagnostics ] }
