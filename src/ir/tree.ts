@@ -112,8 +112,24 @@ export const treeHost: Host<TreeNode> = {
     return n!
   },
   next: n => n.next,
-  parent: n => n.parent,
+  range( first, last ){
+    const out: TreeNode[] = []
+    for( let n: TreeNode | null = first; n; n = n.next ){
+      out.push( n )
+      if( n === last ) break
+    }
+    return out
+  },
   insert,
+  insertAfter( ref, nodes ){
+    const parent = ref.parent
+    if( !parent ) return
+    let anchor = ref
+    for( const n of nodes ){
+      insert( parent, n, anchor.next )
+      anchor = n
+    }
+  },
   remove: unlink,
   isElement,
   connected: n => chain( n )[ 0 ].type === '#root',
@@ -139,13 +155,10 @@ export const treeHost: Host<TreeNode> = {
     return false
   },
 
-  content( n, value ){
-    if( !isElement( n ) ){
-      n.value = value
-      return
-    }
-    while( n.first ) unlink( n.first )
-    value && insert( n, make( '#text', value ), null )
+  setText: ( n, value ) => { n.value = value },
+  content( el, value ){
+    while( el.first ) unlink( el.first )
+    value && insert( el, make( '#text', value ), null )
   },
   attr: ( el, name, value ) => { value === null ? delete el.attrs[ name ] : el.attrs[ name ] = value },
   styleVar: ( el, prop, value ) => { value === null ? delete el.vars[ prop ] : el.vars[ prop ] = value },

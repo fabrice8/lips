@@ -12,7 +12,7 @@
  *  - instantiate a block's skeleton (`clone`), and create the few nodes
  *    the runtime adds itself: markers, text runs, unresolved elements
  *  - a sibling-linked tree with parents: block instances are ranges
- *    between two markers, walked with `next`
+ *    between two markers, walked and moved whole (`range`, `insertAfter`)
  *  - attributes, text, inline custom properties, listeners
  *  - two host decisions: how a stylesheet scope marks an element
  *    (`rel` here, a class on Lynx) and whether markup can be parsed
@@ -37,9 +37,12 @@ export interface Host<N = any> {
   /** The child at `index` — skeleton paths are child-index walks */
   child( parent: N, index: number ): N
   next( node: N ): N | null
-  parent( node: N ): N | null
+  /** `first`, its following siblings, up to and including `last` */
+  range( first: N, last: N ): N[]
   /** Insert `node` before `ref`, or at the end when `ref` is null */
   insert( parent: N, node: N, ref: N | null ): void
+  /** Place `nodes`, in order, right after `ref` — nothing when `ref` has no parent */
+  insertAfter( ref: N, nodes: N[] ): void
   remove( node: N ): void
   isElement( node: N ): boolean
   /** In the live tree — what `onAttach` waits for */
@@ -47,11 +50,10 @@ export interface Host<N = any> {
   /** `a` comes before `b` in tree order; false when they share no tree */
   precedes( a: N, b: N ): boolean
 
-  /**
-   * DOM `textContent` semantics: a text node takes the value, an element
-   * has its children replaced by one text run (`@text`, `@format`)
-   */
-  content( node: N, value: string ): void
+  /** A text node's value — the hot path of every text bind */
+  setText( node: N, value: string ): void
+  /** Replace an element's children with one text run (`@text`, `@format`) */
+  content( el: N, value: string ): void
   /** `null` removes the attribute */
   attr( el: N, name: string, value: string | null ): void
   /** Replace the element's children with parsed markup (`@html`) — DOM only */
@@ -90,8 +92,34 @@ export const domHost: Host<Node> = {
 
   child: ( parent, index ) => parent.childNodes[ index ],
   next: node => node.nextSibling,
-  parent: node => node.parentNode,
+  /**
+   * Range walks and range moves are the hottest node work there is (a
+   * keyed list walks every row's range on every change), so they are ONE
+   * host call per range with the loop inside, not a host call per node.
+   */
+  range( first, last ){
+    const out: Node[] = []
+    for( let n: Node | null = first; n; n = n.nextSibling ){
+      out.push( n )
+      if( n === last ) break
+    }
+    return out
+  },
   insert: ( parent, node, ref ) => { parent.insertBefore( node, ref ) },
+  /**
+   * The reference is re-read after every insert rather than captured
+   * once: `nodes` may already contain `ref`'s next sibling, and a fixed
+   * reference would put the rest of the range in front of it.
+   */
+  insertAfter( ref, nodes ){
+    const parent = ref.parentNode
+    if( !parent ) return
+    let anchor = ref
+    for( const n of nodes ){
+      parent.insertBefore( n, anchor.nextSibling )
+      anchor = n
+    }
+  },
   remove: node => ( node as ChildNode ).remove(),
   isElement: node => node.nodeType === 1,
   connected: node => node.isConnected,
@@ -105,7 +133,9 @@ export const domHost: Host<Node> = {
   attr: ( el, name, value ) => value === null
                                   ? ( el as Element ).removeAttribute( name )
                                   : ( el as Element ).setAttribute( name, value ),
-  content: ( node, value ) => { node.textContent = value },
+  /** `.data`: the direct write, as before the seam — no node-type dispatch */
+  setText: ( node, value ) => { ( node as Text ).data = value },
+  content: ( el, value ) => { el.textContent = value },
   html: ( el, value ) => { ( el as Element ).innerHTML = value },
   styleVar: ( el, prop, value ) => value === null
                                       ? ( el as HTMLElement ).style.removeProperty( prop )

@@ -287,16 +287,7 @@ function resolvePath( h: Host, root: N, p: Path ): N {
   return node
 }
 
-function nodesOf( h: Host, inst: BlockInstance ): N[] {
-  const out: N[] = []
-  let n: N | null = inst.start
-  while( n ){
-    out.push( n )
-    if( n === inst.end ) break
-    n = h.next( n )
-  }
-  return out
-}
+const nodesOf = ( h: Host, inst: BlockInstance ): N[] => h.range( inst.start, inst.end )
 /**
  * Does `n` sit between two markers in document order? Position, not
  * ancestry — a component nested deep in the skeleton's markup still
@@ -322,18 +313,9 @@ function release( h: Host, rec: LiveComp ){
   for( const n of nodesOf( h, rec.inst ) ) h.insert( park, n, null )
 }
 
-function insertAfter( h: Host, ref: N, nodes: N[] ){
-  const parent = h.parent( ref )
-  if( !parent ) return
-  let anchor = ref
-  for( const n of nodes ){
-    h.insert( parent, n, h.next( anchor ) )
-    anchor = n
-  }
-}
 /** Put a rendered block's range right after `ref` */
 function place( h: Host, ref: N, inst: BlockInstance ){
-  insertAfter( h, ref, nodesOf( h, inst ) )
+  h.insertAfter( ref, nodesOf( h, inst ) )
   return inst
 }
 
@@ -709,13 +691,13 @@ class IRRenderer {
     switch( bind.t ){
       case 'text': {
         const textNode = reuseText ?? h.text('')
-        !reuseText && insertAfter( h, node, [ textNode ] )
+        !reuseText && h.insertAfter( node, [ textNode ] )
         const run = this.runner( bind.e, scopeNames )
         const i18n = bind.i18n ? this.options.i18n : undefined
         const eff = this.guarded( () => {
           const v = run( benv )
           const text = v == null ? '' : String( v )
-          h.content( textNode, i18n ? i18n.translate( text, bind.ik, benv.lang?.() ) : text )
+          h.setText( textNode, i18n ? i18n.translate( text, bind.ik, benv.lang?.() ) : text )
         })
         return { bind, node, textNode, dispose: eff.dispose }
       }
@@ -1209,6 +1191,8 @@ class IRRenderer {
       key: any
       sigs: [ () => any, ( v: any ) => void, () => void ][]
       inst: BlockInstance
+      /** The pass that last kept it — see the removal sweep */
+      pass: number
     }
 
     const
@@ -1218,7 +1202,7 @@ class IRRenderer {
     inputVal = ( ci: CompInput | undefined, env: RunEnv ) =>
       ci === undefined ? undefined : 'lit' in ci ? ci.lit : this.runner( ci.e, scopeNames )( env )
 
-    let items: Item[] = []
+    let items: Item[] = [], pass = 0
     const byKey = new Map<any, Item>()
 
     /** Normalize source → [{ key, values(aligned with args) }] */
@@ -1265,6 +1249,7 @@ class IRRenderer {
       untrack( () => {
         const seen = new Set<any>()
         const ordered: Item[] = []
+        const mark = ++pass
 
         for( const t of next ){
           let key = t.key
@@ -1288,6 +1273,7 @@ class IRRenderer {
                 ? touch()
                 : set( nv )
             })
+            existing.pass = mark
             ordered.push( existing )
           }
           else {
@@ -1296,15 +1282,19 @@ class IRRenderer {
             child.args.forEach( ( name, j ) => sigs[ j ] && defineGetter( scope2, name, sigs[ j ][0] ) )
 
             const inst = this.renderBlock( child.block, { ...benv, scope: scope2 } )
-            const item: Item = { key, sigs, inst }
+            const item: Item = { key, sigs, inst, pass: mark }
             byKey.set( key, item )
             ordered.push( item )
           }
         }
 
-        // Remove disappeared keys
+        /**
+         * Remove disappeared keys. Kept items carry this pass's stamp, so
+         * the test is O(1) — `ordered.includes( item )` made every update
+         * O(n²): at 10k rows, 50M comparisons to remove ONE row.
+         */
         for( const item of items )
-          if( !ordered.includes( item ) ){
+          if( item.pass !== mark ){
             byKey.delete( item.key )
             destroy( h, item.inst )
           }
@@ -1693,7 +1683,7 @@ class IRRenderer {
       disposers.push( () => destroy( h, inst ) )
     }
 
-    insertAfter( h, anchor, [ el ] )
+    h.insertAfter( anchor, [ el ] )
     disposers.push( () => h.remove( el ) )
   }
 
