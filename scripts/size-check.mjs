@@ -110,9 +110,29 @@ const KB = 1024
  * `setStyleCompiler`, since DOM-only apps never compile for `'tree'`.
  * `runtime` is AT its budget: the next runtime change (L1 adds one) moves
  * it, deliberately and by the least that fits.
+ *
+ * 2026-10-16b: full 26.5→26.55 — the Lynx style pipeline (RFC-006 L2).
+ * What the style compiler gained for it is two options and a fix: a
+ * `scope` selector (Lynx scopes by class), a `lint` hook (a target's
+ * rules, reported on the source), and statements that start at their
+ * first character, so every style diagnostic points at the right column.
+ * +69 bytes on `full` (26.443 → 26.512) and on `precompile` (13.79 →
+ * 13.86, inside 14). The Lynx rules themselves — the property list, the
+ * selector and value checks, the full-value rewrite — live in
+ * `src/lynx/style.ts` and cost the DOM bundles nothing.
+ *
+ * Savings were taken first: the static-declaration fast path went (the
+ * general path emits the same text), and the Lynx-only parts the first
+ * cut put in the core — full-value binds, a required preprocessor — moved
+ * out, from +254 bytes down to +69. `runtime` gained 6 bytes for a bind's
+ * unit (14.993 → 14.999) and holds at 15, with 1 byte left. The lever
+ * named above still stands and is bigger than this raise: the `'tree'`
+ * emitter is woven through the HTML emitter, but a post-pass that
+ * re-parses each block's `html` skeleton could replace it (~0.29 KB on
+ * both compiler-bearing entries).
  */
 const BUDGETS = {
-  'dist/lips.min.js': 26.5,      // full: runtime + parser/compiler + style compiler + router
+  'dist/lips.min.js': 26.55,     // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
   'dist/precompile.min.js': 14,  // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3        // opt-in preprocessor — not loaded unless asked for
@@ -134,8 +154,8 @@ for( const [ file, budget ] of Object.entries( BUDGETS ) ){
 
   rows.push([
     file.replace('dist/', ''),
-    gz.toFixed( 1 ),
-    budget.toFixed( 1 ),
+    gz.toFixed( 2 ),
+    budget.toFixed( 2 ),
     over ? 'OVER' : 'ok'
   ])
 }

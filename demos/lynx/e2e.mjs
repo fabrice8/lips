@@ -96,6 +96,26 @@ try {
     [ ...document.querySelector('lynx-view').shadowRoot.querySelectorAll('[data-id]') ].map( e => e.textContent.trim() ) )
   check( 'keyed reverse moves rows', JSON.stringify( order ) === JSON.stringify([ 'row 3', 'two', 'one' ]), JSON.stringify( order ) )
 
+  // The Lips sheet (app.lips.css): scoped rules, and binds written as variables
+  const style = k => page.evaluate( k => {
+    const el = document.querySelector('lynx-view').shadowRoot.querySelector(`[data-k="${k}"]`)
+    const cs = getComputedStyle( el )
+    return { color: cs.color, background: cs.backgroundColor, width: cs.width, radius: cs.borderTopLeftRadius, size: cs.fontSize }
+  }, k )
+
+  const before = { count: await style('count'), inc: await style('inc'), swatch: await style('swatch') }
+  check( 'scoped sheet applies (.title 20px, .btn background)',
+    before.count.size === '20px' && before.inc.background === 'rgb(226, 232, 240)', JSON.stringify( before ) )
+  check( 'variable binds apply (accent, radius 6px)',
+    before.count.color === 'rgb(225, 29, 72)' && before.inc.radius === '6px', JSON.stringify( before ) )
+
+  await tap('theme')
+  await page.waitForTimeout( 300 )
+  const after = { count: await style('count'), inc: await style('inc'), swatch: await style('swatch') }
+  check( 'a state change rewrites the variables',
+    after.count.color === 'rgb(37, 99, 235)' && after.inc.radius === '12px'
+    && parseFloat( after.swatch.width ) > parseFloat( before.swatch.width ), JSON.stringify( after ) )
+
   await page.screenshot({ path: join( here, 'dist/e2e.png' ) })
   check( 'no page errors', !errors.length, errors.join(' | ') )
 }

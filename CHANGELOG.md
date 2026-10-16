@@ -5,6 +5,45 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — Lynx style pipeline (RFC-006 L2)
+
+- **`src/lynx/style.ts`: component stylesheets for Lynx.**
+  `compileLynxStyle( source, { nsp, preprocess })` compiles a Lips sheet
+  into CSS for the bundle, plus the binds the background writes.
+  - **Flat and scoped by class** (`.lips-<nsp>`). Lynx has no CSS
+    nesting, and attribute selectors never match there.
+  - **Full-value binds.** `padding: {x}px` binds a variable that carries
+    the unit, and the runtime writes `12px`. Lynx's `calc()` covers only
+    lengths.
+  - **Lint.** Eleven `LIPS-L` diagnostics for what parses but does
+    nothing on Lynx: attribute selectors, pseudo-elements, pseudo-classes
+    that never match, HTML type selectors, unsupported at-rules,
+    `min()`/`max()`/`clamp()`, `calc()` off lengths, `!important`, and
+    properties Lynx does not have.
+  - **`LYNX_PAGE_CONFIG`.** Turns on inline variables, `@media` and CSS
+    inheritance.
+- **The style compiler takes `scope` and `lint` options**, so a target can
+  scope its own way and report what it cannot do. Style diagnostics now
+  point at a statement's first character, not the whitespace before it.
+- **A style bind can carry a unit** (`StyleBindIR.u`), which the runtime
+  appends when it writes the value.
+- **`demos/lynx`.** It now has a Lips sheet with four reactive binds, and
+  `lips-styles.ts` compiles it into the bundle. `e2e.mjs` and
+  `native/run.sh` check its styles. The real engine passes 14/14, reading
+  computed styles before and after a state change.
+- **`native/run.sh probe`.** Load a bundle, tap, and print computed styles,
+  the DOM, or a screenshot.
+
+### Changed
+
+- The `& `/`:is()` selector rewrite runs only when a sheet ships nested. A
+  preprocessor resolves `div &` itself. With Stylis, `div &` now compiles
+  to `div [rel="c"]` instead of `:is(div) [rel="c"]`. It is the same
+  selector, with the same specificity, and every other output is
+  unchanged.
+- `scripts/size-check.mjs` prints two decimals. The full budget is 26.55
+  (+69 bytes for the hooks above). `runtime` holds at 15.
+
 ### Added — Lynx renderer spike (RFC-006 L1)
 
 - **`src/lynx/`: Lips rendering natively on Lynx, over two threads.**

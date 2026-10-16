@@ -24,7 +24,7 @@ import type { Host } from '../ir/host'
 import { treeHost, treeNode, link, unlink, type TreeNode } from '../ir/tree'
 import {
   CREATE, TEXT, INSERT, REMOVE, ATTR, SET_TEXT, STYLES, LISTEN, UNLISTEN, RELEASE,
-  PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, type WireEvent
+  PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, scopeClass, type WireEvent
 } from './protocol'
 
 export interface LynxNode extends TreeNode {
@@ -87,7 +87,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
     Object.assign( treeNode( type, value ), { id, real, at: null } ) as LynxNode
 
   const classOf = ( n: LynxNode ) =>
-    [ n.cls, n.scope && `lips-${n.scope}` ].filter( Boolean ).join(' ')
+    [ n.cls, n.scope && scopeClass( n.scope ) ].filter( Boolean ).join(' ')
 
   const cssOf = ( n: LynxNode ) =>
     [ n.css, ...Object.entries( n.vars ).map( ( [ k, v ] ) => `${k}: ${v}` ) ].filter( Boolean ).join('; ')

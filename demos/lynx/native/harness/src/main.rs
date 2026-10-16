@@ -1,12 +1,13 @@
-//! RFC-006 L1 exit check, tier B: the demo's native bundle in the REAL Lynx
-//! engine (4.1, `libLynx_clay`), headless, through lynx-stack's
+//! RFC-006 L1 and L2 exit checks, tier B: the demo's native bundle in the
+//! REAL Lynx engine (4.1, `libLynx_clay`), headless, through lynx-stack's
 //! `lynx-headless-rust-test-runner`.
 //!
 //! What this proves that tier A cannot: Lynx's own threads and JS engines,
 //! its own Element PAPI and event dispatch, and its native CSS engine
-//! matching the classes the binding sets.
+//! matching the compiled sheet and resolving the variables Lips binds.
 //!
 //!   lips-tierb <main.lynx.bundle> <screenshot.bmp>
+//!   lips-tierb probe <main.lynx.bundle> <step>...
 
 use lynx_headless_rust_test_runner::{
   ContainerOptions, GotoOptions, LynxContainer, LynxPage, ScreenshotOptions,
@@ -46,6 +47,38 @@ fn in_order(content: &str, needles: &[&str]) -> bool {
   true
 }
 
+type Style = std::collections::BTreeMap<String, String>;
+
+fn style(page: &mut LynxPage, selector: &str) -> R<Style> {
+  Ok(page.locator(selector)?.ok_or_else(|| format!("no element for {selector}"))?.computed_style_map()?)
+}
+
+fn get<'a>(style: &'a Style, prop: &str) -> &'a str {
+  style.get(prop).map(String::as_str).unwrap_or("")
+}
+
+/// What app.lips.css binds: `--accent` on .title, padding on the root, radius on .btn, width on .swatch
+fn binds(page: &mut LynxPage) -> R<Vec<String>> {
+  Ok(vec![
+    get(&style(page, "#count")?, "color").to_string(),
+    get(&style(page, ".app")?, "padding-left").to_string(),
+    get(&style(page, "#inc")?, "border-radius").to_string(),
+    get(&style(page, "#swatch")?, "width").to_string(),
+  ])
+}
+
+/// Poll until `ok` holds; false on time out
+fn wait_for(page: &mut LynxPage, _what: &str, ok: impl Fn(&mut LynxPage) -> R<bool>) -> R<bool> {
+  let deadline = Instant::now() + Duration::from_secs(10);
+  while Instant::now() < deadline {
+    if ok(page)? {
+      return Ok(true);
+    }
+    page.wait_for_timeout(Duration::from_millis(50));
+  }
+  Ok(false)
+}
+
 fn tap(page: &mut LynxPage, selector: &str) -> R<()> {
   page
     .locator(selector)?
@@ -54,9 +87,50 @@ fn tap(page: &mut LynxPage, selector: &str) -> R<()> {
   Ok(())
 }
 
+/// `lips-tierb probe <bundle> <step>...` — explore what the engine does,
+/// without writing checks. Steps run in order:
+///   tap=<selector>                 tap, then let the threads settle
+///   style=<selector>[:prop,prop]   the computed style, or some properties of it
+///   dom                            the engine's DOM
+///   shot=<file.bmp>                a screenshot
+fn probe(bundle: &str, steps: &[String]) -> R<()> {
+  let container = LynxContainer::new(ContainerOptions { width: 400, height: 600, ..ContainerOptions::default() })?;
+  let mut page = container.new_page()?;
+  page.goto(bundle, GotoOptions::default())?;
+  page.wait_for_timeout(Duration::from_millis(300));
+  for step in steps {
+    let (kind, arg) = step.split_once('=').unwrap_or((step.as_str(), ""));
+    match kind {
+      "tap" => {
+        tap(&mut page, arg)?;
+        page.wait_for_timeout(Duration::from_millis(300));
+      }
+      "style" => {
+        let (selector, props) = arg.split_once(':').unwrap_or((arg, ""));
+        let style = page.locator(selector)?.ok_or_else(|| format!("no element for {selector}"))?.computed_style_map()?;
+        for (k, v) in &style {
+          if props.is_empty() || props.split(',').any(|p| p == k) {
+            println!("{selector} {k}: {v}");
+          }
+        }
+      }
+      "dom" => println!("{}", page.content()?),
+      "shot" => {
+        page.screenshot(ScreenshotOptions { path: Some(arg.into()), settle: Duration::from_millis(100) })?;
+      }
+      _ => return Err(format!("unknown step {step}").into()),
+    }
+  }
+  Ok(())
+}
+
 fn main() -> R<()> {
   let mut args = std::env::args().skip(1);
   let bundle = args.next().ok_or("usage: lips-tierb <bundle> <screenshot.bmp>")?;
+  if bundle == "probe" {
+    let bundle = args.next().ok_or("usage: lips-tierb probe <bundle> <step>...")?;
+    return probe(&bundle, &args.collect::<Vec<_>>());
+  }
   let shot = args.next().ok_or("usage: lips-tierb <bundle> <screenshot.bmp>")?;
 
   let container = LynxContainer::new(ContainerOptions {
@@ -80,7 +154,7 @@ fn main() -> R<()> {
   check("first render from the background thread", true, String::new());
   check(
     "elements map to Lynx: div→view, p→text, raw text inside text",
-    dom.contains("<view class=\"app\">") && dom.contains("<text id=\"count\""),
+    dom.contains("<view class=\"app") && dom.contains("<text id=\"count\""),
     dom.clone(),
   );
   check("keyed list renders in order", in_order(&dom, &["one", "two"]), dom.clone());
@@ -106,17 +180,48 @@ fn main() -> R<()> {
     dom.clone(),
   );
 
-  // Native CSS: the classes the applier set, matched by Lynx's own engine
-  let style = page.locator("#inc")?.ok_or("no #inc")?.computed_style_map()?;
-  let bg = style.get("background-color").cloned().unwrap_or_default();
+  // RFC-006 L2: the component sheet (app.lips.css), compiled flat and
+  // scoped by class at build time, matched by Lynx's own CSS engine
   check(
-    "native CSS matches the class the binding set (.btn background)",
-    bg.contains("226") || bg.to_lowercase().contains("e2e8f0"),
-    format!("background-color = {bg:?}"),
+    "the scope class reaches the root (.lips-app)",
+    dom.contains("class=\"app lips-app\""),
+    dom.clone(),
   );
-  let title = page.locator("#count")?.ok_or("no #count")?.computed_style_map()?;
-  let size = title.get("font-size").cloned().unwrap_or_default();
-  check("native CSS: .title font-size", size.starts_with("20"), format!("font-size = {size:?}"));
+  let inc = style(&mut page, "#inc")?;
+  let count = style(&mut page, "#count")?;
+  check(
+    "scoped rules apply (.btn background, .title font-size)",
+    get(&inc, "background-color") == "rgb(226,232,240)" && get(&count, "font-size") == "20px",
+    format!("background-color = {:?}, font-size = {:?}", get(&inc, "background-color"), get(&count, "font-size")),
+  );
+  check(
+    "@media applies (enableCSSRule)",
+    get(&count, "letter-spacing") == "1px",
+    format!("letter-spacing = {:?}", get(&count, "letter-spacing")),
+  );
+  let item = style(&mut page, ".item")?;
+  check(
+    "text properties inherit from the root (enableCSSInheritance)",
+    get(&item, "font-size") == "15px",
+    format!("font-size = {:?}", get(&item, "font-size")),
+  );
+
+  // Binds: variables written inline on the root (enableCSSInlineVariables),
+  // unit-suffixed ones carrying the unit — Lynx's calc() covers lengths only
+  let before = binds(&mut page)?;
+  check(
+    "variable binds apply (accent, padding 16px, radius 6px, width 50%)",
+    before == ["rgb(225,29,72)", "16px", "6px", "184px"],
+    format!("{before:?}"),
+  );
+  tap(&mut page, "#theme")?;
+  let after = wait_for(&mut page, "the theme", |p| Ok(binds(p)?[0] != before[0]))?;
+  let after = if after { binds(&mut page)? } else { before.clone() };
+  check(
+    "a state change rewrites them (blue, 24px, 12px, 80%)",
+    after == ["rgb(37,99,235)", "24px", "12px", "281.6px"],
+    format!("{after:?}"),
+  );
 
   page.screenshot(ScreenshotOptions {
     path: Some(shot.into()),

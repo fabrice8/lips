@@ -11,7 +11,9 @@ export const TEMPLATE = `
     <button class="btn" id="inc" data-k="inc" on-click( inc )><span>+1</span></button>
     <button class="btn" id="add" data-k="add" on-click( add )><span>add</span></button>
     <button class="btn" id="rev" data-k="rev" on-click( reverse )><span>reverse</span></button>
+    <button class="btn" id="theme" data-k="theme" on-click( theme )><span>theme</span></button>
   </div>
+  <div class="swatch" id="swatch" data-k="swatch"></div>
   <for [row] in=state.rows by="id">
     <div class="item" data-id=row.id><span>{row.label}</span></div>
   </for>
@@ -21,7 +23,12 @@ let next = 3
 
 export const state = {
   n: 0,
-  rows: [ { id: 1, label: 'one' }, { id: 2, label: 'two' } ]
+  rows: [ { id: 1, label: 'one' }, { id: 2, label: 'two' } ],
+  // Bound by the stylesheet (app.lips.css)
+  accent: '#e11d48',
+  pad: 16,
+  radius: 6,
+  width: 50
 }
 
 export const handlers = {
@@ -30,5 +37,11 @@ export const handlers = {
     const id = next++
     this.state.rows = [ ...this.state.rows, { id, label: `row ${id}` } ]
   },
-  reverse( this: any ){ this.state.rows = [ ...this.state.rows ].reverse() }
+  reverse( this: any ){ this.state.rows = [ ...this.state.rows ].reverse() },
+  theme( this: any ){
+    this.state.accent = '#2563eb'
+    this.state.pad = 24
+    this.state.radius = 12
+    this.state.width = 80
+  }
 }
