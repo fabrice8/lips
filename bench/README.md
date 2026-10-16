@@ -44,6 +44,53 @@ per-key signals) holds the spike prototype's promise with the full pipeline:
 create at ~1.6× vanilla, sub-millisecond updates, at 13 KB gzip. Remaining
 levers to the ≤1.4× create budget: LIS reconciler, bind-walk tuning.
 
+## ab.mjs — is a change faster or slower?
+
+`index.html` compares engines. To compare two builds of the same engine, use
+`ab.mjs`. It runs the same keyed-list ops on every build in one headless
+Chromium page:
+
+```bash
+bun run build
+node bench/ab.mjs --rows 10000 --iters 40 base=master new=dist base2=master
+```
+
+- **Builds.** Each build is a path to a `lips.min.js`, a directory that holds
+  one, or a git ref. A ref is built in a temporary worktree and cached by
+  commit. `label=` names a column.
+- **Baseline.** The first build is the baseline. Every other column also shows
+  its ratio to the baseline.
+- **Playwright.** It needs Playwright and a Chromium. Set `PLAYWRIGHT` and
+  `CHROMIUM` if they aren't resolvable.
+
+It is built to make small differences trustworthy:
+
+- The page is cross-origin isolated, so timers resolve to about 5 µs, not
+  100 µs.
+- GC runs before every op, so one build's garbage is not billed to the next.
+- The builds take turns in a rotating order, so drift lands on all of them
+  alike.
+
+**Read the ratios against a control.** List the baseline twice (`base2=master`
+above): the gap between the two copies is the noise floor.
+
+- At 10k rows and 40 iterations, that floor is about ±5% per op.
+- A difference inside it is not a result. Rerun with more iterations before
+  acting on it.
+
+Example: the L1 binding against L0, 10k rows, 40 iterations (2026-10-16). L1
+is within ±4% of L0 on every op, and the same-build controls spread just as
+wide. Every number is a median in ms, with the ratio to L0 in brackets:
+
+| op | L0 | L1 | L0 again | L1 again |
+|---|---|---|---|---|
+| create | 141.7 | 139.7 (0.99) | 137.5 (0.97) | 139.6 (0.99) |
+| replace | 207.8 | 212.8 (1.02) | 206.6 (0.99) | 212.1 (1.02) |
+| update | 49.3 | 51.2 (1.04) | 51.4 (1.04) | 51.4 (1.04) |
+| swap | 89.2 | 90.5 (1.02) | 85.1 (0.95) | 88.6 (0.99) |
+| remove | 52.3 | 53.3 (1.02) | 54.0 (1.03) | 51.2 (0.98) |
+| append | 223.2 | 228.9 (1.03) | 231.1 (1.04) | 219.4 (0.98) |
+
 ## Notes
 
 - Div-based rows: current Lips cannot render `<for>` inside `<table>`
