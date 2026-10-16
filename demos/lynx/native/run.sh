@@ -38,7 +38,7 @@ fi
 fetch() { # url sha256 dest
   if [ -f "$3" ] && echo "$2  $3" | sha256sum -c --quiet - 2>/dev/null; then return; fi
   mkdir -p "$(dirname "$3")"
-  curl -sS -fL -o "$3.part" "$1"
+  curl -sS -fL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$3.part" "$1"
   echo "$2  $3.part" | sha256sum -c --quiet -
   mv "$3.part" "$3"
 }
@@ -46,6 +46,7 @@ fetch "$RUNTIME_URL" "$RUNTIME_SHA256" "$sdk/lib/libLynx_clay.so"
 fetch "$CORE_URL" "$CORE_SHA256" "$sdk/resources/lynx_core.js"
 
 # 3. The bundle under test
+[ -d "$here/../node_modules" ] || ( cd "$here/.." && npm ci --no-audit --no-fund )
 ( cd "$here/.." && npx rspeedy build >"$cache/build.log" 2>&1 ) || { cat "$cache/build.log"; exit 1; }
 
 # 4. Run; the runner's build scripts use the verified SDK instead of downloading

@@ -36,7 +36,12 @@ SHA-256s. It then builds the bundle and runs `native/harness`:
 - computed styles are read from its native CSS engine;
 - the frame is written to `dist/native.bmp`.
 
-Any JS error the engine reports fails the run.
+Any JS error the engine reports fails the run. If the demo's
+`node_modules` is missing, it runs `npm ci` first.
+
+CI runs it in `.github/workflows/lynx-native.yml` on every push or PR that
+changes `src/` or `demos/lynx/`. The frame and logs are kept as the run's
+`lynx-native` artifact.
 
 ## On a device
 

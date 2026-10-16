@@ -324,6 +324,9 @@ API calls only on the main thread, serializable patches from the background.
     the native CSS engine matching the classes the binding sets
     (`background-color`, `font-size`).
   - It fails on any JS error the engine reports, not just unmet checks.
+  - CI runs it (`.github/workflows/lynx-native.yml`) on changes to `src/`
+    or `demos/lynx/`, on GitHub's Ubuntu 24.04 runners. The engine needs
+    glibc 2.18 or newer and `libepoxy0`.
     The `queueMicrotask` bug passed every functional check and was caught
     only by that.
   - L1's exit is met at tiers A and B.

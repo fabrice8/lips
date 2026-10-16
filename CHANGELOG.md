@@ -23,6 +23,19 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   headless. It fetches every input pinned and checksum-verified, and fails
   on any JS error the engine reports.
 
+### Added — tooling
+
+- **`bench/ab.mjs`: is a change faster or slower?** It runs two or more
+  builds of the engine through the same keyed-list ops in one headless
+  Chromium page. A build is a path or a git ref.
+  - The page is cross-origin isolated, so timers resolve to ~5 µs.
+  - GC runs before every op, and the builds take turns in a rotating
+    order.
+  - Listing the baseline twice gives the noise floor, about ±5% per op at
+    10k rows.
+- **CI runs the real-engine check.** `.github/workflows/lynx-native.yml`
+  runs `demos/lynx/native/run.sh` on changes to `src/` or `demos/lynx/`.
+
 ### Fixed — found by running the real Lynx engine
 
 - The runtime scheduled `onUpdate` with `queueMicrotask`, which Lynx's
