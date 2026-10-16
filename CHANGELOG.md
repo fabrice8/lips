@@ -5,6 +5,24 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — Lynx renderer spike (RFC-006 L1)
+
+- **`src/lynx/`: Lips rendering natively on Lynx, over two threads.**
+  - The runtime runs on the background thread against a shadow-tree host
+    that records changes as a flat op stream.
+  - A small main-thread applier applies the ops through Element PAPI and
+    forwards events back.
+  - Templates stay HTML-shaped: `div`/`button` render as `view`,
+    `p`/`span` as `text`, and `click` handlers receive `tap`.
+- **`Host.remove( node, gone )`.** The runtime now says when a node is
+  destroyed rather than moved, so a host can free what it holds. The DOM
+  ignores it.
+- **`demos/lynx`.** One template built with Rspeedy into a Lynx for Web
+  bundle and a native bundle. `e2e.mjs` drives the web one in Chromium.
+- Nothing in `src/lynx/` is in a published entry yet (RFC-006 §9,
+  packaging). The DOM bundles are unchanged apart from the `gone` flag
+  (+5 bytes gzipped).
+
 ### Added — the host seam (RFC-006 L0)
 
 - The IR runtime no longer touches the DOM directly. Every node operation

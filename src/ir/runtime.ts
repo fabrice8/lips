@@ -367,7 +367,7 @@ function disposeInstance( inst: BlockInstance ){
 function destroy( h: Host, inst: BlockInstance | null ){
   if( !inst ) return
   disposeInstance( inst )
-  for( const n of nodesOf( h, inst ) ) h.remove( n )
+  for( const n of nodesOf( h, inst ) ) h.remove( n, true )
 }
 
 /** Split an instruction on top-level commas (strings/brackets opaque) */
@@ -793,7 +793,7 @@ class IRRenderer {
         return this.bindOne( b, nodes[ i ]!, inst.benv, newBlock.scope, reuse )
       })
       // Text nodes whose bind disappeared
-      oldTexts.forEach( ( tn, key ) => !reused.has( key ) && this.h.remove( tn ) )
+      oldTexts.forEach( ( tn, key ) => !reused.has( key ) && this.h.remove( tn, true ) )
 
       report.push({ kind: 'binds', path })
     }
@@ -1684,7 +1684,7 @@ class IRRenderer {
     }
 
     h.insertAfter( anchor, [ el ] )
-    disposers.push( () => h.remove( el ) )
+    disposers.push( () => h.remove( el, true ) )
   }
 
   /**

@@ -257,6 +257,62 @@ even if the Lynx work stops.
 This mirrors the split the official vanilla-Lynx guidance prescribes: element
 API calls only on the main thread, serializable patches from the background.
 
+**As built, L1 (2026-10-16).**
+
+- **`src/lynx/protocol.ts`.** One flat array per flush: an opcode followed by
+  its operands (`CREATE`, `TEXT`, `INSERT`, `REMOVE`, `ATTR`, `SET_TEXT`,
+  `STYLES`, `LISTEN`, `UNLISTEN`, `RELEASE`). It holds primitives only, so
+  the cross-thread copy is as cheap as a message gets. Ids are integers the
+  background allocates; 1 is the page. The HTML-to-Lynx tag map (§4.3) and
+  `click` → `tap` live here.
+- **`src/lynx/background.ts`.** A `Host` over a shadow tree (the L0 tree
+  host's linked list, plus ids).
+  - Only **real** nodes cross: elements, and text under a `text` element.
+    Markers, fragments and other text stay virtual, and insert positions
+    skip them.
+  - A text bind's first value rides in its `TEXT` op instead of a second
+    `SET_TEXT`.
+  - `class` and `style` merge with the scope class (`lips-<nsp>`) and the
+    style variables.
+  - Ops are flushed once per promise job.
+- **`src/lynx/main.ts`.** The applier.
+  - Routes `class` / `id` / `data-*` to `__SetClasses` / `__SetID` /
+    `__AddDataset`, and everything else to `__SetAttribute`.
+  - Binds `__AddEventListener` and forwards `{ type, detail }`.
+  - Calls `__FlushElementTree()` once per batch.
+- **One runtime change.** `Host.remove( node, gone )` tells a host the node
+  is being destroyed, not moved. The Lynx host then releases the subtree's
+  ids on both threads. The runtime passes it from `destroy`, a rebuilt
+  block's dropped text binds, and unresolved elements' disposal: +5 bytes
+  gzipped, and `runtime` stays inside 15 KB.
+- **Found on the way.**
+  - In the background runtime, `lynx` is a parameter of the bundle's
+    module wrapper, not a property of `globalThis`. The bridge uses it as a
+    free identifier.
+  - `@lynx-js/testing-environment` (0.3.4, and 0.4.0 too) implements only
+    the ReactLynx-era `__AddEvent`, not `__AddEventListener`. Its spec
+    shims the pair.
+  - Its `__SetAttribute` rejects `class`, `id`, `style`, `data-*`, `key`
+    and `bind*`, which is why the applier routes them.
+- **Tests, tier A.**
+  - `tests/lynx-binding.spec.ts` (10 specs) runs both threads through the
+    testing environment's real bridge. After every step it requires the
+    main thread's element tree to equal the shadow tree's real nodes. Three
+    deliberate host bugs were each caught.
+  - `demos/lynx/e2e.mjs` builds the demo with Rspeedy and drives the
+    **Lynx for Web** bundle in Chromium: first render from the background,
+    taps round-tripping both threads, keyed insert and reverse. All 7
+    checks pass.
+- **Still open for the L1 exit.**
+  - Tier B: the real engine, headless. Needs the allowed host from §6.
+- **Known limits, owned by later steps.**
+  - Text outside a text element is not rendered and not yet reported:
+    L3 decides between a diagnostic and auto-wrap (§9.2).
+  - Removing a `data-*` attribute writes `undefined`, because there is no
+    removal call.
+  - Event payloads carry `type` and `detail` only (`value` for inputs is
+    L3).
+
 ### 4.3 Vocabulary
 
 Templates stay HTML-shaped and map onto Lynx elements:
