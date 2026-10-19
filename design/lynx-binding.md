@@ -110,9 +110,11 @@ properties; elsewhere the bound variable carries the full value (`"12px"`).
 - Visible text must sit in `<text>`, built from `__CreateText` plus
   `__CreateRawText` children. Raw text in a `view` does not render. Spans are
   nested `<text>`. Text does not wrap unless `white-space: normal` is set.
-- `<input>` and `<textarea>` exist but are **uncontrolled**. There is no
-  `value` prop: writes go through the `setValue` UI method, and reads come
-  from the `input` event payload (`value`, `selectionStart`, `selectionEnd`).
+- `<input>` and `<textarea>` exist but are **uncontrolled**. Writes go
+  through the `setValue` UI method, and reads come from the `input` event
+  payload (`value`, `selectionStart`, `selectionEnd`). *L3, real engine:* a
+  `value` attribute does set the first value; `setValue` sets every later
+  one and fires `input` itself (§4.5, "As built, L3").
 - Built-in elements: `view`, `text`, `image`, `scroll-view`, `list`, `input`,
   `textarea`, `swiper`, `canvas`, `svg`, `markdown`, `overlay`,
   `refresh-view`, `viewpager`, `webview`, `audio`.
@@ -332,11 +334,12 @@ API calls only on the main thread, serializable patches from the background.
   - L1's exit is met at tiers A and B.
 - **Known limits, owned by later steps.**
   - Text outside a text element is not rendered and not yet reported:
-    L3 decides between a diagnostic and auto-wrap (§9.2).
+    L3 decides between a diagnostic and auto-wrap (§9.2). *Done in L3:
+    auto-wrap where unambiguous, an error elsewhere.*
   - Removing a `data-*` attribute writes `undefined`, because there is no
     removal call.
   - Event payloads carry `type` and `detail` only (`value` for inputs is
-    L3).
+    L3). *Done in L3: `e.target.value` beside `e.detail.value`.*
 
 ### 4.3 Vocabulary
 
@@ -344,14 +347,16 @@ Templates stay HTML-shaped and map onto Lynx elements:
 
 | Template | Lynx |
 |---|---|
-| `div`, `section`, `article`, `nav`, `header`, `footer`, `main`, `ul`, `li`, `button`, … | `view` |
-| `span`, `p`, `h1`–`h6`, `label`, `b`, `strong`, `em`, `small`, `a` | `text` (nested `text` inside text) |
+| `div`, `section`, `article`, `nav`, `header`, `footer`, `main`, `ul`, `li`, `button`, `blockquote`, `dl`, … | `view` |
+| `span`, `p`, `h1`–`h6`, `label`, `b`, `strong`, `em`, `small`, `a`, `code`, `abbr`, … | `text` (nested `text` inside text) |
 | `img` | `image` |
 | `input`, `textarea` | `input`, `textarea` |
 | explicit Lynx tags (`scroll-view`, `list`, `swiper`, …) | themselves |
 
-Raw text outside a text-like element is a compile-time diagnostic. Whether to
-auto-wrap the unambiguous case is open (§9).
+Raw text outside a text-like element is wrapped in one `text` when the
+element's content is all inline, and is a compile-time error otherwise
+(§9.2, decided). An HTML tag with no Lynx element (`table`, `select`, `br`,
+…) is an error. `compileLynxTemplate` does both (§4.5, "As built, L3").
 
 ### 4.4 Style pipeline for the Lynx target
 
@@ -475,6 +480,97 @@ with `__LoadStyleSheet`, which is internal (§8).
   (`__InvokeUIMethod`) and reads back from the `input` event. Two-way binding
   semantics are documented as uncontrolled-with-sync.
 
+**As built, L3 (2026-10-19).**
+
+- **What the real engine does** (tier B, probed through Element PAPI alone
+  before any Lips code):
+  - **Inputs.** A `value` attribute sets the first value. `setValue` sets
+    any later one and fires `input` with `{ value, selectionStart,
+    selectionEnd, isComposing }`, as typing does. `getValue` and `focus()`
+    work, and a hit-tested touch focuses the input. Lynx for Web's
+    `setValue` updates the field but fires no `input`.
+  - **UI methods before the element's first flush** throw a main-thread
+    `TypeError` and never call back.
+  - **`scroll-view`** scrolls only with `scroll-y` set to `true` or
+    `"true"`: an empty string reads as false. A user drag fires `scroll`
+    (with `scrollTop`, `deltaY`, `isDragging`) and then `scrollend`.
+  - **`list`** is virtualized. It asks `componentAtIndex` for the cells
+    in view only (5 of 40 at 100px), and for more as it scrolls. It reports
+    cells leaving view through `enqueueComponent` but keeps them in the
+    tree. It applies positional `removeAction`s (old positions) and
+    `insertAction`s (new positions). **An insert without `item-key`
+    renders nothing**; `type` is optional, and the cell needs no
+    `item-key` attribute.
+  - Surrounding whitespace in text collapses as in HTML: `"\n  Save\n"`
+    lays out on one 16px line, like `"Save"`.
+  - Key events do not type: text entry goes through an IME interface the
+    runtime does not document. Typing stays tier C, and tier A types for
+    real in Chromium.
+- **Protocol: `INVOKE id, method, params`.** The applier runs UI methods
+  after the batch's flush, never before it.
+- **Inputs.** The background host sends `value` as the attribute in the
+  batch that creates the input, and as `setValue` after that. A value equal
+  to what the input last reported is not sent, so state that mirrors the
+  input never writes back over the user's next keystroke. An event whose
+  detail has a `value` also carries `e.target.value`, so DOM-shaped handlers
+  work unchanged.
+- **Attributes.** An empty attribute goes to Lynx as `true`, HTML's
+  presence semantics, except `value` and `placeholder`. `<scroll-view
+  scroll-y>` scrolls.
+- **Lists.** The applier creates `list` with `__CreateList`. Its cells are
+  built eagerly: they are ordinary elements the background renders anyway.
+  An INSERT or REMOVE under a list only updates the list's order. Once per
+  batch, the applier tells the list what changed in one `update-list-info`.
+  A reorder keeps the longest increasing run in place and moves the rest,
+  so a reversal moves all but one cell. Each insert carries `item-key`, the
+  cell's id. `componentAtIndex` appends the cell at that position and
+  flushes it with the list's operation id. Removed cells leave the list
+  element once the list has been told.
+- **`compileLynxTemplate( src )`** (`src/lynx/template.ts`) is
+  `compileTemplate( src, { target: 'tree' })` plus a pass over the parsed
+  template:
+
+  | Code | Severity | What |
+  |---|---|---|
+  | — | — | inline content of a non-text element (text, binds, text-like tags, control flow around them) wrapped in one `text` |
+  | LIPS-L101 | error | HTML tag with no Lynx element, with what to use |
+  | LIPS-L102 | error | text beside block content: one text or several is ambiguous |
+  | LIPS-L103 | warning | text at a template's top level renders only inside a text element |
+  | LIPS-L104 | error | a `list` child that is not a `list-item` |
+
+  An `i18n` marker is copied to the wrapper, which holds the text it
+  translates. Component content is left alone, since its placement is the
+  component's. `@text` on a non-text element gets a text of its own at
+  runtime. Macro bodies are inlined after the pass, so it does not see
+  them.
+- **The core cost.** `compileTemplate` gained a `transform` hook, run on the
+  parsed template before it compiles: +10 bytes on the full bundle (26.52 of
+  26.55 KB) and on `precompile` (13.87 of 14). `runtime` is unchanged.
+  Everything else is in `src/lynx/`.
+- **Tests.**
+  - Tier A: `tests/lynx-template.spec.ts` (13 specs) covers wrapping, every
+    code with its location, and the demo's template compiling clean.
+    `tests/lynx-binding.spec.ts` gains 8 L3 specs: list update info, cells
+    built only when asked, reorders and removals, input value via attribute
+    then `setValue` after the flush, the echo guard, empty attributes,
+    `@text`, and a wrapped button label. Six deliberate breakages (no
+    `item-key`, no echo guard, UI methods before the flush, no stable run,
+    empty attributes kept, removed cells left attached) were each caught.
+  - Lynx for Web e2e: six L3 checks (16/16), including real typing in
+    Chromium.
+  - Tier B: six L3 checks (20/20) on the demo. The wrapped label renders.
+    The list builds items 1–5 of 40, asks again for 40–36 after a reorder,
+    and for more on a drag. `setValue` reaches the native input and its
+    `input` event comes back. A bare `scroll-y` scrolls under a drag, and
+    `scroll` reaches the background. Breaking `item-key`, the empty-
+    attribute rule or the auto-wrap each failed them.
+  - The runner has no public drag or scroll, so `run.sh` applies
+    `runner.patch`, six lines that expose its native view. The harness's
+    `probe` mode gains `box=`, `touch=` and `drag=` steps.
+- **Not done.** UI methods from app code (`scrollTo`, `focus`) need element
+  references, which Lips does not have yet. List cell layout hints
+  (`full-span`, sticky, estimated sizes) and recycling are not passed on.
+
 ### 4.6 Expressions
 
 Bundled apps compile template expressions to real functions at build time, so
@@ -533,7 +629,9 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
   Lynx for Web, and through the real engine at tier B.
 - **L2 — Style pipeline** (§4.4). Exit: StyleIR specs assert computed styles
   in the real engine (tier B), and every §3 limit has a diagnostic.
-- **L3 — Inputs, scroll, list, vocabulary diagnostics.**
+- **L3 — Inputs, scroll, list, vocabulary diagnostics.** Exit: an input,
+  a scroll view and a virtualized list work in the real engine at tier B,
+  and text the engine would drop is wrapped or reported.
 - **L4 — Decision gate.** One real screen built in both ReactLynx and Lips.
   Measure, on a device (tier C):
   - first-frame time;
@@ -573,8 +671,14 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
    - The tier-B headless runtime is 4.1, so the floor is close to what the
      tests run against.
    - Cost: an app pinned below 4.0 cannot adopt Lips without upgrading.
-2. **Raw text outside text elements:** always an error, or auto-wrap when the
-   wrapper is unambiguous.
+2. ~~**Raw text outside text elements:** always an error, or auto-wrap when the
+   wrapper is unambiguous.~~ **Decided 2026-10-16: auto-wrap the
+   unambiguous case.**
+   - Unambiguous: all of the element's content is inline (text, binds,
+     text-like tags, control flow around them), so one `text` holds it as
+     the browser would lay it out.
+   - Anything else is an error (LIPS-L102), because one text or several
+     would lay out differently.
 3. **Packaging:** subpath entries of `@lipsjs/lips`, or a separate
    `@lipsjs/lynx` package.
 

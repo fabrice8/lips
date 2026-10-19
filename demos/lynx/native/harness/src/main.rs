@@ -1,10 +1,11 @@
-//! RFC-006 L1 and L2 exit checks, tier B: the demo's native bundle in the
+//! RFC-006 L1–L3 exit checks, tier B: the demo's native bundle in the
 //! REAL Lynx engine (4.1, `libLynx_clay`), headless, through lynx-stack's
 //! `lynx-headless-rust-test-runner`.
 //!
 //! What this proves that tier A cannot: Lynx's own threads and JS engines,
-//! its own Element PAPI and event dispatch, and its native CSS engine
-//! matching the compiled sheet and resolving the variables Lips binds.
+//! its own Element PAPI and event dispatch, its native CSS engine matching
+//! the compiled sheet and resolving the variables Lips binds, and its
+//! native input, scroll view and list.
 //!
 //!   lips-tierb <main.lynx.bundle> <screenshot.bmp>
 //!   lips-tierb probe <main.lynx.bundle> <step>...
@@ -77,6 +78,15 @@ fn wait_for(page: &mut LynxPage, _what: &str, ok: impl Fn(&mut LynxPage) -> R<bo
     page.wait_for_timeout(Duration::from_millis(50));
   }
   Ok(false)
+}
+
+/// The list cells the engine has, by label, in tree order
+fn cells(dom: &str) -> Vec<u32> {
+  dom
+    .split("text=\"item ")
+    .skip(1)
+    .filter_map(|s| s.split('"').next()?.parse().ok())
+    .collect()
 }
 
 /// The centre of an element, in view pixels
@@ -274,6 +284,47 @@ fn main() -> R<()> {
     "a state change rewrites them (blue, 24px, 12px, 80%)",
     after == ["rgb(37,99,235)", "24px", "12px", "281.6px"],
     format!("{after:?}"),
+  );
+
+  // RFC-006 L3: the vocabulary pass, inputs, the scroll view, the list
+  let has = |page: &mut LynxPage, needle: String| wait_for(page, &needle.clone(), move |p| Ok(p.content()?.contains(&needle)));
+  let dom = page.content()?;
+  check(
+    "bare text in a button renders: wrapped in a text element at compile time",
+    dom.contains(&format!("<text><raw-text {}>", text("fill"))),
+    dom.clone(),
+  );
+
+  let first = cells(&dom);
+  check(
+    "a list builds only the cells in view (items 1–5 of 40)",
+    first == [1, 2, 3, 4, 5],
+    format!("{first:?}"),
+  );
+
+  // fill → setValue on the native input → its `input` event → `e.target.value`
+  tap(&mut page, "#fill")?;
+  let typed = has(&mut page, text("Typed: hello"))?;
+  check("an input's value goes in through setValue, and its input event comes back", typed, page.content()?);
+
+  drag(&mut page, "#scroller", -150.0)?;
+  let top = has(&mut page, text("Top: 150"))?;
+  check("a bare scroll-y scrolls, and scroll events reach the background (Top: 150)", top, page.content()?);
+
+  tap(&mut page, "#shuffle")?;
+  let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37, 36])))?;
+  check(
+    "a reordered list asks again for the cells in view (items 40–36)",
+    shuffled,
+    format!("{:?}", cells(&page.content()?)),
+  );
+
+  drag(&mut page, "#feed", -200.0)?;
+  let more = wait_for(&mut page, "more cells", |p| Ok(cells(&p.content()?).contains(&30)))?;
+  check(
+    "dragging the list asks for the cells it scrolls into view",
+    more,
+    format!("{:?}", cells(&page.content()?)),
   );
 
   page.screenshot(ScreenshotOptions {
