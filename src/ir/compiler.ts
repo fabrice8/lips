@@ -129,6 +129,12 @@ export interface CompileOptions {
    * (they mean nothing off the DOM), and `@html` is an error.
    */
   target?: 'dom' | 'tree'
+  /**
+   * Rewrites the parsed template before it compiles, reporting into
+   * `diagnostics` — how a host adapts the HTML-shaped vocabulary
+   * (`compileLynxTemplate`, RFC-006 §4.3). Macro bodies are not passed.
+   */
+  transform?: ( nodes: TemplateNode[], diagnostics: TemplateDiagnostic[] ) => void
 }
 
 interface MacroDef {
@@ -148,7 +154,7 @@ const CONTROL_TAGS = new Set([
 const ARM_TAGS = new Set([ 'case', 'default', 'then', 'catch', 'loading' ])
 
 /** Standard HTML + common SVG tags — anything else is a component candidate */
-const HTML_TAGS = new Set([
+export const HTML_TAGS = new Set([
   'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base', 'bdi', 'bdo',
   'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'cite', 'code', 'col',
   'colgroup', 'data', 'datalist', 'dd', 'del', 'details', 'dfn', 'dialog', 'div', 'dl',
@@ -1141,6 +1147,7 @@ export function compileTemplate( src: string, options?: CompileOptions ): Compil
   const macros = parseMacros( options?.macros || '', diagnostics )
 
   const parsed = parseTemplate( src )
+  options?.transform?.( parsed.root.children, diagnostics )
   const compiler = new Compiler( src, macros, options?.target === 'tree' )
   const ir = compiler.compile( parsed.root.children )
 

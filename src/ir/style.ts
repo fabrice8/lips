@@ -152,7 +152,7 @@ function skipLine( src: string, i: number ){
   const end = src.indexOf( '\n', i + 2 )
   return end < 0 ? src.length : end
 }
-function locOf( src: string, offset: number, length: number ){
+export function locOf( src: string, offset: number, length: number ){
   let line = 1, last = -1
   for( let i = 0; i < offset; i++ ) if( src[ i ] === '\n' ){ line++; last = i }
   return { line, col: offset - last, offset, length }

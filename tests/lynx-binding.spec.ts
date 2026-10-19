@@ -1,5 +1,5 @@
 /**
- * RFC-006 L1 — the Lynx renderer spike, test tier A.
+ * RFC-006 L1 and L3 — the Lynx renderer, test tier A.
  *
  * Both threads run in one process through `@lynx-js/testing-environment`:
  * the Lips runtime on the background thread against the shadow-tree host,
@@ -12,15 +12,16 @@
  * order — markers, fragments and text outside `text` never crossed, and
  * nothing was left behind.
  *
- * One shim: the environment implements only the ReactLynx-era `__AddEvent`,
+ * Shims: the environment implements only the ReactLynx-era `__AddEvent`,
  * not `__AddEventListener` / `__RemoveEventListener`, which official
- * guidance requires (RFC-006 §5). The two lines below map them onto the
- * jsdom element's own listeners. Real event binding is exercised by the
- * Lynx for Web run, not here.
+ * guidance requires (RFC-006 §5), and has no `__InvokeUIMethod`. The lines
+ * below map the listeners onto the jsdom element's own, and record UI
+ * method calls with the number of flushes before them. Real event binding
+ * and UI methods are exercised by the Lynx for Web and native runs.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { LynxTestingEnv } from '@lynx-js/testing-environment'
-import { compileTemplate } from '../src/ir/compiler'
+import { compileLynxTemplate } from '../src/lynx/template'
 import { compileLynxStyle } from '../src/lynx/style'
 import { stylisPreprocessor } from '../src/stylis'
 import { renderIR, type RenderSetup, type RuntimeOptions } from '../src/ir/runtime'
@@ -31,8 +32,13 @@ import * as OP from '../src/lynx/protocol'
 const G = globalThis as any
 
 let env: LynxTestingEnv
+/** UI method calls: element, method, params, and how many flushes came first */
+let invoked: [ any, string, any, number ][]
+let flushes = 0
 
 beforeEach( () => {
+  invoked = []
+  flushes = 0
   // vitest's own jsdom window: the environment's elements live in its document
   env = new LynxTestingEnv({ window: window as any })
   // Its Element PAPI looks itself up here, as its vitest preset would install it
@@ -40,28 +46,33 @@ beforeEach( () => {
   G.lynxEnv = env.env
   Object.assign( env.mainThread.globalThis, {
     __AddEventListener: ( el: any, name: string, fn: any ) => el.addEventListener( name, fn ),
-    __RemoveEventListener: ( el: any, name: string, fn: any ) => el.removeEventListener( name, fn )
+    __RemoveEventListener: ( el: any, name: string, fn: any ) => el.removeEventListener( name, fn ),
+    __InvokeUIMethod: ( el: any, method: string, params: any ) => { invoked.push([ el, method, params, flushes ]) },
+    __FlushElementTree: () => { flushes++ }
   })
 })
 
 const tree = ( src: string ) => {
-  const { ir, diagnostics } = compileTemplate( src, { target: 'tree' })
+  const { ir, diagnostics } = compileLynxTemplate( src )
   expect( diagnostics, src ).toEqual( [] )
   return ir
 }
 const tick = () => new Promise<void>( r => setTimeout( r, 0 ) )
 
-/** The main thread's tree: tags and raw text, in order */
+/**
+ * The main thread's tree: tags and raw text, in order. A list's children
+ * are the cells it has asked for, so lists are compared on their own.
+ */
 const snapPage = ( el: any ): any => el.nodeType === 3
   ? el.data
-  : { t: el.localName, ...( el.childNodes.length ? { c: [ ...el.childNodes ].map( snapPage ) } : {} ) }
+  : { t: el.localName, ...( el.childNodes.length && el.localName !== 'list' ? { c: [ ...el.childNodes ].map( snapPage ) } : {} ) }
 
 /** What it must equal: the shadow tree's REAL nodes, in order */
 function snapShadow( n: LynxNode ): any[] {
   const out: any[] = []
   for( let c = n.first; c; c = c.next ){
     if( !c.real ) continue
-    const kids = snapShadow( c )
+    const kids = c.type === 'list' ? [] : snapShadow( c )
     out.push( c.type === '#text' ? c.value : { t: c.type, ...( kids.length ? { c: kids } : {} ) } )
   }
   return out
@@ -300,5 +311,127 @@ describe('Lynx: both threads through the testing environment', () => {
     env.switchToBackgroundThread()
     await tick()
     expect( taps ).toBe( 1 )
+  })
+})
+
+// ------------------------------------------------- L3: inputs, lists, words
+describe('Lynx L3: inputs, lists, attributes', () => {
+  /** What the list was told, batch by batch */
+  const told = ( list: any ) => JSON.parse( list.getAttribute('update-list-info') || '[]' )
+  /** Ask the list for the cell at `index`, as the native list does on scroll */
+  const ask = ( list: any, index: number ) => {
+    env.switchToMainThread()
+    const uid = list.componentAtIndex( list, G.__GetElementUniqueID( list ), index, 0 )
+    env.switchToBackgroundThread()
+    return uid
+  }
+  const rows = ( ...ids: number[] ) => ids.map( id => ({ id, label: `r${id}` }) )
+  const LIST = `<list><for [row] in=state.rows by="id"><list-item data-id=row.id>{row.label}</list-item></for></list>`
+
+  it('a list is told its cells and builds none until asked', async () => {
+    const app = await boot( LIST, { state: { rows: rows( 1, 2, 3 ) } } )
+    const list = app.q('list')
+
+    const [ first ] = told( list )
+    expect( first.removeAction ).toEqual( [] )
+    expect( first.insertAction.map( ( a: any ) => a.position ) ).toEqual([ 0, 1, 2 ])
+    // Lynx renders no cell without an item-key
+    expect( first.insertAction.every( ( a: any ) => typeof a['item-key'] === 'string' ) ).toBe( true )
+    expect( list.children ).toHaveLength( 0 )
+
+    const uid = ask( list, 1 )
+    expect( list.children ).toHaveLength( 1 )
+    expect( list.children[ 0 ].dataset.id ).toBe('2')
+    expect( G.__GetElementUniqueID( list.children[ 0 ] ) ).toBe( uid )
+    // the cell's text was wrapped: list-item is not a text element
+    expect( list.children[ 0 ].innerHTML ).toBe('<text>r2</text>')
+  })
+
+  it('a reorder moves only what left its run; a removal detaches the cell', async () => {
+    const app = await boot( LIST, { state: { rows: rows( 1, 2, 3, 4 ) } } )
+    const list = app.q('list')
+    ;[ 0, 1, 2, 3 ].forEach( i => ask( list, i ) )
+
+    // 4 moves to the front: 1, 2, 3 stay where they are relative to each other
+    await app.act( () => app.inst.state.rows = rows( 4, 1, 2, 3 ) )
+    expect( told( list )[ 1 ] ).toMatchObject({ removeAction: [ 3 ], insertAction: [ { position: 0 } ] })
+
+    // 2 goes: removed by its old position, and its element leaves the list
+    await app.act( () => app.inst.state.rows = rows( 4, 1, 3 ) )
+    expect( told( list )[ 2 ] ).toMatchObject({ removeAction: [ 2 ], insertAction: [] })
+    expect( [ ...list.children ].map( ( c: any ) => c.dataset.id ).sort() ).toEqual([ '1', '3', '4' ])
+
+    // an append is one insert, at the end
+    await app.act( () => app.inst.state.rows = rows( 4, 1, 3, 5 ) )
+    expect( told( list )[ 3 ] ).toMatchObject({ removeAction: [], insertAction: [ { position: 3 } ] })
+    expect( app.q('[data-id="5"]') ).toBeNull() // not asked for yet
+  })
+
+  it('a reversal keeps one cell and moves the rest', async () => {
+    const app = await boot( LIST, { state: { rows: rows( 1, 2, 3 ) } } )
+    await app.act( () => app.inst.state.rows = rows( 3, 2, 1 ) )
+    const { removeAction, insertAction } = told( app.q('list') )[ 1 ]
+    expect( removeAction ).toHaveLength( 2 )
+    expect( insertAction ).toHaveLength( 2 )
+  })
+
+  it('an input value: the attribute first, then setValue after the flush', async () => {
+    const app = await boot( `<input data-k="in" value=state.v>`, { state: { v: 'a' } } )
+    const input = app.q('[data-k="in"]')
+    expect( input.getAttribute('value') ).toBe('a')
+    expect( invoked ).toHaveLength( 0 )
+
+    const before = flushes
+    await app.act( () => app.inst.state.v = 'b' )
+    expect( invoked ).toEqual([ [ input, 'setValue', { value: 'b' }, before + 1 ] ]) // after this batch's flush
+    expect( input.getAttribute('value') ).toBe('a') // the attribute is the first value only
+  })
+
+  it('what the input reports is not written back; anything else is', async () => {
+    const seen: any[] = []
+    const app = await boot( `<input data-k="in" value=state.v on-input( onIn )>`, {
+      state: { v: '' },
+      handlers: { onIn( this: any, e: any ){ seen.push( e ); this.state.v = e.target.value } }
+    })
+    const input = app.q('[data-k="in"]')
+
+    env.switchToMainThread()
+    input.dispatchEvent( new env.env.window.CustomEvent( 'input', { detail: { value: 'hel', selectionStart: 3, selectionEnd: 3 } }) )
+    env.switchToBackgroundThread()
+    await tick()
+
+    // DOM-shaped and Lynx-shaped reads both work
+    expect( seen[ 0 ].target.value ).toBe('hel')
+    expect( seen[ 0 ].detail ).toMatchObject({ value: 'hel', selectionStart: 3 })
+    expect( app.inst.state.v ).toBe('hel')
+    // the input already shows it: writing it back would race the next keystroke
+    expect( invoked ).toHaveLength( 0 )
+
+    await app.act( () => app.inst.state.v = '' )
+    expect( invoked.map( i => i.slice( 1, 3 ) ) ).toEqual([ [ 'setValue', { value: '' } ] ])
+  })
+
+  it('a present attribute is true, as in HTML: Lynx reads empty as false', async () => {
+    const app = await boot( `<scroll-view scroll-y><input placeholder="" value=""></scroll-view>` )
+    expect( app.q('scroll-view').getAttribute('scroll-y') ).toBe('true')
+    expect( app.q('input').getAttribute('placeholder') ).toBe('')
+    expect( app.q('input').getAttribute('value') ).toBe('')
+  })
+
+  it('@text in an element that is not text gets a text of its own', async () => {
+    const app = await boot( `<div data-k="d" @text=state.t></div><p data-k="p" @text=state.t></p>`, { state: { t: 'hi' } } )
+    expect( app.q('[data-k="d"]').innerHTML ).toBe('<text>hi</text>')
+    expect( app.q('[data-k="p"]').innerHTML ).toBe('hi')
+
+    await app.act( () => app.inst.state.t = 'yo' )
+    expect( app.q('[data-k="d"]').innerHTML ).toBe('<text>yo</text>')
+  })
+
+  it('bare text in a button renders: auto-wrapped at compile time', async () => {
+    const app = await boot( `<button data-k="b" on-click( inc )>Count {state.n}</button>`,
+      { state: { n: 0 }, handlers: { inc( this: any ){ this.state.n++ } } } )
+    expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 0</text>')
+    await app.fire('[data-k="b"]')
+    expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 1</text>')
   })
 })

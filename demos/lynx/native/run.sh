@@ -33,6 +33,10 @@ if [ ! -d "$cache/headless-rust-test-runner" ]; then
   # Sibling layout preserved: the runner's build script reaches ../engine-bridge
   cp -r "$cache/lynx-stack/packages/lynx/engine-bridge" "$cache/lynx-stack/packages/lynx/headless-rust-test-runner" "$cache/"
 fi
+# The runner taps, but has no public way to drag or scroll: one small patch
+# exposes its native view (runner.patch)
+grep -q 'pub fn view(&self)' "$cache/headless-rust-test-runner/src/lib.rs" \
+  || patch -s -p1 -d "$cache/headless-rust-test-runner" <"$here/runner.patch"
 
 # 2. Runtime + core script, verified
 fetch() { # url sha256 dest

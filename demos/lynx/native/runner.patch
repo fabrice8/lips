@@ -1,0 +1,15 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -433,6 +433,12 @@
+     Ok(bitmap)
+   }
+ 
++  /// The native view: input the runner does not simulate itself — key
++  /// strokes, pointer drags, wheel scrolls. Added by lips (demos/lynx/native).
++  pub fn view(&self) -> &LynxView {
++    &self.page.view
++  }
++
+   /// Drives the container for `duration` so pending work can settle.
+   pub fn wait_for_timeout(&mut self, duration: Duration) {
+     self.container.pump_for(duration);
