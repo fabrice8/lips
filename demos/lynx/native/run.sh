@@ -61,7 +61,8 @@ status=0
 # From the cache: the engine writes its quickjs_cache/ into the working directory
 ( cd "$cache" && "$here/target/debug/lips-tierb" "$here/../dist/main.lynx.bundle" "$here/../dist/native.bmp" ) >"$log" 2>&1 || status=$?
 
-grep -E '^(✓|✗)|all checks|SOME CHECKS' "$log" || true
+# Anywhere in a line: the engine logs to the same stream, mid-line at times
+grep -oE '(✓|✗) .*|all checks passed|SOME CHECKS FAILED' "$log" || true
 errors=$(grep -cE 'onAppJSError|exception:' "$log" || true)
 if [ "$errors" != "0" ]; then
   echo "✗ the engine reported $errors JS error(s) — see $log"
