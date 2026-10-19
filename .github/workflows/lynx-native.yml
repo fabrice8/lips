@@ -1,9 +1,10 @@
 name: Lynx native
 
-# RFC-006 test tier B: the Lynx demo in the REAL Lynx engine (4.1,
-# libLynx_clay), headless, through demos/lynx/native/run.sh. It is separate
-# from CI because it builds the runner crates in Rust and downloads the
-# 40 MB engine, so it runs only when code the demo exercises changes.
+# RFC-006 test tier B: the Lynx demo in the REAL Lynx engine (libLynx_clay),
+# headless, through demos/lynx/native/run.sh, on Linux and on macOS (Apple
+# Silicon, what a maintainer's machine runs). It is separate from CI
+# because it builds the runner crates in Rust and downloads the engine, so
+# it runs only when code the demo exercises changes.
 on:
   push:
     branches: [ master ]
@@ -68,6 +69,54 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: lynx-native
+          path: |
+            demos/lynx/dist/native.bmp
+            demos/lynx/native/.cache/run.log
+            demos/lynx/native/.cache/build.log
+          if-no-files-found: ignore
+
+  # The same run on Apple Silicon: the macOS runtime, ad-hoc signed by run.sh
+  tier-b-macos:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: demos/lynx/package-lock.json
+
+      - uses: actions/cache@v4
+        with:
+          path: demos/lynx/native/.cache
+          key: lynx-native-macos-sdk-${{ hashFiles('demos/lynx/native/run.sh') }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            demos/lynx/native/target
+          key: lynx-native-macos-cargo-${{ hashFiles('demos/lynx/native/Cargo.lock', 'demos/lynx/native/run.sh') }}
+
+      - name: Install demo dependencies
+        working-directory: demos/lynx
+        run: npm ci --no-audit --no-fund
+
+      - name: The demo in the real Lynx engine
+        run: demos/lynx/native/run.sh
+
+      - name: Keep the frame and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lynx-native-macos
           path: |
             demos/lynx/dist/native.bmp
             demos/lynx/native/.cache/run.log

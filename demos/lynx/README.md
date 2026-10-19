@@ -40,26 +40,64 @@ would reach Lynx uncompiled.
 
 ## Run it
 
+| Tier (RFC-006 §6) | Command, from `demos/lynx` | What it proves |
+|---|---|---|
+| A, unit | `bun run test` (repo root) | The binding, the style pipeline and the vocabulary pass, both threads in Node |
+| A, web | `npm run e2e` | The real bundle in Lynx for Web, driven in Chromium, including real typing |
+| B | `npm run native` | The real Lynx engine, headless: native CSS, the input, the scroll view and the list |
+| C | `npm run ios` / `npm run android` | Lynx Explorer on a simulator, live from the dev server |
+
+`npm run build` writes `dist/main.web.bundle` and `dist/main.lynx.bundle`.
+`npm run dev` serves both and rebuilds on every edit. Lynx for Web
+previews at <http://localhost:3000/__web_preview?casename=main.web.bundle>.
+
+## On a Mac (Apple Silicon)
+
+Once:
+
 ```bash
-npm install
-npx rspeedy build      # dist/main.web.bundle (Lynx for Web) + dist/main.lynx.bundle (native)
-node e2e.mjs           # builds, serves, drives Lynx for Web in Chromium
+# Node 22+, bun (https://bun.sh), Rust (https://rustup.rs), Xcode with an
+# iPhone simulator, Android Studio with an emulator. Then:
+export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools:$HOME/Library/Android/sdk/emulator"
+
+bun install                        # repo root
+cd demos/lynx && npm ci
+npx playwright install chromium    # for npm run e2e
 ```
 
-`e2e.mjs` needs Playwright and a Chromium. Set `PLAYWRIGHT` to the
-Playwright package path and `CHROMIUM` to the browser executable if they are
-not resolvable from here.
+Then every tier runs locally:
+
+- `npm run native` is tier B. It fetches the engine's macOS build and
+  ad-hoc signs a copy, which Apple Silicon requires. The first run also
+  builds the Rust runner, in about two minutes.
+- `npm run ios` boots the first iPhone simulator, unless one is already
+  booted. It installs Lynx Explorer 4.1.0 if it is missing and opens the
+  demo in it.
+- `npm run android` does the same on the first emulator. It maps the
+  emulator's port 3000 back to your Mac with `adb reverse`.
+
+`ios` and `android` start the dev server unless one is already running on
+port 3000, so `npm run dev` in another terminal serves both platforms at
+once. Lynx Explorer is the release asset from lynx-family/lynx, checked
+against a pinned SHA-256 and kept in `native/.cache/explorer`. That is the
+engine tier B runs.
+
+What only a simulator or a device shows: real keyboard and IME input,
+native scroll and fling feel, and, on a mid-range phone, the L4
+measurements.
 
 ## The real engine, headless (RFC-006 tier B)
 
 ```bash
-native/run.sh
+native/run.sh          # or: npm run native
 ```
 
-This needs git, curl, cargo and node, on Linux x86_64. It fetches
-lynx-stack's headless runner crates at the commit RFC-006 pins, plus the Lynx
-4.1 runtime and core script; both are checked against lynx-stack's pinned
-SHA-256s. It then builds the bundle and runs `native/harness`:
+This needs git, curl, cargo and node, on Linux x86_64 or macOS on Apple
+Silicon. It fetches lynx-stack's headless runner crates at the commit
+RFC-006 pins, then the runtime and the core script. The runtime is Lynx 4.1
+on Linux and lynx-stack's macOS build on a Mac. Both are checked against
+lynx-stack's pinned SHA-256s on every run. It then builds the bundle and
+runs `native/harness`:
 
 - first render, taps and keyed moves are checked in the engine's own DOM;
 - the sheet's computed styles are read from its native CSS engine, before
@@ -72,11 +110,13 @@ The runner has no public drag, so `run.sh` applies `native/runner.patch`,
 which exposes its native view.
 
 To explore instead of check, `probe` loads a bundle and runs steps in
-order:
+order. Run it from `native/.cache`: the engine writes a `quickjs_cache/`
+into the working directory.
 
 ```bash
-native/target/debug/lips-tierb probe dist/main.lynx.bundle tap=#theme 'style=#count:color,font-size' dom shot=/tmp/f.bmp
-native/target/debug/lips-tierb probe dist/main.lynx.bundle box=#feed drag=#feed:-200 dom
+cd native/.cache
+../target/debug/lips-tierb probe ../../dist/main.lynx.bundle tap=#theme 'style=#count:color,font-size' dom shot=/tmp/f.bmp
+../target/debug/lips-tierb probe ../../dist/main.lynx.bundle box=#feed drag=#feed:-200 dom
 ```
 
 Steps: `tap=`, `touch=` (a hit-tested finger tap, which focuses inputs),
@@ -86,11 +126,13 @@ Steps: `tap=`, `touch=` (a hit-tested finger tap, which focuses inputs),
 Any JS error the engine reports fails the run. If the demo's
 `node_modules` is missing, it runs `npm ci` first.
 
-CI runs it in `.github/workflows/lynx-native.yml` on every push or PR that
-changes `src/` or `demos/lynx/`. The frame and logs are kept as the run's
-`lynx-native` artifact.
+CI runs it on Linux and on macOS in `.github/workflows/lynx-native.yml`,
+on every push or PR that changes `src/` or `demos/lynx/`. The frames and
+logs are kept as the `lynx-native` and `lynx-native-macos` artifacts.
 
-## On a device
+## On a phone
 
-Open `dist/main.lynx.bundle` in Lynx Explorer (`npx rspeedy dev`
-prints a QR code). That is test tier C in RFC-006 §6.
+`npm run dev` prints the bundle's URL. Open it in Lynx Explorer on the
+phone, or scan the QR code Lynx Explorer offers. The phone must reach your
+machine on port 3000. iOS needs Lynx Explorer built from source, or the
+community App Store build. That is tier C in RFC-006 §6.
