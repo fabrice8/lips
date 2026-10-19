@@ -5,6 +5,36 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — Lynx inputs, scroll, lists and vocabulary (RFC-006 L3)
+
+- **`compileLynxTemplate( src )`** (`src/lynx/template.ts`): templates
+  compiled for Lynx, with the HTML-shaped vocabulary adapted.
+  - Text renders only inside a text element, so inline content in a
+    `div`, `button`, `li` or Lynx container is wrapped in one `text`:
+    `<button>Save {state.n}</button>` just works.
+  - What would render nothing is a diagnostic: `LIPS-L101` (an HTML tag
+    with no Lynx element, such as `table` or `br`), `LIPS-L102` (text
+    beside block content), `LIPS-L103` (text at a template's top level)
+    and `LIPS-L104` (a `list` child that is not a `list-item`).
+  - More HTML tags map onto `view` and `text` (`blockquote`, `dl`, `abbr`,
+    `kbd`, …).
+- **Inputs.** A `value` bind on `input`/`textarea` writes the attribute
+  first and `setValue` after. A value the input itself reported is never
+  written back, so typing is not raced. Handlers read `e.target.value`, as
+  on the DOM, or `e.detail.value`.
+- **Native lists.** `<list>` with `<list-item>` cells goes through Lynx's
+  `__CreateList`: cells are handed over as the list scrolls them into view,
+  and reorders move only the cells that left their run.
+- **Empty attributes are true**, as in HTML: `<scroll-view scroll-y>`
+  scrolls. Lynx reads an empty string as false.
+- **The protocol gains `INVOKE`** for UI methods, which the main thread
+  runs after its flush.
+- **`compileTemplate` takes a `transform` hook**, run on the parsed
+  template before it compiles. This is how a host adapts the vocabulary.
+- **`demos/lynx`** gains an input, a scroll view and a 40-row list. Tier B
+  (20/20) proves them in the real engine. The runner gets a six-line patch
+  for drags, and the `probe` mode gets `box=`, `touch=` and `drag=` steps.
+
 ### Added — Lynx style pipeline (RFC-006 L2)
 
 - **`src/lynx/style.ts`: component stylesheets for Lynx.**

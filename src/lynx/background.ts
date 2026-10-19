@@ -23,7 +23,7 @@ import type { BlockIR, NodeIR } from '../ir/compiler'
 import type { Host } from '../ir/host'
 import { treeHost, treeNode, link, unlink, type TreeNode } from '../ir/tree'
 import {
-  CREATE, TEXT, INSERT, REMOVE, ATTR, SET_TEXT, STYLES, LISTEN, UNLISTEN, RELEASE,
+  CREATE, TEXT, INSERT, REMOVE, ATTR, SET_TEXT, STYLES, LISTEN, UNLISTEN, RELEASE, INVOKE,
   PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, scopeClass, type WireEvent
 } from './protocol'
 
@@ -42,7 +42,7 @@ export interface LynxNode extends TreeNode {
   /** `class` and `style` as written — merged with the scope class and variables */
   cls?: string
   css?: string
-  /** Where its TEXT op's value sits in the unsent batch, and which batch */
+  /** Where its TEXT op's value sits in the unsent batch; the batch it was created in */
   slot?: number
   batch?: number
 }
@@ -65,6 +65,8 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
   scheduled = false
 
   const handlers = new Map<number, Map<string, Set<( event: any ) => void>>>()
+  /** What each input last reported holding — the value it already shows */
+  const typed = new Map<number, string>()
 
   const flush = () => {
     scheduled = false
@@ -97,6 +99,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
     for( let c = n.first; c; c = c.next ) release( c )
     if( !n.real ) return
     handlers.delete( n.id )
+    typed.delete( n.id )
     emit( RELEASE, n.id )
     n.real = false
   }
@@ -127,6 +130,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
     element( tag ){
       const el = node( LYNX_TAG[ tag ] || tag, '', ++seq, true )
       emit( CREATE, el.id, el.type )
+      el.batch = batch
       return el
     },
     text: value => node( '#text', value, ++seq ),
@@ -181,9 +185,13 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
         ? ops[ n.slot! ] = value
         : emit( SET_TEXT, n.id, value )
     },
+    /** `@text` and `@format`: in a text of its own when the element is not one */
     content( el, value ){
       while( el.first ) host.remove( el.first, true )
-      value && host.insert( el, host.text( value ), null )
+      if( !value ) return
+      const t = el.type === 'text' ? el : host.element('text')
+      t === el || host.insert( el, t, null )
+      host.insert( t, host.text( value ), null )
     },
     attr( el, name, value ){
       if( name === 'class' ){
@@ -193,6 +201,15 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
       else if( name === 'style' ){
         el.css = value ?? undefined
         emit( STYLES, el.id, cssOf( el ) )
+      }
+      /**
+       * Lynx inputs are uncontrolled: the attribute sets the first value
+       * only, `setValue` every one after (RFC-006 §4.5). A value the input
+       * itself reported is already on screen — writing it back would race
+       * the user's next keystroke — so it is not sent.
+       */
+      else if( name === 'value' && ( el.type === 'input' || el.type === 'textarea' ) && el.batch !== batch ){
+        value !== typed.get( el.id ) && emit( INVOKE, el.id, 'setValue', { value: value ?? '' })
       }
       else emit( ATTR, el.id, name, value )
     },
@@ -230,8 +247,13 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
   return {
     host, root, flush,
     receive( wire ){
-      const set = handlers.get( wire.id )?.get( wire.name )
-      if( set ) for( const fn of [ ...set ] ) fn( wire.event )
+      const set = handlers.get( wire.id )?.get( wire.name ), event: any = wire.event, value = event.detail?.value
+      if( typeof value === 'string' ){
+        typed.set( wire.id, value )
+        // What a DOM handler reads
+        event.target = { value }
+      }
+      if( set ) for( const fn of [ ...set ] ) fn( event )
     }
   }
 }

@@ -17,6 +17,10 @@ font-size: 15px;
 }
 .swatch { height: 8px; width: {state.width}%; margin-bottom: 12px; background-color: var(--accent); }
 .item { padding: 6px 0; }
+.field { height: 32px; padding: 0 8px; margin-bottom: 8px; border-width: 1px; border-style: solid; border-color: #94a3b8; }
+.echo { margin-bottom: 8px; }
+.pane { width: 50%; height: 100px; background-color: #f1f5f9; }
+.line, .cell { height: 24px; }
 
 @media (max-width: 500px) {
   .title { letter-spacing: 1px; }

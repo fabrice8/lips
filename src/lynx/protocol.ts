@@ -18,6 +18,12 @@
  *   LISTEN     id, name             forward that event to the background
  *   UNLISTEN   id, name             stop forwarding it
  *   RELEASE    id                   forget the id (the node is gone)
+ *   INVOKE     id, method, params   a UI method (`setValue`, `scrollTo`, …),
+ *                                   once the batch is flushed
+ *
+ * A `list` is the exception to "INSERT inserts": Lynx asks for its cells
+ * as they scroll into view. The applier keeps each list's order and
+ * hands it over as `update-list-info` once per batch.
  */
 
 export const
@@ -30,10 +36,11 @@ SET_TEXT = 5,
 STYLES = 6,
 LISTEN = 7,
 UNLISTEN = 8,
-RELEASE = 9
+RELEASE = 9,
+INVOKE = 10
 
 /** Operand count per opcode, indexed by opcode */
-export const ARITY = [ 2, 2, 3, 2, 3, 2, 2, 2, 2, 1 ]
+export const ARITY = [ 2, 2, 3, 2, 3, 2, 2, 2, 2, 1, 3 ]
 
 export const PAGE_ID = 1
 
@@ -51,11 +58,13 @@ export interface WireEvent {
 /** A Lips template tag → the Lynx element it renders as (RFC-006 §4.3) */
 const VIEW = [
   'div', 'section', 'article', 'nav', 'header', 'footer', 'main', 'aside',
-  'ul', 'ol', 'li', 'button', 'form', 'figure', 'dialog', 'details', 'summary'
+  'ul', 'ol', 'li', 'button', 'form', 'figure', 'dialog', 'details', 'summary',
+  'address', 'blockquote', 'hgroup', 'fieldset', 'legend', 'menu', 'dl', 'dt', 'dd', 'figcaption'
 ]
 const TEXT_LIKE = [
   'span', 'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'label', 'b', 'strong',
-  'i', 'em', 'small', 'a', 'code', 'mark', 's', 'u', 'sub', 'sup', 'time'
+  'i', 'em', 'small', 'a', 'code', 'mark', 's', 'u', 'sub', 'sup', 'time',
+  'abbr', 'cite', 'kbd', 'q', 'var', 'samp', 'dfn', 'del', 'ins', 'data', 'bdi', 'bdo'
 ]
 export const LYNX_TAG: Record<string, string> = Object.fromEntries([
   ...VIEW.map( t => [ t, 'view' ] ),

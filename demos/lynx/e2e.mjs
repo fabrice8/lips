@@ -1,12 +1,14 @@
 /**
- * RFC-006 L1 exit check, tier A: the demo built by Rspeedy, loaded by Lynx
- * for Web (`<lynx-view>`), driven in Chromium.
+ * RFC-006 L1–L3 exit checks, tier A: the demo built by Rspeedy, loaded by
+ * Lynx for Web (`<lynx-view>`), driven in Chromium.
  *
  * Unlike the testing-environment spec, nothing here is emulated by us:
  * the bundle is the real build output, the threads are real (the
  * background runs in a worker), and events go through web-core's own
  * `__AddEventListener`. CSS is the browser's, so native style rules are
- * NOT proven at this tier (RFC-006 §6).
+ * NOT proven at this tier (RFC-006 §6) — and neither is the native list's
+ * virtualization: Lynx for Web builds every cell. What this tier has that
+ * the headless engine lacks is real typing.
  *
  *   npm install && node e2e.mjs        (Playwright and Chromium must be available)
  */
@@ -115,6 +117,34 @@ try {
   check( 'a state change rewrites the variables',
     after.count.color === 'rgb(37, 99, 235)' && after.inc.radius === '12px'
     && parseFloat( after.swatch.width ) > parseFloat( before.swatch.width ), JSON.stringify( after ) )
+
+  // RFC-006 L3: the vocabulary pass, inputs, the scroll view, the list
+  const inShadow = ( fn, arg ) => page.evaluate( ( [ fn, arg ] ) =>
+    new Function( 'r', 'arg', `return (${fn})( r, arg )` )( document.querySelector('lynx-view').shadowRoot, arg ), [ fn.toString(), arg ] )
+
+  check( 'bare text in a button renders: wrapped in a text element at compile time',
+    await inShadow( r => r.querySelector('[data-k="fill"] > x-text')?.textContent === 'fill' ) )
+
+  await page.locator('lynx-view [data-k="field"] input').click()
+  await page.keyboard.type('abc')
+  check( 'typing reaches the background as e.target.value', await waitText('Typed: abc'), await text() )
+
+  await tap('fill')
+  const filled = await page.waitForFunction( () =>
+    document.querySelector('lynx-view').shadowRoot.querySelector('[data-k="field"]').shadowRoot.querySelector('input').value === 'hello',
+    null, { timeout: 5000 }).catch( () => false )
+  check( 'a value change goes in through setValue', !!filled )
+
+  await inShadow( r => { r.querySelector('[data-k="scroller"]').scrollTop = 120 } )
+  check( 'a bare scroll-y scrolls, and scroll events reach the background', await waitText('Top: 120'), await text() )
+
+  const cells = () => inShadow( r => [ ...r.querySelectorAll('[data-cell]') ].map( c => c.textContent ) )
+  const all = await cells()
+  check( 'the list holds its cells, in order', all.length === 40 && all[ 0 ] === 'item 1', JSON.stringify( all.slice( 0, 3 ) ) )
+  await tap('shuffle')
+  await page.waitForTimeout( 300 )
+  const shuffled = await cells()
+  check( 'a reordered list reorders its cells', shuffled[ 0 ] === 'item 40' && shuffled[ 39 ] === 'item 1', JSON.stringify( shuffled.slice( 0, 3 ) ) )
 
   await page.screenshot({ path: join( here, 'dist/e2e.png' ) })
   check( 'no page errors', !errors.length, errors.join(' | ') )

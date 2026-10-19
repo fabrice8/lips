@@ -1,10 +1,11 @@
-//! RFC-006 L1 and L2 exit checks, tier B: the demo's native bundle in the
+//! RFC-006 L1–L3 exit checks, tier B: the demo's native bundle in the
 //! REAL Lynx engine (4.1, `libLynx_clay`), headless, through lynx-stack's
 //! `lynx-headless-rust-test-runner`.
 //!
 //! What this proves that tier A cannot: Lynx's own threads and JS engines,
-//! its own Element PAPI and event dispatch, and its native CSS engine
-//! matching the compiled sheet and resolving the variables Lips binds.
+//! its own Element PAPI and event dispatch, its native CSS engine matching
+//! the compiled sheet and resolving the variables Lips binds, and its
+//! native input, scroll view and list.
 //!
 //!   lips-tierb <main.lynx.bundle> <screenshot.bmp>
 //!   lips-tierb probe <main.lynx.bundle> <step>...
@@ -79,6 +80,52 @@ fn wait_for(page: &mut LynxPage, _what: &str, ok: impl Fn(&mut LynxPage) -> R<bo
   Ok(false)
 }
 
+/// The list cells the engine has, by label, in tree order
+fn cells(dom: &str) -> Vec<u32> {
+  dom
+    .split("text=\"item ")
+    .skip(1)
+    .filter_map(|s| s.split('"').next()?.parse().ok())
+    .collect()
+}
+
+/// The centre of an element, in view pixels
+fn centre(page: &mut LynxPage, selector: &str) -> R<(f64, f64)> {
+  let b = page.locator(selector)?.ok_or_else(|| format!("no element for {selector}"))?.bounding_box()?;
+  Ok((b.x + b.width / 2.0, b.y + b.height / 2.0))
+}
+
+fn pointer(page: &mut LynxPage, phase: lynx::sys::lynx_pointer_phase_e, x: f64, y: f64) {
+  page.view().renderer().send_pointer_event(lynx::PointerEvent {
+    phase,
+    x,
+    y,
+    device_kind: lynx::sys::kLynxPointerDeviceKindTouch,
+    buttons: 1,
+    ..Default::default()
+  });
+  page.wait_for_timeout(Duration::from_millis(16));
+}
+
+/// A finger down on the element, moved by `dy`, then lifted: what a user's scroll is
+fn drag(page: &mut LynxPage, selector: &str, dy: f64) -> R<()> {
+  let (x, y) = centre(page, selector)?;
+  pointer(page, lynx::sys::kLynxPointerPhaseDown, x, y);
+  for i in 1..=10 {
+    pointer(page, lynx::sys::kLynxPointerPhaseMove, x, y + dy * i as f64 / 10.0);
+  }
+  pointer(page, lynx::sys::kLynxPointerPhaseUp, x, y + dy);
+  Ok(())
+}
+
+/// A finger tap where the element is: hit-tested like a user's, so it focuses inputs
+fn touch(page: &mut LynxPage, selector: &str) -> R<()> {
+  let (x, y) = centre(page, selector)?;
+  pointer(page, lynx::sys::kLynxPointerPhaseDown, x, y);
+  pointer(page, lynx::sys::kLynxPointerPhaseUp, x, y);
+  Ok(())
+}
+
 fn tap(page: &mut LynxPage, selector: &str) -> R<()> {
   page
     .locator(selector)?
@@ -92,6 +139,9 @@ fn tap(page: &mut LynxPage, selector: &str) -> R<()> {
 ///   tap=<selector>                 tap, then let the threads settle
 ///   style=<selector>[:prop,prop]   the computed style, or some properties of it
 ///   dom                            the engine's DOM
+///   box=<selector>                 its bounding box
+///   touch=<selector>               a hit-tested finger tap (focuses inputs)
+///   drag=<selector>:<dy>           a finger drag, as a user scrolls
 ///   shot=<file.bmp>                a screenshot
 fn probe(bundle: &str, steps: &[String]) -> R<()> {
   let container = LynxContainer::new(ContainerOptions { width: 400, height: 600, ..ContainerOptions::default() })?;
@@ -115,6 +165,19 @@ fn probe(bundle: &str, steps: &[String]) -> R<()> {
         }
       }
       "dom" => println!("{}", page.content()?),
+      "box" => {
+        let b = page.locator(arg)?.ok_or_else(|| format!("no element for {arg}"))?.bounding_box()?;
+        println!("{arg} box: x={} y={} w={} h={}", b.x, b.y, b.width, b.height);
+      }
+      "touch" => {
+        touch(&mut page, arg)?;
+        page.wait_for_timeout(Duration::from_millis(300));
+      }
+      "drag" => {
+        let (selector, dy) = arg.split_once(':').ok_or("drag=<selector>:<dy>")?;
+        drag(&mut page, selector, dy.parse()?)?;
+        page.wait_for_timeout(Duration::from_millis(500));
+      }
       "shot" => {
         page.screenshot(ScreenshotOptions { path: Some(arg.into()), settle: Duration::from_millis(100) })?;
       }
@@ -221,6 +284,47 @@ fn main() -> R<()> {
     "a state change rewrites them (blue, 24px, 12px, 80%)",
     after == ["rgb(37,99,235)", "24px", "12px", "281.6px"],
     format!("{after:?}"),
+  );
+
+  // RFC-006 L3: the vocabulary pass, inputs, the scroll view, the list
+  let has = |page: &mut LynxPage, needle: String| wait_for(page, &needle.clone(), move |p| Ok(p.content()?.contains(&needle)));
+  let dom = page.content()?;
+  check(
+    "bare text in a button renders: wrapped in a text element at compile time",
+    dom.contains(&format!("<text><raw-text {}>", text("fill"))),
+    dom.clone(),
+  );
+
+  let first = cells(&dom);
+  check(
+    "a list builds only the cells in view (items 1–5 of 40)",
+    first == [1, 2, 3, 4, 5],
+    format!("{first:?}"),
+  );
+
+  // fill → setValue on the native input → its `input` event → `e.target.value`
+  tap(&mut page, "#fill")?;
+  let typed = has(&mut page, text("Typed: hello"))?;
+  check("an input's value goes in through setValue, and its input event comes back", typed, page.content()?);
+
+  drag(&mut page, "#scroller", -150.0)?;
+  let top = has(&mut page, text("Top: 150"))?;
+  check("a bare scroll-y scrolls, and scroll events reach the background (Top: 150)", top, page.content()?);
+
+  tap(&mut page, "#shuffle")?;
+  let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37, 36])))?;
+  check(
+    "a reordered list asks again for the cells in view (items 40–36)",
+    shuffled,
+    format!("{:?}", cells(&page.content()?)),
+  );
+
+  drag(&mut page, "#feed", -200.0)?;
+  let more = wait_for(&mut page, "more cells", |p| Ok(cells(&p.content()?).contains(&30)))?;
+  check(
+    "dragging the list asks for the cells it scrolls into view",
+    more,
+    format!("{:?}", cells(&page.content()?)),
   );
 
   page.screenshot(ScreenshotOptions {

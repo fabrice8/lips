@@ -1,11 +1,11 @@
-# Lips on Lynx — renderer and styles (RFC-006 L1, L2)
+# Lips on Lynx — renderer, styles, inputs and lists (RFC-006 L1–L3)
 
 One HTML-shaped Lips template, rendered natively by Lynx through the
 two-thread binding in `src/lynx/`:
 
 - `src/background.ts` runs Lips. It compiles the template from its source
-  string, in interpreted mode, and renders it against the background host,
-  which records changes as protocol ops.
+  string with `compileLynxTemplate`, in interpreted mode, and renders it
+  against the background host, which records changes as protocol ops.
 - `src/main-thread.ts` creates the page and the applier. The applier is the
   only code that calls Element PAPI.
 
@@ -25,6 +25,18 @@ build time, because Lynx cannot add a stylesheet at runtime:
 Import a Lips sheet from a script, not with `@import` from `style.css`:
 css-loader sends an `@import` past every configured loader, so the sheet
 would reach Lynx uncompiled.
+
+## Inputs, scrolling and lists
+
+- The input's `value` is bound to state. Its `input` handler reads
+  `e.target.value`, as on the DOM. The `fill` button sets the value from
+  state, which reaches the native input through `setValue`.
+- `<scroll-view scroll-y>` reports where it is through `scroll`.
+- `<list>` holds 40 `<list-item>`s, and Lynx asks for each one as it
+  scrolls into view. `shuffle` reverses them.
+- The `fill` and `shuffle` labels and the cells' text are bare text in
+  elements that are not text. `compileLynxTemplate` wraps each in one
+  `text`, without which Lynx would render nothing.
 
 ## Run it
 
@@ -52,14 +64,24 @@ SHA-256s. It then builds the bundle and runs `native/harness`:
 - first render, taps and keyed moves are checked in the engine's own DOM;
 - the sheet's computed styles are read from its native CSS engine, before
   and after a state change rewrites the binds;
+- the input, the scroll view and the list are driven with taps and finger
+  drags;
 - the frame is written to `dist/native.bmp`.
+
+The runner has no public drag, so `run.sh` applies `native/runner.patch`,
+which exposes its native view.
 
 To explore instead of check, `probe` loads a bundle and runs steps in
 order:
 
 ```bash
 native/target/debug/lips-tierb probe dist/main.lynx.bundle tap=#theme 'style=#count:color,font-size' dom shot=/tmp/f.bmp
+native/target/debug/lips-tierb probe dist/main.lynx.bundle box=#feed drag=#feed:-200 dom
 ```
+
+Steps: `tap=`, `touch=` (a hit-tested finger tap, which focuses inputs),
+`drag=<selector>:<dy>`, `style=<selector>[:props]`, `box=`, `dom` and
+`shot=`.
 
 Any JS error the engine reports fails the run. If the demo's
 `node_modules` is missing, it runs `npm ci` first.

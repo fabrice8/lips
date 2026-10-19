@@ -33,6 +33,10 @@ if [ ! -d "$cache/headless-rust-test-runner" ]; then
   # Sibling layout preserved: the runner's build script reaches ../engine-bridge
   cp -r "$cache/lynx-stack/packages/lynx/engine-bridge" "$cache/lynx-stack/packages/lynx/headless-rust-test-runner" "$cache/"
 fi
+# The runner taps, but has no public way to drag or scroll: one small patch
+# exposes its native view (runner.patch)
+grep -q 'pub fn view(&self)' "$cache/headless-rust-test-runner/src/lib.rs" \
+  || patch -s -p1 -d "$cache/headless-rust-test-runner" <"$here/runner.patch"
 
 # 2. Runtime + core script, verified
 fetch() { # url sha256 dest
@@ -57,7 +61,8 @@ status=0
 # From the cache: the engine writes its quickjs_cache/ into the working directory
 ( cd "$cache" && "$here/target/debug/lips-tierb" "$here/../dist/main.lynx.bundle" "$here/../dist/native.bmp" ) >"$log" 2>&1 || status=$?
 
-grep -E '^(✓|✗)|all checks|SOME CHECKS' "$log" || true
+# Anywhere in a line: the engine logs to the same stream, mid-line at times
+grep -oE '(✓|✗) .*|all checks passed|SOME CHECKS FAILED' "$log" || true
 errors=$(grep -cE 'onAppJSError|exception:' "$log" || true)
 if [ "$errors" != "0" ]; then
   echo "✗ the engine reported $errors JS error(s) — see $log"

@@ -6,3 +6,5 @@ publish = false
 
 [dependencies]
 lynx-headless-rust-test-runner = { path = "../.cache/headless-rust-test-runner" }
+# The engine bridge itself: key and pointer events the runner does not send
+lynx = { path = "../.cache/engine-bridge/lynx" }
