@@ -435,3 +435,16 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 1</text>')
   })
 })
+
+/**
+ * Lynx's template encoder stores each background script as a C string, so
+ * a raw NUL ends the script there and the engine reports "Unexpected EOF".
+ * Minified builds escape it; a dev build ships the source as written.
+ */
+describe('Lynx bundles', () => {
+  it('no source file holds a raw NUL: write \\0', () => {
+    const sources = import.meta.glob( '../src/**/*.ts', { query: '?raw', import: 'default', eager: true })
+    expect( Object.keys( sources ).length ).toBeGreaterThan( 20 )
+    expect( Object.keys( sources ).filter( f => sources[ f ].includes('\0') ) ).toEqual([])
+  })
+})

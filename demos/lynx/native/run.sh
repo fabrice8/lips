@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # RFC-006 test tier B: the demo's native bundle in the REAL Lynx engine
-# (4.1, libLynx_clay, Linux x86_64), headless.
+# (libLynx_clay), headless, on Linux x86_64 or macOS on Apple Silicon.
 #
 #   demos/lynx/native/run.sh            (needs git, curl, cargo, node)
 #
 # Everything it fetches is pinned and verified:
 #   - lynx-family/lynx-stack @ b651885: the engine bridge and the headless
 #     runner crates (not published to any registry)
-#   - the runtime and lynx_core.js from lynx-genui-storage.tos-cn-beijing.
-#     volces.com, checked against the SHA-256s lynx-stack pins
+#   - the runtime for this platform and lynx_core.js, checked on every run
+#     against the SHA-256s lynx-stack pins. Linux: Lynx 4.1 from
+#     lynx-genui-storage.tos-cn-beijing.volces.com. macOS: the build
+#     lynx-stack's own macOS tests use, from a GitHub release.
 # Fails on any unmet check AND on any JS error the engine reports.
 set -euo pipefail
 
@@ -17,8 +19,23 @@ cache="$here/.cache"
 sdk="$cache/lynx-sdk"
 LYNX_STACK_COMMIT=b651885e
 
-RUNTIME_URL=https://lynx-genui-storage.tos-cn-beijing.volces.com/lynx_4_1_core_libs/liblynx_oss_amd64_linux.so
-RUNTIME_SHA256=45904d9d065e5dd03d27d959145ea8d31f11f4331129a33b1c8aa020c307cf5e
+os="$(uname -s)"
+case "$os/$(uname -m)" in
+  Linux/x86_64)
+    RUNTIME_URL=https://lynx-genui-storage.tos-cn-beijing.volces.com/lynx_4_1_core_libs/liblynx_oss_amd64_linux.so
+    RUNTIME_SHA256=45904d9d065e5dd03d27d959145ea8d31f11f4331129a33b1c8aa020c307cf5e
+    RUNTIME_FILE=libLynx_clay.so ;;
+  Darwin/arm64)
+    RUNTIME_URL=https://github.com/PupilTong/playground/releases/download/lynx-runtime-clay-manual-0.0.4/macos-arm64-libLynx_clay.dylib
+    RUNTIME_SHA256=dfbf7848b03b5fcf145a5445f57f771c5175a551fb3cfa106bd03d924c7d025e
+    RUNTIME_FILE=macos-arm64-libLynx_clay.dylib ;;
+  *)
+    echo "✗ tier B runs on Linux x86_64 or macOS arm64, not $os/$(uname -m): use CI or a Linux VM"
+    exit 1 ;;
+esac
+for tool in git curl cargo node; do
+  command -v "$tool" >/dev/null || { echo "✗ tier B needs $tool${tool/cargo/cargo (Rust, https://rustup.rs)}"; exit 1; }
+done
 CORE_URL=https://lynx-genui-storage.tos-cn-beijing.volces.com/lynx_4_1_core_libs/lynx_core.jslynx_core.js
 CORE_SHA256=81f0b9dbf51684872de0489b037110eab448e42039f5ac69d6ebe18371ea3efa
 
@@ -39,15 +56,23 @@ grep -q 'pub fn view(&self)' "$cache/headless-rust-test-runner/src/lib.rs" \
   || patch -s -p1 -d "$cache/headless-rust-test-runner" <"$here/runner.patch"
 
 # 2. Runtime + core script, verified
+sha256() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
 fetch() { # url sha256 dest
-  if [ -f "$3" ] && echo "$2  $3" | sha256sum -c --quiet - 2>/dev/null; then return; fi
+  if [ -f "$3" ] && [ "$(sha256 "$3")" = "$2" ]; then return; fi
   mkdir -p "$(dirname "$3")"
-  curl -sS -fL --retry 3 --retry-delay 5 --connect-timeout 30 -o "$3.part" "$1"
-  echo "$2  $3.part" | sha256sum -c --quiet -
+  echo "Fetching $(basename "$1")…"
+  curl -fL --retry 3 --retry-delay 5 --connect-timeout 30 --progress-bar -o "$3.part" "$1"
+  [ "$(sha256 "$3.part")" = "$2" ] || { echo "✗ checksum mismatch: $1"; exit 1; }
   mv "$3.part" "$3"
 }
-fetch "$RUNTIME_URL" "$RUNTIME_SHA256" "$sdk/lib/libLynx_clay.so"
+fetch "$RUNTIME_URL" "$RUNTIME_SHA256" "$sdk/lib/$RUNTIME_FILE"
 fetch "$CORE_URL" "$CORE_SHA256" "$sdk/resources/lynx_core.js"
+if [ "$os" = Darwin ]; then
+  # Apple Silicon loads only signed code. Signing changes the bytes, so the
+  # engine gets an ad-hoc signed copy and the verified original stays as is.
+  lib="$sdk/lib/libLynx_clay.dylib"
+  [ "$lib" -nt "$sdk/lib/$RUNTIME_FILE" ] || { cp "$sdk/lib/$RUNTIME_FILE" "$lib" && codesign --force --sign - "$lib"; }
+fi
 
 # 3. The bundle under test
 [ -d "$here/../node_modules" ] || ( cd "$here/.." && npm ci --no-audit --no-fund )
