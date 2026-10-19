@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * RFC-006 L1 and L3 — the Lynx renderer, test tier A.
  *
@@ -20,6 +21,7 @@
  * and UI methods are exercised by the Lynx for Web and native runs.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
+import { readdirSync, readFileSync } from 'node:fs'
 import { LynxTestingEnv } from '@lynx-js/testing-environment'
 import { compileLynxTemplate } from '../src/lynx/template'
 import { compileLynxStyle } from '../src/lynx/style'
@@ -433,5 +435,18 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 0</text>')
     await app.fire('[data-k="b"]')
     expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 1</text>')
+  })
+})
+
+/**
+ * Lynx's template encoder stores each background script as a C string, so
+ * a raw NUL ends the script there and the engine reports "Unexpected EOF".
+ * Minified builds escape it; a dev build ships the source as written.
+ */
+describe('Lynx bundles', () => {
+  it('no source file holds a raw NUL: write \\0', () => {
+    const raw = readdirSync( 'src', { recursive: true, encoding: 'utf8' })
+      .filter( f => /\.ts$/.test( f ) && readFileSync(`src/${f}`).includes( 0 ) )
+    expect( raw ).toEqual([])
   })
 })

@@ -616,7 +616,7 @@ ROOT_PARAMS = [ 'state', 'input', 'context', '__static', 'self' ]
  * strict-compatible, no `with`. Trusted contexts only.
  */
 export function compileExpression( src: string, scopeNames: string[] = [] ): CompiledExpr {
-  const key = `${scopeNames.join(',')} ${src}`
+  const key = `${scopeNames.join(',')}\0${src}`
   const cached = COMPILE_CACHE.get( key )
   if( cached ) return cached
 

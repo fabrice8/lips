@@ -114,6 +114,10 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - `connectMain` installs no-op `renderPage`, `updatePage` and `processData`
   unless the app defines its own. The native engine calls `renderPage` and
   threw without it.
+- The expression cache key held a raw NUL character. Lynx's template
+  encoder stores a script as a C string, so a dev build's background script
+  ended there and the iOS simulator reported `SyntaxError: Unexpected EOF`.
+  It is now written `\0`; minified builds already escaped it.
 - Nothing in `src/lynx/` is in a published entry yet (RFC-006 §9,
   packaging). Net effect on the DOM bundles: `runtime` 14.99 → 14.993 KB
   gzipped (+5 bytes for the `gone` flag, −4 for the promise job).
