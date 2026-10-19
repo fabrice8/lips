@@ -12,6 +12,9 @@
   import { compileTemplate, renderIR, parseTemplate } from '/dist/lips.min.js'
 
   let inst = null
+  /** The state the component last declared: the base of the three-way merge in `revise` */
+  let declared = {}
+  const same = ( a, b ) => JSON.stringify( a ) === JSON.stringify( b )
   const errors = []
   addEventListener( 'error', e => errors.push( String( e.message ) ) )
   addEventListener( 'unhandledrejection', e => errors.push( String( e.reason?.message ?? e.reason ) ) )
@@ -42,6 +45,7 @@
       errors.length = 0
       inst?.dispose()
       document.getElementById('css').textContent = def.style || ''
+      declared = structuredClone( def.state || {} )
       try {
         inst = renderIR( ir, { state: structuredClone( def.state || {} ), handlers: fns( def.handlers ), deep: true })
         inst.mount( document.getElementById('app') )
@@ -50,12 +54,18 @@
       return { ok: true, diagnostics }
     },
 
-    /** New state keys join, handlers are (re)bound, CSS is replaced, then the template swaps */
+    /**
+     * State merges three ways: a key the revision changed takes the new
+     * value unless the user changed it live, which wins. Handlers are
+     * (re)bound, CSS is replaced, then the template swaps.
+     */
     revise( def ){
       const { ir, diagnostics } = compile( def.template )
       if( !ir ) return { ok: false, diagnostics }
       errors.length = 0
-      for( const [ k, v ] of Object.entries( def.state || {} ) ) k in inst.state || ( inst.state[ k ] = structuredClone( v ) )
+      for( const [ k, v ] of Object.entries( def.state || {} ) )
+        if( !( k in inst.state ) || !same( v, declared[ k ] ) && same( inst.state[ k ], declared[ k ] ) ) inst.state[ k ] = structuredClone( v )
+      declared = { ...declared, ...structuredClone( def.state || {} ) }
       for( const [ k, fn ] of Object.entries( fns( def.handlers ) ) ) inst.self[ k ] = fn.bind( inst.self )
       document.getElementById('css').textContent = def.style || ''
       try { return { ok: true, report: inst.swap( ir ), diagnostics } }
@@ -87,4 +97,17 @@
     errors: () => errors.slice()
   }
   window.ready = true
+
+  // view.html shows a saved turn here: #<result>/<start|A|B>/<turn>, the sketch drawn over it
+  if( location.hash ){
+    const [ file, arm, turn ] = location.hash.slice( 1 ).split('/')
+    const r = await ( await fetch( `results/${file}.json` ) ).json()
+    window.rig.load( arm === 'start' ? r.start.comp : r[ arm ].turns[ turn - 1 ].component )
+    for( const g of r.sketch?.regions || [] ){
+      const d = document.createElement('div')
+      d.textContent = g.id
+      d.style.cssText = `position:absolute;z-index:99;pointer-events:none;left:${g.x / 12 * 100}%;top:${g.y / 12 * 100}%;width:${g.w / 12 * 100}%;height:${g.h / 12 * 100}%;outline:4px dashed #e11d48;outline-offset:-4px;font:bold 28px system-ui;color:#e11d48;padding:8px;box-sizing:border-box`
+      document.getElementById('app').append( d )
+    }
+  }
 </script>

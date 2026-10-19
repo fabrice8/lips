@@ -51,13 +51,14 @@ const rig = ( page, fn, ...args ) => page.evaluate( ( [ fn, args ] ) => window.r
 /** Set live state the way a user would; what changed is what must survive */
 async function probe( page ){
   const before = await rig( page, 'state' )
-  const text = page.locator('[data-probe="text"]').first()
-  await text.count() && await text.fill( TYPED )
+  // Typing last: a search box can filter the picks away
   const picks = page.locator('[data-probe="pick"]')
   const n = await picks.count()
   n && await picks.nth( Math.min( 1, n - 1 ) ).click()
   const toggle = page.locator('[data-probe="toggle"]').first()
   await toggle.count() && await toggle.click()
+  const text = page.locator('[data-probe="text"]').first()
+  await text.count() && await text.fill( TYPED )
   const after = await rig( page, 'state' )
   const set = Object.keys( after ).filter( k => JSON.stringify( after[ k ] ) !== JSON.stringify( before[ k ] ) )
   return { found: { text: !!await text.count(), picks: n, toggle: !!await toggle.count() }, set, values: Object.fromEntries( set.map( k => [ k, after[ k ] ] ) ) }
@@ -176,33 +177,36 @@ async function generation( page, app, sketch ){
   return g.comp ? { comp: g.comp, tries: g.tries, usage: g.usage, boxes: await rig( page, 'measure' ) } : { failed: true, usage: g.usage }
 }
 
-async function arm( which, start, sketch, app ){
+/** Fills `out` turn by turn, calling `save` after each so a viewer can follow along */
+async function arm( which, start, sketch, app, out, save ){
   const page = await open()
   await rig( page, 'load', start.comp )
-  const p = await probe( page )
+  const p = out.probe = await probe( page )
   let comp = start.comp, styles = {}
-  const turns = []
+  const turns = out.turns = []
   for( const req of APPS[ app ].requests ){
     const made = which === 'A'
       ? await attempt( page, revisePatch( comp, req, regionsOf( app ) ), 'revise', json => patch( page, json, comp, start.comp.style, styles, app ) )
       : await attempt( page, reviseWhole( comp, req ), 'revise' )
-    if( !made.comp ){ turns.push({ req, failed: true, usage: made.usage }); continue }
+    if( !made.comp ){ turns.push({ req, failed: true, usage: made.usage }); await save(); continue }
     if( which === 'A' ) styles = made.styles
     const boxes = await rig( page, 'measure' )
-    const verdict = await ask( JUDGE, judge( req, comp, made.comp ) ).then( r => r.json ).catch( e => ({ verdict: 'error', why: e.message }) )
+    const judged = await ask( JUDGE, judge( req, comp, made.comp ) ).catch( e => ({ json: { verdict: 'error', why: e.message } }) )
+    const verdict = judged.json
     turns.push({
       req, tries: made.tries, usage: made.usage, boxes,
       fit: fit( sketch, boxes ),
       swap: { changes: made.res.report.changes.length, salvaged: made.res.report.salvaged.length },
       survival: await survives( page, p, made.comp ),
       css: cssOps( comp.style, made.comp.style ),
-      dropped: made.dropped || 0, verdict,
+      dropped: made.dropped || 0, verdict, judgeUsage: judged.usage,
       component: made.comp
     })
     comp = made.comp
+    await save()
+    console.log(`  ${sketch.id} ${which}${turns.length} ${req.kind}: fit ${turns.at( -1 ).fit.toFixed( 2 )}, done ${turns.at( -1 ).verdict.verdict}`)
   }
   await page.close()
-  return { probe: p, turns }
 }
 
 async function job( sketch, run ){
@@ -211,11 +215,12 @@ async function job( sketch, run ){
   const start = await generation( page, sketch.app, sketch )
   await page.close()
   const result = { model: MODEL, sketch, run, start: { ...start, fit: start.boxes && fit( sketch, start.boxes ) } }
+  const save = () => writeFile( file, JSON.stringify( result, null, 1 ) )
+  await save()
   if( !start.failed ){
-    result.A = await arm( 'A', start, sketch, sketch.app )
-    result.B = await arm( 'B', start, sketch, sketch.app )
+    await arm( 'A', start, sketch, sketch.app, result.A = {}, save )
+    await arm( 'B', start, sketch, sketch.app, result.B = {}, save )
   }
-  await writeFile( file, JSON.stringify( result, null, 1 ) )
   console.log(`✓ ${sketch.id} run ${run}: start fit ${result.start.fit?.toFixed( 2 )}`)
 }
 
@@ -245,6 +250,11 @@ if( process.argv.includes('--smoke') ){
   const s = await survives( page, p, { ...EXAMPLE, template })
   ok( `typed text and state survive (${JSON.stringify( s.keys.map( k => k.key + ( k.held ? '' : '!held' ) + ( k.read ? '' : '!read' ) ) )})`, s.shown && s.keys.every( k => k.held ) )
   ok( 'a dropped key is caught as no longer read', !s.all )
+  const notes = EXAMPLE.state.notes.map( n => ({ ...n, title: n.title.toUpperCase() }) )
+  await rig( page, 'revise', { ...EXAMPLE, state: { ...EXAMPLE.state, notes, query: 'authored' } })
+  const merged = await rig( page, 'state' )
+  ok( 'an authored change to an untouched key applies', merged.notes[ 0 ].title === 'GROCERIES' )
+  ok( 'a key the user changed keeps the live value', merged.query === TYPED )
   ok( 'iou of identical boxes is 1', iou( boxes.list, boxes.list ) === 1 )
   console.log( 'css ops:', JSON.stringify( cssOps( EXAMPLE.style, EXAMPLE.style + '\n.main h2 { color: red }\n.side { gap: 4px }\n@media (max-width: 600px) { .side { display: none } }' ) ) )
   await browser.close(); server.close(); process.exit( 0 )
