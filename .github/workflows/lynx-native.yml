@@ -122,3 +122,38 @@ jobs:
             demos/lynx/native/.cache/run.log
             demos/lynx/native/.cache/build.log
           if-no-files-found: ignore
+
+  # Tier C on the iOS simulator, through the script a maintainer runs:
+  # dev server, Lynx Explorer 4.1.0, the lynx://open link, then a
+  # screenshot that must show the demo's accent bind
+  tier-c-ios:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: demos/lynx/package-lock.json
+
+      - uses: actions/cache@v4
+        with:
+          path: demos/lynx/native/.cache/explorer
+          key: lynx-explorer-${{ hashFiles('demos/lynx/sim.sh') }}
+
+      - name: Install demo dependencies
+        working-directory: demos/lynx
+        run: npm ci --no-audit --no-fund
+
+      - name: The demo in Lynx Explorer on the iOS simulator
+        run: demos/lynx/sim.sh ios --check
+
+      - name: Keep the screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lynx-ios
+          path: demos/lynx/dist/ios.png
+          if-no-files-found: ignore

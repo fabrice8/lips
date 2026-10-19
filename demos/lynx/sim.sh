@@ -4,6 +4,7 @@
 #
 #   demos/lynx/sim.sh ios          the booted iOS simulator, or the first iPhone
 #   demos/lynx/sim.sh android      the running emulator, or the first AVD
+#   demos/lynx/sim.sh ios --check  open it, then prove it rendered, and exit
 #
 # It starts `rspeedy dev` unless one already serves the bundle, installs
 # Lynx Explorer where it is missing (a pinned release, SHA-256 checked),
@@ -33,6 +34,47 @@ fetch() { # asset sha256 → its path, downloaded and verified once
     mv "$dest.part" "$dest"
   fi
   echo "$dest"
+}
+
+# The demo's swatch is background: var(--accent), a Lips style bind: its
+# colour on screen means Lips rendered and its styles applied (#e11d48)
+ACCENT="225 29 72"
+
+# Pixels within reach of the accent, in a screenshot scaled down by sips
+accent_pixels() {
+  sips -Z 400 -s format bmp "$1" --out "$1.bmp" >/dev/null
+  python3 - "$1.bmp" $ACCENT <<'PY'
+import struct, sys
+b = open(sys.argv[1], 'rb').read()
+want = [ int( x ) for x in sys.argv[2:] ]
+start, = struct.unpack_from( '<I', b, 10 )
+w, h = struct.unpack_from( '<ii', b, 18 )
+step = struct.unpack_from( '<H', b, 28 )[0] // 8
+row = ( w * step + 3 ) & ~3
+n = 0
+for y in range( abs( h ) ):
+  r = start + y * row
+  for x in range( w ):
+    p = r + x * step
+    if all( abs( b[ p + 2 - i ] - want[ i ] ) < 24 for i in range( 3 ) ): n += 1
+print( n )
+PY
+}
+
+check() { # the platform → a screenshot with the accent in it, or fail
+  local shot="$here/dist/$1.png" n=0
+  mkdir -p "$here/dist"
+  for _ in $(seq 1 30); do
+    sleep 2
+    if [ "$1" = ios ]; then xcrun simctl io booted screenshot "$shot" >/dev/null 2>&1
+    else adb exec-out screencap -p >"$shot"; fi
+    n=$(accent_pixels "$shot")
+    if [ "$n" -gt 300 ]; then
+      echo "✓ Lips rendered in Lynx Explorer ($1): the accent bind is on screen, $n pixels. $shot"
+      return
+    fi
+  done
+  fail "no accent on screen after 60 s ($n pixels): see $shot"
 }
 
 dev=
@@ -105,16 +147,19 @@ android() {
   adb shell am start -a android.intent.action.VIEW -d "'lynx://open?url=$BUNDLE'" >/dev/null
 }
 
+[ "${2:-}" = --check ] && { command -v sips >/dev/null || fail "--check needs macOS (sips)"; }
 case "${1:-}" in
   ios) command -v xcrun >/dev/null || fail "needs Xcode and its command line tools (xcrun)" ;;
   android) command -v adb >/dev/null || fail "needs adb: put \$ANDROID_HOME/platform-tools on PATH" ;;
-  *) fail "usage: $0 ios|android" ;;
+  *) fail "usage: $0 ios|android [--check]" ;;
 esac
 
 serve
 "$1"
 echo "✓ The demo is open in Lynx Explorer ($1): $BUNDLE"
-if [ -n "$dev" ]; then
+if [ "${2:-}" = --check ]; then
+  check "$1"
+elif [ -n "$dev" ]; then
   echo "  The dev server rebuilds on every edit. Ctrl-C stops it."
   wait "$dev"
 fi

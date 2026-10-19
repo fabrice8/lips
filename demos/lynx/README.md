@@ -75,6 +75,11 @@ Then every tier runs locally:
   demo in it.
 - `npm run android` does the same on the first emulator. It maps the
   emulator's port 3000 back to your Mac with `adb reverse`.
+- `npm run ios -- --check` (or `android -- --check`) is a one-command
+  smoke test. It opens the demo, waits until a screenshot shows the
+  swatch's accent colour, then exits and stops the dev server. That colour
+  is a Lips style bind, so seeing it means Lips rendered and its styles
+  applied. The screenshot goes to `dist/`.
 
 `ios` and `android` start the dev server unless one is already running on
 port 3000, so `npm run dev` in another terminal serves both platforms at
@@ -127,8 +132,10 @@ Any JS error the engine reports fails the run. If the demo's
 `node_modules` is missing, it runs `npm ci` first.
 
 CI runs it on Linux and on macOS in `.github/workflows/lynx-native.yml`,
-on every push or PR that changes `src/` or `demos/lynx/`. The frames and
-logs are kept as the `lynx-native` and `lynx-native-macos` artifacts.
+on every push or PR that changes `src/` or `demos/lynx/`, beside
+`sim.sh ios --check` on an iOS simulator. The frames, logs and the iOS
+screenshot are kept as the run's `lynx-native`, `lynx-native-macos` and
+`lynx-ios` artifacts.
 
 ## On a phone
 
