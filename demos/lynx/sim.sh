@@ -8,9 +8,10 @@
 #
 # It starts `rspeedy dev` unless one already serves the bundle, installs
 # Lynx Explorer where it is missing (a pinned release, SHA-256 checked),
-# and opens the bundle through Explorer's `lynx://open?url=` link. The dev
-# server rebuilds on every edit; run this again to reopen. Ctrl-C stops a
-# dev server it started.
+# and opens the bundle in it: on iOS as the page Explorer launches with,
+# on Android through Explorer's `lynx://open?url=` link. The dev server
+# rebuilds on every edit; run this again to reopen. Ctrl-C stops a dev
+# server it started.
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -126,9 +127,9 @@ ios() {
     xcrun simctl install booted "$app"
   fi
 
-  xcrun simctl launch booted com.lynx.LynxExplorer >/dev/null
-  sleep 2
-  xcrun simctl openurl booted "lynx://open?url=$BUNDLE"
+  # The bundle as Explorer's first page (its lynx_initial_url): a lynx://
+  # link would wait on iOS's "Open in 'LynxExplorer'?" prompt
+  SIMCTL_CHILD_lynx_initial_url="$BUNDLE" xcrun simctl launch --terminate-running-process booted com.lynx.LynxExplorer >/dev/null
 }
 
 android() {
