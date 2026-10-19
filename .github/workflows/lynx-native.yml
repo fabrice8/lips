@@ -150,6 +150,10 @@ jobs:
       - name: The demo in Lynx Explorer on the iOS simulator
         run: demos/lynx/sim.sh ios --check
 
+      - name: Lynx Explorer's log
+        if: failure()
+        run: xcrun simctl spawn booted log show --last 5m --style compact --predicate 'process == "LynxExplorer"' | tail -150
+
       - name: Keep the screenshot
         if: always()
         uses: actions/upload-artifact@v4

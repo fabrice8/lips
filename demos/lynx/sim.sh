@@ -40,24 +40,28 @@ fetch() { # asset sha256 → its path, downloaded and verified once
 # colour on screen means Lips rendered and its styles applied (#e11d48)
 ACCENT="225 29 72"
 
-# Pixels within reach of the accent, in a screenshot scaled down by sips
+# Pixels within reach of the accent, in a screenshot scaled down and
+# matched to sRGB by sips (simulators shoot in Display P3). With `top`,
+# the screenshot's commonest colours instead: what is on screen.
 accent_pixels() {
-  sips -Z 400 -s format bmp "$1" --out "$1.bmp" >/dev/null
-  python3 - "$1.bmp" $ACCENT <<'PY'
-import struct, sys
-b = open(sys.argv[1], 'rb').read()
-want = [ int( x ) for x in sys.argv[2:] ]
+  sips -m '/System/Library/ColorSync/Profiles/sRGB Profile.icc' -Z 400 -s format bmp "$1" --out "$1.bmp" >/dev/null
+  python3 - "$1.bmp" "${2:-count}" $ACCENT <<'PY'
+import struct, sys, collections
+b = open( sys.argv[ 1 ], 'rb' ).read()
+want = [ int( x ) for x in sys.argv[ 3: ] ]
 start, = struct.unpack_from( '<I', b, 10 )
 w, h = struct.unpack_from( '<ii', b, 18 )
-step = struct.unpack_from( '<H', b, 28 )[0] // 8
+step = struct.unpack_from( '<H', b, 28 )[ 0 ] // 8
 row = ( w * step + 3 ) & ~3
-n = 0
+n, seen = 0, collections.Counter()
 for y in range( abs( h ) ):
   r = start + y * row
   for x in range( w ):
     p = r + x * step
-    if all( abs( b[ p + 2 - i ] - want[ i ] ) < 24 for i in range( 3 ) ): n += 1
-print( n )
+    rgb = ( b[ p + 2 ], b[ p + 1 ], b[ p ] )
+    seen[ rgb ] += 1
+    if all( abs( rgb[ i ] - want[ i ] ) < 24 for i in range( 3 ) ): n += 1
+print( n if sys.argv[ 2 ] == 'count' else ' '.join( 'rgb%s×%d' % c for c in seen.most_common( 8 ) ) )
 PY
 }
 
@@ -74,6 +78,7 @@ check() { # the platform → a screenshot with the accent in it, or fail
       return
     fi
   done
+  echo "  on screen: $(accent_pixels "$shot" top)" >&2
   fail "no accent on screen after 60 s ($n pixels): see $shot"
 }
 
