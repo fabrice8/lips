@@ -28,6 +28,8 @@ const mode = ( app, boxes ) => mean( C.filter( c => c.app === app && !c.start.fa
   return mean( ids.map( id => iou( c.start.boxes[ id ], boxes[ id ] ) ) )
 }) )
 const score = v => ({ yes: 1, partly: 0.5, no: 0 })[ v?.verdict ] ?? NaN
+/** Judged turns only: a judge call that failed says nothing about the revision */
+const done = xs => pct( mean( xs.map( x => score( x.turn.verdict ) ).filter( s => !Number.isNaN( s ) ) ) )
 
 const turns = which => [ 1, 2, 3, 4, 5 ].map( t => runs.map( r => ({ r, turn: r[ which ]?.turns[ t - 1 ] }) ).filter( x => x.turn ) )
 
@@ -58,19 +60,21 @@ const tA = turns('A'), tB = turns('B')
 for( let t = 0; t < 5; t++ ){
   const kind = tA[ t ][ 0 ]?.turn.req.kind || tB[ t ][ 0 ]?.turn.req.kind
   const ok = xs => xs.filter( x => !x.turn.failed )
-  say(`| ${t + 1} | ${kind} | ${range( ok( tA[ t ] ).map( x => x.turn.fit ) )} | ${range( ok( tB[ t ] ).map( x => x.turn.fit ) )} | ${f2( mean( ok( tA[ t ] ).map( x => mode( x.r.sketch.app, x.turn.boxes ) ) ) )} | ${f2( mean( ok( tB[ t ] ).map( x => mode( x.r.sketch.app, x.turn.boxes ) ) ) )} | ${pct( mean( ok( tA[ t ] ).map( x => +x.turn.survival.all ) ) )} | ${pct( mean( ok( tB[ t ] ).map( x => +x.turn.survival.all ) ) )} | ${pct( mean( ok( tA[ t ] ).map( x => score( x.turn.verdict ) ) ) )} | ${pct( mean( ok( tB[ t ] ).map( x => score( x.turn.verdict ) ) ) )} |`)
+  say(`| ${t + 1} | ${kind} | ${range( ok( tA[ t ] ).map( x => x.turn.fit ) )} | ${range( ok( tB[ t ] ).map( x => x.turn.fit ) )} | ${f2( mean( ok( tA[ t ] ).map( x => mode( x.r.sketch.app, x.turn.boxes ) ) ) )} | ${f2( mean( ok( tB[ t ] ).map( x => mode( x.r.sketch.app, x.turn.boxes ) ) ) )} | ${pct( mean( ok( tA[ t ] ).map( x => +x.turn.survival.all ) ) )} | ${pct( mean( ok( tB[ t ] ).map( x => +x.turn.survival.all ) ) )} | ${done( ok( tA[ t ] ) )} | ${done( ok( tB[ t ] ) )} |`)
 }
 say('')
 const failed = which => turns( which ).flat().filter( x => x.turn.failed ).length
 const retried = which => turns( which ).flat().filter( x => x.turn.tries > 1 ).length
-say(`Revisions that never applied: A ${failed('A')}, B ${failed('B')}. Applied after a retry: A ${retried('A')}, B ${retried('B')}.`)
+const unjudged = which => turns( which ).flat().filter( x => !x.turn.failed && Number.isNaN( score( x.turn.verdict ) ) ).length
+const missing = which => runs.length * 5 - turns( which ).flat().length
+say(`Revisions that never applied: A ${failed('A')}, B ${failed('B')}. Applied after a retry: A ${retried('A')}, B ${retried('B')}. Never run: A ${missing('A')}, B ${missing('B')}. Not judged: A ${unjudged('A')}, B ${unjudged('B')}.`)
 say('')
 say('## Drift: fit at turn 5 minus fit at turn 0, per run')
 say('')
 say('| Sketch | Run | A | B |')
 say('|---|---|---|---|')
 for( const r of runs ){
-  const d = which => { const last = r[ which ]?.turns.filter( t => !t.failed ).at( -1 ); return last ? ( last.fit - r.start.fit ).toFixed( 2 ) : '—' }
+  const d = which => { const last = r[ which ]?.turns[ 4 ]; return last && !last.failed ? ( last.fit - r.start.fit ).toFixed( 2 ) : '—' }
   say(`| ${r.sketch.id} | ${r.run} | ${d('A')} | ${d('B')} |`)
 }
 say('')
