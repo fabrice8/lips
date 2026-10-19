@@ -41,11 +41,11 @@ fetch() { # asset sha256 → its path, downloaded and verified once
 # colour on screen means Lips rendered and its styles applied (#e11d48)
 ACCENT="225 29 72"
 
-# Pixels within reach of the accent, in a screenshot scaled down and
-# matched to sRGB by sips (simulators shoot in Display P3). With `top`,
-# the screenshot's commonest colours instead: what is on screen.
+# Pixels within reach of the accent, in a screenshot scaled to 1000 px at
+# most and matched to sRGB by sips (simulators shoot in Display P3). With
+# `top`, the screenshot's commonest colours instead: what is on screen.
 accent_pixels() {
-  sips -m '/System/Library/ColorSync/Profiles/sRGB Profile.icc' -Z 400 -s format bmp "$1" --out "$1.bmp" >/dev/null
+  sips -m '/System/Library/ColorSync/Profiles/sRGB Profile.icc' -Z 1000 -s format bmp "$1" --out "$1.bmp" >/dev/null
   python3 - "$1.bmp" "${2:-count}" $ACCENT <<'PY'
 import struct, sys, collections
 b = open( sys.argv[ 1 ], 'rb' ).read()
@@ -54,15 +54,16 @@ start, = struct.unpack_from( '<I', b, 10 )
 w, h = struct.unpack_from( '<ii', b, 18 )
 step = struct.unpack_from( '<H', b, 28 )[ 0 ] // 8
 row = ( w * step + 3 ) & ~3
+top = sys.argv[ 2 ] == 'top'
 n, seen = 0, collections.Counter()
 for y in range( abs( h ) ):
   r = start + y * row
   for x in range( w ):
     p = r + x * step
     rgb = ( b[ p + 2 ], b[ p + 1 ], b[ p ] )
-    seen[ rgb ] += 1
-    if all( abs( rgb[ i ] - want[ i ] ) < 24 for i in range( 3 ) ): n += 1
-print( n if sys.argv[ 2 ] == 'count' else ' '.join( 'rgb%s×%d' % c for c in seen.most_common( 8 ) ) )
+    if top: seen[ rgb ] += 1
+    elif all( abs( rgb[ i ] - want[ i ] ) < 24 for i in range( 3 ) ): n += 1
+print( ' '.join( 'rgb%s×%d' % c for c in seen.most_common( 8 ) ) if top else n )
 PY
 }
 
@@ -74,7 +75,8 @@ check() { # the platform → a screenshot with the accent in it, or fail
     if [ "$1" = ios ]; then xcrun simctl io booted screenshot "$shot" >/dev/null 2>&1
     else adb exec-out screencap -p >"$shot"; fi
     n=$(accent_pixels "$shot")
-    if [ "$n" -gt 300 ]; then
+    # The swatch alone, 8 px by half the width, is about 1,700 on a phone
+    if [ "$n" -gt 800 ]; then
       echo "✓ Lips rendered in Lynx Explorer ($1): the accent bind is on screen, $n pixels. $shot"
       return
     fi
