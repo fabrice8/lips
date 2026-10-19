@@ -1,0 +1,90 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Phase 0 rig</title>
+<style>
+  html, body { margin: 0 }
+  /* The sketch's 12×12 grid maps onto this box */
+  #app { position: relative; width: 1280px; height: 800px }
+</style>
+<style id="css"></style>
+<div id="app"></div>
+<script type="module">
+  import { compileTemplate, renderIR, parseTemplate } from '/dist/lips.min.js'
+
+  let inst = null
+  const errors = []
+  addEventListener( 'error', e => errors.push( String( e.message ) ) )
+  addEventListener( 'unhandledrejection', e => errors.push( String( e.reason?.message ?? e.reason ) ) )
+
+  /** Handlers arrive as function source; `this` is the component */
+  const fns = src => Object.fromEntries( Object.entries( src || {} ).map( ( [ k, s ] ) => [ k, ( 0, eval )( `(${s})` ) ] ) )
+
+  const compile = template => {
+    const { ir, diagnostics } = compileTemplate( template )
+    const bad = diagnostics.filter( d => d.severity === 'error' )
+    return bad.length ? { ir: null, diagnostics: bad } : { ir, diagnostics }
+  }
+
+  /** Where the element with `data-region="id"` sits in the template source */
+  const regionLoc = ( template, id ) => {
+    const find = n => n.t === 'element' && n.attrs.some( a => a.k === 'literal' && a.name === 'data-region' && a.value === id )
+      ? n : ( n.children || [] ).reduce( ( hit, c ) => hit || find( c ), null )
+    return find( parseTemplate( template ).root )?.loc ?? null
+  }
+
+  /** Plain data only: what the rig compares across revisions */
+  const snapshot = () => JSON.parse( JSON.stringify( inst.state, ( k, v ) => v instanceof Map || v instanceof Set ? [ ...v ] : v ) )
+
+  window.rig = {
+    load( def ){
+      const { ir, diagnostics } = compile( def.template )
+      if( !ir ) return { ok: false, diagnostics }
+      errors.length = 0
+      inst?.dispose()
+      document.getElementById('css').textContent = def.style || ''
+      try {
+        inst = renderIR( ir, { state: structuredClone( def.state || {} ), handlers: fns( def.handlers ), deep: true })
+        inst.mount( document.getElementById('app') )
+      }
+      catch( e ){ return { ok: false, runtime: String( e.message ) } }
+      return { ok: true, diagnostics }
+    },
+
+    /** New state keys join, handlers are (re)bound, CSS is replaced, then the template swaps */
+    revise( def ){
+      const { ir, diagnostics } = compile( def.template )
+      if( !ir ) return { ok: false, diagnostics }
+      errors.length = 0
+      for( const [ k, v ] of Object.entries( def.state || {} ) ) k in inst.state || ( inst.state[ k ] = structuredClone( v ) )
+      for( const [ k, fn ] of Object.entries( fns( def.handlers ) ) ) inst.self[ k ] = fn.bind( inst.self )
+      document.getElementById('css').textContent = def.style || ''
+      try { return { ok: true, report: inst.swap( ir ), diagnostics } }
+      catch( e ){ return { ok: false, runtime: String( e.message ) } }
+    },
+
+    /** The template with region `id`'s element replaced: a patch can touch nothing else */
+    splice( template, id, replacement ){
+      const loc = regionLoc( template, id )
+      return loc && template.slice( 0, loc.offset ) + replacement + template.slice( loc.offset + loc.length )
+    },
+
+    /** Region `id`'s element source, or null */
+    region( template, id ){
+      const loc = regionLoc( template, id )
+      return loc && template.slice( loc.offset, loc.offset + loc.length )
+    },
+
+    /** Each region's box, relative to #app */
+    measure(){
+      const app = document.getElementById('app').getBoundingClientRect()
+      return Object.fromEntries( [ ...document.querySelectorAll('[data-region]') ].map( el => {
+        const r = el.getBoundingClientRect()
+        return [ el.dataset.region, { x: r.left - app.left, y: r.top - app.top, w: r.width, h: r.height } ]
+      }) )
+    },
+
+    state: snapshot,
+    errors: () => errors.slice()
+  }
+  window.ready = true
+</script>
