@@ -187,7 +187,7 @@ it is the exciting part; that is the trap.
 | | Assumption | Cost to test | Order |
 |---|---|---|---|
 | ~~A1~~ | ~~A human spatial constraint measurably breaks AI sameness~~ | — | **settled by prior art** (PrototypeFlow F2) |
-| A1′ | A spatial constraint **persists across successive AI revisions** of a running artifact | **days** | 1st |
+| A1′ | A spatial constraint **persists across successive AI revisions** of a running artifact | **days** | 1st — **met** (Phase 0, 2026-10-19) |
 | A2 | Canvas ↔ IR ↔ code round-trips stay coherent under real editing | weeks | 2nd |
 | A3 | Scoped patches beat whole-page regeneration for refinement | weeks | 3rd |
 | A4 | Pen/sketch input can be made to work well | **months** | 4th |
@@ -274,6 +274,37 @@ preview." Reconsider before building anything else.
 2, so constraint and state both reset) or has no live state to lose (Camp 3). The
 persistence question is only askable on a patchable, stateful substrate — which is
 exactly what exists.
+
+**Result (2026-10-19): exit met, and the gap is real but narrow.** The rig and
+its numbers are in `spike/phase0/` (`RESULTS.md`). It used Sonnet 5.5 with 6
+sketches over 3 apps, 3 runs each. Each run made 5 revisions, in order:
+content, style, an added element, an added element with no place given, and a
+vague request ("make it feel more modern"). A spliced region patches; B
+returned the whole component. Both applied through `swap()` on the running
+instance.
+
+- **The sketch steers, and holds under patches.** First generations fit the
+  sketch exactly (1.00, mean region IoU), while the text-only layout overlaps
+  it by only 0.10–0.13. A's fit stayed at 1.00 through every revision, never
+  below 0.93. Live state survived every revision in both arms.
+- **Regeneration erodes it, but only on the vague request.** B held through
+  the concrete requests (≥ 0.99). At the vague one, its fit fell to 0.59,
+  ranging from 0.04 to 0.97, and its overlap with the text-only default rose
+  from 0.12 to 0.26. That is the kill criterion's erosion, for B and not for A.
+- **What A pays:** it completes less: 81% on the added element and 86% on the
+  vague request, against B's 97–100%. It restyles only the regions it patched,
+  and its misses on added elements were bugs in the new code, such as a keyed
+  loop over plain strings. B made the same bug once.
+- **Untested:** salvage, because the generated templates held no components.
+  Also untested is a sketch the model resists: every sketch here was a plain
+  grid, which the model writes as a 12-column CSS grid. The usage limit cut 5
+  of shop-b's B turns and 2 judge calls, so 173 of 180 turns are complete.
+
+So the stop condition is not met, but the differentiation is narrower than the
+thesis. For concrete edits, regenerating and swapping does as well as patching.
+Authorship is at risk on open-ended requests, which are also the ones a user
+leans on AI for. Phase 1 goes ahead with A3 narrowed to those requests. The
+next probe worth having uses irregular, asymmetric sketches.
 
 ### Phase 1 — The model spine · ~6–10 weeks
 

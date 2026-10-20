@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 0 viewer</title>
+<style>
+  :root { --bg: #fafafa; --fg: #111; --muted: #666; --card: #fff; --line: #ddd }
+  @media (prefers-color-scheme: dark) { :root { --bg: #141414; --fg: #eee; --muted: #999; --card: #1e1e1e; --line: #333 } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui }
+  h1 { font-size: 18px; margin: 0 0 4px }
+  .runs a { margin-right: 12px; color: inherit }
+  .row { display: flex; gap: 12px; overflow-x: auto; padding: 8px 0 16px }
+  .cell { flex: none; width: 384px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden }
+  .frame { width: 384px; height: 240px; overflow: hidden; position: relative; border-bottom: 1px solid var(--line) }
+  .frame iframe { width: 1280px; height: 800px; border: 0; transform: scale( .3 ); transform-origin: 0 0; background: #fff }
+  .cap { padding: 8px; font-size: 12px }
+  .cap b { font-size: 13px }
+  .muted { color: var(--muted) }
+  .yes { color: #16a34a } .partly { color: #d97706 } .no, .error { color: #dc2626 }
+</style>
+<h1>Phase 0 viewer</h1>
+<p class="muted">Each frame renders the saved component fresh, from its own initial state; the dashed boxes are the sketch.</p>
+<div class="runs" id="runs"></div>
+<div id="out"></div>
+<script type="module">
+  const run = new URLSearchParams( location.search ).get('run')
+  const listing = await ( await fetch('results/') ).text()
+  const files = [ ...listing.matchAll( /href="([^"]+)\.json"/g ) ].map( m => decodeURIComponent( m[ 1 ] ) )
+  document.getElementById('runs').innerHTML = files.map( f => `<a href="?run=${f}">${f}</a>` ).join('')
+
+  const cell = ( hash, title, lines ) => `<div class="cell">
+    <div class="frame"><iframe loading="lazy" src="page.html#${hash}"></iframe></div>
+    <div class="cap"><b>${title}</b><br>${lines.join('<br>')}</div></div>`
+  const esc = s => String( s ).replace( /[&<>"]/g, c => `&#${c.charCodeAt( 0 )};` )
+
+  if( run ){
+    const r = await ( await fetch(`results/${run}.json`) ).json()
+    const fit = x => x == null ? '' : `fit to sketch ${x.toFixed( 2 )}`
+    let html = `<h2>${run}</h2><div class="row">${cell( `${run}/start/0`, 'Start', [ fit( r.start.fit ), `generated in ${r.start.tries} tr${r.start.tries > 1 ? 'ies' : 'y'}` ] )}</div>`
+    // A run in progress is saved after every turn: show what is there
+    for( const arm of [ 'A', 'B' ] ) if( r[ arm ]?.turns ){
+      html += `<h2>${arm === 'A' ? 'A — region patches' : 'B — whole component'}</h2><div class="row">`
+      r[ arm ].turns.forEach( ( t, i ) => {
+        html += t.failed
+          ? `<div class="cell"><div class="cap"><b>${i + 1}. ${esc( t.req.kind )}</b><br>never applied</div></div>`
+          : cell( `${run}/${arm}/${i + 1}`, `${i + 1}. ${esc( t.req.kind )}`, [
+            esc( t.req.text ),
+            fit( t.fit ),
+            `state kept: ${t.survival.all ? 'yes' : 'no'}`,
+            `<span class="${t.verdict.verdict}">done: ${esc( t.verdict.verdict )}</span> <span class="muted">${esc( t.verdict.why || '' )}</span>`
+          ])
+      })
+      html += '</div>'
+    }
+    document.getElementById('out').innerHTML = html
+  }
+</script>
