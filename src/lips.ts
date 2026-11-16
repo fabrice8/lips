@@ -10,7 +10,8 @@
  * time (see `compileTemplate`) for CSP-safe, parse-free startup.
  */
 
-import { IRLips, IRFacadeComponent, setCompiler, setStyleCompiler, registerBuiltin } from './ir/facade'
+import { IRLips, IRFacadeComponent, setCompiler, setStyleCompiler, setMessageFormat, registerBuiltin } from './ir/facade'
+import { messageFormat } from './i18n/engine'
 import { compileStyle } from './ir/style'
 import { compileTemplate } from './ir/compiler'
 import type { Metavars } from './types'
@@ -18,8 +19,9 @@ import { routerTemplate } from './ir/router'
 
 /**
  * Full build capabilities. The `./runtime` entry wires none of these, so
- * its bundle tree-shakes the template compiler and the built-in
- * components out entirely.
+ * its bundle tree-shakes the template compiler, the built-in components
+ * and the MessageFormat 2 engine out entirely (an app there that
+ * translates passes `messageFormat` from `@lipsjs/lips/i18n`).
  *
  * Stylis is deliberately NOT wired here. The scope wrap is ordinary CSS
  * nesting and browsers resolve it natively, so the preprocessor only buys
@@ -30,6 +32,7 @@ import { routerTemplate } from './ir/router'
  */
 setCompiler( compileTemplate )
 setStyleCompiler( compileStyle )
+setMessageFormat( messageFormat )
 registerBuiltin( 'router', routerTemplate )
 
 export * from './types'

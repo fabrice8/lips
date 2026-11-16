@@ -136,6 +136,9 @@ properties; elsewhere the bound variable carries the full value (`"12px"`).
   (`NO_QUICKJS_COMPILER` unset). The build-free `.lynxml` path executes
   main-thread source, so its builds include the compiler. Whether user code
   can reach `eval` there is **unverified**. The design does not depend on it.
+- Whether PrimJS has `Intl` is **unverified**. i18n does not depend on it:
+  where it is missing Lips installs the least MessageFormat 2 needs (plain
+  numbers and dates, every plural `other`; `design/i18n-context.md` §5.4).
 
 ### 3.7 Runtime stylesheets and generated UI
 

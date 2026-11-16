@@ -4,34 +4,13 @@
   "Reinitialize": "Reinitialize",
   "Settings": "Settings",
   "Link": "Link",
-  "Device Screens": {
-    "*": "Device Screens",
-    "UK": "Media Devices"
-  },
+  "Device Screens": "Device Screens",
   "Bold": "Bold",
   "Button": "Button",
   "Count": "Count",
   "Reply": "Reply",
-  
   "I guess all is well.": "I guess all is well.",
-  "welcome_user": {
-    "type": "variable",
-    "value": "Welcome, {name}!"
-  },
-  "translate_button": {
-    "type": "condition",
-    "value": {
-      "translate === true": "No Translate Keywords",
-      "translate === false": "Translate Keywords"
-    }
-  },
-
-  "keywords_count": {
-    "type": "plural",
-    "value": {
-      "*": "{count} keywords",
-      "1": "{count} keyword",
-      "0": "No keywords"
-    }
-  }
+  "welcome_user": "Welcome, {$name}!",
+  "translate_button": ".input {$translate :string}\n.match $translate\ntrue {{No Translate Keywords}}\nfalse {{Translate Keywords}}\n* {{Translate Keywords}}",
+  "keywords_count": ".input {$count :integer}\n.match $count\n0 {{No keywords}}\n1 {{{$count} keyword}}\n* {{{$count} keywords}}"
 }

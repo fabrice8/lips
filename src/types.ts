@@ -10,6 +10,8 @@
  * facade is generic over `Metavars`, so `Template<MT>` here and the
  * argument the engine takes are the same type, not parallel ones.
  */
+import type { MessageFormat, Model } from 'messageformat'
+import type { MessageFunction } from 'messageformat/functions'
 import type { TemplateIR } from './ir/compiler'
 import type { StyleIR } from './ir/style'
 
@@ -173,6 +175,19 @@ export type LipsConfig<Context extends Object = {}> = {
    */
   stylePreprocessor?: ( css: string ) => string
   /**
+   * The MessageFormat 2 engine dictionaries are formatted with. The full
+   * build wires it in; the precompiled `./runtime` entry ships without it
+   * (~7.2 KB gzipped), so an app that translates passes it:
+   *
+   *   import { messageFormat } from '@lipsjs/lips/i18n'
+   *   new Lips({ messageFormat })
+   *
+   * Without one, registering a dictionary is refused rather than read
+   * some other way. Passed by value for the same reason as
+   * `stylePreprocessor`: the entries are separate bundles.
+   */
+  messageFormat?: MessageFormatEngine
+  /**
    * Expression execution:
    *  - 'compiled' (default) — one cached Function per expression
    *  - 'interpreted' — sandboxed AST walker, required under a CSP
@@ -184,9 +199,16 @@ export type LipsConfig<Context extends Object = {}> = {
 export type EventListener = ( ...args: any[] ) => void
 
 // -------------------------------------------------------------- i18n types
-export type I18nVariant = Record<string, string>
-export type I18nFormat = {
-  type: string
-  value: string | I18nVariant | Record<string, string | I18nVariant>
+/**
+ * A Unicode MessageFormat 2 message: its source, or its data model as JSON
+ * (what `parseMessage` makes of it, and what a server that parsed it once
+ * serves).
+ */
+export type Message = string | Model.Message
+/** `messageformat`'s formatter and the functions a message may call — what `@lipsjs/lips/i18n` exports as `messageFormat`. */
+export type MessageFormatEngine = {
+  MessageFormat: typeof MessageFormat
+  functions: Record<string, MessageFunction<any, any>>
 }
-export type Dictionary = Record<string, string | I18nFormat | I18nVariant>
+/** One language's messages, by stable key or by source text. */
+export type Dictionary = Record<string, Message>

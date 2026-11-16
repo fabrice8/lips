@@ -292,7 +292,7 @@ function parity( engineName: string, createLips: () => any ){
     })
 
     it('renders @format translations with params', async () => {
-      lips.i18n.setDictionary('en', { greet: { type: 'text', value: 'Hi {name}!' } })
+      lips.i18n.setDictionary('en', { greet: 'Hi {$name}!' })
       lips.setLanguage('en-US')
 
       const c = lips.render('p-format', {
@@ -301,9 +301,9 @@ function parity( engineName: string, createLips: () => any ){
       })
       c.appendTo('#app')
 
-      await settle( () => q('.g')?.textContent === 'Hi Ada!' )
+      await settle( () => q('.g')?.textContent?.replace( /[\u2066-\u2069]/g, '' ) === 'Hi Ada!' )
       c.state.name = 'Grace'
-      await settle( () => q('.g')?.textContent === 'Hi Grace!' )
+      await settle( () => q('.g')?.textContent?.replace( /[\u2066-\u2069]/g, '' ) === 'Hi Grace!' )
     })
 
     it('routes with params, query and not-found', async () => {

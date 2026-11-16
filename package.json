@@ -28,6 +28,11 @@
       "import": "./dist/runtime.min.js",
       "default": "./dist/runtime.min.js"
     },
+    "./i18n": {
+      "types": "./dist/types/mf2.d.ts",
+      "import": "./dist/mf2.min.js",
+      "default": "./dist/mf2.min.js"
+    },
     "./precompile": {
       "types": "./dist/types/precompile.d.ts",
       "import": "./dist/precompile.min.js",
@@ -38,7 +43,7 @@
   "private": false,
   "scripts": {
     "dev": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external --watch",
-    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/runtime.ts --entry-naming runtime.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/precompile.ts --entry-naming precompile.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/stylis.ts --entry-naming stylis.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external",
+    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/runtime.ts --entry-naming runtime.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/precompile.ts --entry-naming precompile.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/stylis.ts --entry-naming stylis.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/mf2.ts --entry-naming mf2.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external",
     "build:declaration": "tsc --project tsconfig.types.json",
     "compile": "bun run build",
     "typecheck": "tsc --project tsconfig.test.json",
@@ -48,6 +53,7 @@
     "size": "node scripts/size-check.mjs"
   },
   "dependencies": {
+    "messageformat": "^4.1.0",
     "stylis": "^4.3.4"
   },
   "devDependencies": {

@@ -1,6 +1,6 @@
 # RFC-005 — Language and context: reading, keying, scoping
 
-**Status:** implemented (revised 2026-08-21)
+**Status:** implemented (revised 2026-11-16: messages are MessageFormat 2, §5.2)
 **Supersedes:** nothing. **Depends on:** RFC-001 (fine-grained reactivity)
 **Companion of:** RFC-004 (StyleIR)
 
@@ -126,16 +126,13 @@ Given a key, the dictionary is consulted for **it**, and the source text
 becomes only the fallback wording. Reword the English and the French
 holds.
 
-Dictionary entries for keys are shaped exactly like text entries —
-strings, region-variant objects, or formats:
+Dictionary entries for keys are shaped exactly like text entries: MF2
+messages (§5.2).
 
 ```json
 {
   "counter.label": "Compter",
-  "counter.hint": {
-    "type": "plural",
-    "value": { "0": "Pas démarré", "1": "Un clic", "*": "{count} clics" }
-  }
+  "counter.hint": ".input {$count :integer} .match $count 0 {{Pas démarré}} one {{Un clic}} * {{{$count} clics}}"
 }
 ```
 
@@ -333,10 +330,12 @@ workers, and non-DOM test runners, not a policy.
 ### 5.1 Lazy dictionaries
 
 Bundling every language up front costs every user all of them. A loader
-resolves one language root on demand:
+resolves one language tag on demand, asked for each tag of the reader's
+lookup chain (§5.3) — `fr-CA`, then `fr`; a source with no `fr-CA`
+answers `undefined`:
 
 ```ts
-lips.i18n.setLoader( id => import(`./languages/${id}.json`).then( m => m.default ) )
+lips.i18n.setLoader( tag => import(`./languages/${tag}.json`).then( m => m.default ) )
 ```
 
 `setLanguage()` **switches first and resolves second**: the language
@@ -351,9 +350,83 @@ alongside the language, bumped whenever one is registered. That also
 makes a plain `setDictionary()` at runtime re-translate what is already
 on screen, which it previously did not.
 
-Each root is attempted once. A rejected load is remembered, so a missing
-language file does not re-fetch on every switch, and a language already
+Each tag is attempted once. A rejected load is remembered, so a missing
+language file does not re-fetch on every switch, and a tag already
 registered never calls the loader at all.
+
+### 5.2 Messages are MessageFormat 2
+
+Every dictionary entry is a [Unicode MessageFormat 2](https://www.unicode.org/reports/tr35/tr35-messageFormat.html)
+message (Stable since CLDR 47), formatted by `messageformat` v4 — the
+OpenJS implementation. An entry is MF2 source, or the same message as its
+data model (`parseMessage`'s JSON), which is how a server that parsed it
+once serves it.
+
+```json
+{
+  "welcome": "Welcome {$name}!",
+  "cart.items": ".input {$count :integer} .match $count 0 {{Your cart is empty}} one {{One item}} * {{{$count} items}}",
+  "price": "Costs {$amount :currency currency=$currency}",
+  "due": "Due {$on :date length=long}"
+}
+```
+
+What that buys over the formats it replaced:
+
+- **Plurals by CLDR category** (`one`, `few`, `many`, …) per language, an
+  exact number first. The old `plural` format matched exact counts and
+  `*` only, which no Slavic or Arabic plural can be written in.
+- **Typed values through `Intl`**, in the reader's own language even when
+  the message comes from a parent dictionary: `:number`, `:integer`,
+  `:currency`, `:percent`, `:offset`, `:string` (the standard's required
+  set) and `:date`, `:time`, `:datetime`, `:unit` (its draft set). A host
+  adds its own to `lips.i18n.functions`, named with a namespace
+  (`:app:money`).
+- **Bidi isolation**: each placeholder is wrapped in U+2068…U+2069, so a
+  right-to-left name cannot reorder the sentence around it.
+- **Nothing is evaluated.** The `condition` format ran dictionary text
+  through `new Function`, which broke `interpreted` mode's CSP promise.
+  MF2 selects with `.match`; no code runs.
+- **One meaning on both sides of the wire.** A platform that serves the
+  dictionaries checks them with the same library, so it cannot accept a
+  message this renders differently.
+
+`@format="key, { params }"` renders an MF2 message with its params; a
+text or attribute translation renders one with none. A message that does
+not parse, or a variable not given, goes to `lips.i18n.onError` (a
+console warning under `debug`) and renders around the failing part
+(`{$name}`) rather than throwing.
+
+The engine is injected like the style compiler: the full build carries
+it, while `./runtime` ships without it (~7.2 KB gzipped). An app there that
+translates passes `messageFormat` from `@lipsjs/lips/i18n` to
+`new Lips({ messageFormat })`. Without an engine, registering a dictionary
+is refused rather than read some other way.
+
+### 5.3 Dictionaries by full tag
+
+Dictionaries are keyed by full BCP 47 tag, whatever its casing, and read
+through [RFC 4647](https://www.rfc-editor.org/rfc/rfc4647#section-3.4)
+Lookup: the tag, then each shorter prefix. A `zh-Hant-TW` reader is served
+from `zh-Hant-TW`, `zh-Hant`, then `zh`, so a script is never skipped for
+its language, and a regional dictionary (`en-GB`) carries only what
+differs from its language. This replaced dictionaries keyed by language
+root with region-variant objects inside each entry, which had nowhere to
+put a script.
+
+The chain is `lookupTags`, the same algorithm AB's `nameIn` walks for a
+translatable name, held to the RFC's own example in both test suites.
+`self.pick( name )` reads a name stored as `{ default, names }` in the
+active language by that chain, so a name and a dictionary fall back alike.
+
+### 5.4 An engine with no `Intl`
+
+`messageformat` needs `Intl`. Where an engine has none (Lynx's PrimJS is
+not known to, §3.6 of `lynx-binding.md`), Lips installs the least of it,
+member by member and only where missing: numbers and dates written
+plainly, every plural `other`. Exact keys still select, so a message can
+say "none" and "one". Real formatting there is a host function registered
+in `lips.i18n.functions`.
 
 ---
 
@@ -369,8 +442,11 @@ that only exists inside a layer works, but `watchContext` is a static
 list on the template, so it cannot vary per placement.
 
 **Dictionary granularity.** The loader resolves one dictionary per
-language root. Splitting by route or feature — the natural pairing with
+language tag. Splitting by route or feature — the natural pairing with
 code-splitting — has no expression.
+
+**MF2 markup.** `{#link}…{/link}` parses and formats as text today; mapping
+it onto elements waits for a template that needs it.
 
 **Bundle: Stylis is eager.** ~4.4 KB gzipped, ~16% of the full entry,
 pulled in by `setStylePreprocessor` in `lips.ts`. Making it opt-in the

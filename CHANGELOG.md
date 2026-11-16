@@ -5,6 +5,46 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Changed — i18n messages are Unicode MessageFormat 2 (BREAKING)
+
+- **Every dictionary entry is an MF2 message** (CLDR 47), formatted by
+  `messageformat` v4, now a dependency. It is MF2 source
+  (`'Welcome {$name}!'`) or its data model as JSON. The old shapes are
+  gone: `{ type: 'variable' | 'text' | 'plural' | 'condition', value }`
+  and region-variant objects (`{ '*': …, UK: … }`).
+  - Migrating: `{name}` → `{$name}`. A `plural` becomes
+    `.input {$count :integer} .match $count 0 {{…}} one {{…}} * {{…}}`.
+    A `condition` becomes a `.match` on the value. A region variant
+    becomes an entry in that region's own dictionary (`en-GB`).
+- **Plurals by CLDR category** (`one`, `few`, `many`, …) per language,
+  an exact number first.
+- **Typed formatting through `Intl`**, in the reader's language:
+  `:number`, `:integer`, `:currency`, `:percent`, `:offset`, `:string`,
+  `:date`, `:time`, `:datetime`, `:unit`. `lips.i18n.functions` takes a
+  host's own, named with a namespace.
+- **Placeholders are bidi-isolated** (U+2068…U+2069).
+- **No `new Function`.** The `condition` format evaluated dictionary
+  text, which broke `interpreted` mode's CSP promise.
+- **`lips.i18n.onError`** reports a message that does not parse or
+  cannot fill. Under `debug` it warns. Rendering never throws.
+- **Dictionaries are keyed by full language tag** (`fr`, `fr-CA`,
+  `zh-Hant`), whatever the casing. They are read through RFC 4647 Lookup
+  (`lookupTags`): `zh-Hant-TW` → `zh-Hant` → `zh`. `setLoader` is asked
+  once for each tag of the chain.
+- **`self.pick( name )`** and **`lips.i18n.pick( name, lang? )`** read a
+  translatable name (`{ default, names }`) through the same chain.
+- **An engine without `Intl`** gets the least MF2 needs: plain numbers
+  and dates, and every plural `other`. Installed member by member, only
+  where missing.
+- **The engine is injected, like the style compiler.** The full build
+  carries it (budget 26.55 → 33.75 KB gzipped: the library's 7.6 KB, our
+  own code net zero). `./runtime` does not, and stays under 15 KB. An app
+  there that translates passes it:
+  `new Lips({ messageFormat })` with `messageFormat` from the new
+  **`@lipsjs/lips/i18n`** entry (7.75 KB). Without an engine,
+  `setDictionary` is refused.
+- `design/i18n-context.md` §5.2–§5.4.
+
 ### Added — Lynx inputs, scroll, lists and vocabulary (RFC-006 L3)
 
 - **`compileLynxTemplate( src )`** (`src/lynx/template.ts`): templates

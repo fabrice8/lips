@@ -30,6 +30,7 @@ import type { SwapChange, SwapReport } from './swap'
 import type { StyleIR } from './style'
 import type { Host } from './host'
 import { domHost } from './host'
+import { pick, type TranslatableName } from '../i18n/lookup'
 import { sameBinds, sameChild, sameLets } from './swap'
 
 // ------------------------------------------------------------------- types
@@ -459,6 +460,8 @@ function selfBus( h: Host, langOf: () => string ){
     },
     /** Active language, read reactively — scoped when under `<i18n lang=…>` */
     get lang(){ return langOf() },
+    /** A translatable name's text in the active language, by the same lookup as dictionaries */
+    pick: ( name: TranslatableName ) => pick( name, langOf() ),
     emit: fire,
     /** Always the runtime-local bus — a host `emit` chains into it */
     emitLocal: fire,

@@ -130,12 +130,36 @@ const KB = 1024
  * emitter is woven through the HTML emitter, but a post-pass that
  * re-parses each block's `html` skeleton could replace it (~0.29 KB on
  * both compiler-bearing entries).
+ *
+ * 2026-11-16: full 26.55→33.75, and a new `mf2` entry at 7.8 — Unicode
+ * MessageFormat 2. Every message is MF2 now, formatted by `messageformat`
+ * (v4, the OpenJS implementation of the CLDR 47 standard): CLDR plural
+ * categories, `:number`/`:currency`/`:percent`/`:date`/`:time`/`:unit`
+ * through `Intl`, bidi isolation, and no `new Function` anywhere — the
+ * old `condition` format evaluated dictionary text, which broke the
+ * `interpreted` mode's CSP promise. The library is 7.6 KB gz; our own
+ * code nets to zero (dropping the old formatters paid for the lookup,
+ * the `Intl` fallback and `pick`), so `full` moves by the library.
+ *
+ * `runtime` does NOT move — it came DOWN, 14.999 → 14.90. The engine is
+ * INJECTED like the style compiler (`setMessageFormat`), so an app on
+ * `./runtime` that never translates ships none of it, and one that does
+ * passes `messageFormat` from `@lipsjs/lips/i18n` (`mf2.min.js`), whose
+ * budget is the library's. Squeezed further, measured: a parser-free
+ * engine (dictionaries served as data model) would save 1.65 KB of the
+ * 7.6, and needs a parser-free build of `messageformat` upstream.
+ *
+ * Why the library and not our own smaller formatter: the platform that
+ * serves dictionaries (Cosense) parses and checks every message with the
+ * same library, so a message cannot mean one thing there and another
+ * here. A second implementation would be a second meaning.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 26.55,     // full: runtime + parser/compiler + style compiler + router
+  'dist/lips.min.js': 33.75,     // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
   'dist/precompile.min.js': 14,  // build-time: parser + compiler + style compiler
-  'dist/stylis.min.js': 3        // opt-in preprocessor — not loaded unless asked for
+  'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
+  'dist/mf2.min.js': 7.8         // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
 }
 
 let failed = false

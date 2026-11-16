@@ -10,25 +10,7 @@
   "Count": "Compter",
   "Reply": "Repondre",
   "I guess all is well.": "Tout va bien, je crois!",
-
-  "welcome_user": {
-    "type": "variable",
-    "value": "Bienvenue, {name}!"
-  },
-  "translate_button": {
-    "type": "condition",
-    "value": {
-      "translate === true": "Pas Traduire",
-      "translate === false": "Traduire"
-    }
-  },
-  
-  "keywords_count": {
-    "type": "plural",
-    "value": {
-      "*": "{count} mots clés",
-      "1": "{count} mot clé",
-      "0": "Pas de mots clés"
-    }
-  }
+  "welcome_user": "Bienvenue, {$name}!",
+  "translate_button": ".input {$translate :string}\n.match $translate\ntrue {{Pas Traduire}}\nfalse {{Traduire}}\n* {{Traduire}}",
+  "keywords_count": ".input {$count :integer}\n.match $count\n0 {{Pas de mots clés}}\n1 {{{$count} mot clé}}\n* {{{$count} mots clés}}"
 }
