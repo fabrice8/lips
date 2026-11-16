@@ -131,7 +131,7 @@ const KB = 1024
  * re-parses each block's `html` skeleton could replace it (~0.29 KB on
  * both compiler-bearing entries).
  *
- * 2026-11-16: full 26.55→33.75, and a new `mf2` entry at 7.8 — Unicode
+ * 2026-11-16: full 26.55→33.85, and a new `mf2` entry at 7.8 — Unicode
  * MessageFormat 2. Every message is MF2 now, formatted by `messageformat`
  * (v4, the OpenJS implementation of the CLDR 47 standard): CLDR plural
  * categories, `:number`/`:currency`/`:percent`/`:date`/`:time`/`:unit`
@@ -139,7 +139,8 @@ const KB = 1024
  * old `condition` format evaluated dictionary text, which broke the
  * `interpreted` mode's CSP promise. The library is 7.6 KB gz; our own
  * code nets to zero (dropping the old formatters paid for the lookup,
- * the `Intl` fallback and `pick`), so `full` moves by the library.
+ * the `Intl` fallback and `pick`), so `full` moves by the library:
+ * 26.52 → 33.83 as CI's bun minifies it (a local bun reads ~0.1 lower).
  *
  * `runtime` does NOT move — it came DOWN, 14.999 → 14.90. The engine is
  * INJECTED like the style compiler (`setMessageFormat`), so an app on
@@ -155,7 +156,7 @@ const KB = 1024
  * here. A second implementation would be a second meaning.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 33.75,     // full: runtime + parser/compiler + style compiler + router
+  'dist/lips.min.js': 33.85,     // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 15,     // precompiled-only: none of the above
   'dist/precompile.min.js': 14,  // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for

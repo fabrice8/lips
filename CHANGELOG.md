@@ -37,7 +37,7 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   and dates, and every plural `other`. Installed member by member, only
   where missing.
 - **The engine is injected, like the style compiler.** The full build
-  carries it (budget 26.55 → 33.75 KB gzipped: the library's 7.6 KB, our
+  carries it (budget 26.55 → 33.85 KB gzipped: the library's 7.6 KB, our
   own code net zero). `./runtime` does not, and stays under 15 KB. An app
   there that translates passes it:
   `new Lips({ messageFormat })` with `messageFormat` from the new
