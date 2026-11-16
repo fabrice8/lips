@@ -2,23 +2,8 @@
   "Settings": "Paramètres",
   "Undo": "Annuler",
   "Redo": "Refaire",
-
   "nav.overview": "Aperçu",
   "counter.reset": "Réinitialiser",
-  "counter.hint": {
-    "type": "plural",
-    "value": {
-      "0": "Pas démarré — {limit} à faire",
-      "1": "Un pas, plafond à {limit}",
-      "*": "{count} sur {limit}"
-    }
-  },
-  "cart.items": {
-    "type": "plural",
-    "value": {
-      "0": "Votre panier est vide",
-      "1": "Un article dans votre panier",
-      "*": "{count} articles dans votre panier"
-    }
-  }
+  "counter.hint": ".input {$count :integer}\n.match $count\n0 {{Pas démarré — {$limit} à faire}}\none {{Un pas, plafond à {$limit}}}\n* {{{$count} sur {$limit}}}",
+  "cart.items": ".input {$count :integer}\n.match $count\n0 {{Votre panier est vide}}\none {{Un article dans votre panier}}\n* {{{$count} articles dans votre panier}}"
 }

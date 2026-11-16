@@ -2,23 +2,8 @@
   "Settings": "Settings",
   "Undo": "Undo",
   "Redo": "Redo",
-
   "nav.overview": "Overview",
   "counter.reset": "Reset",
-  "counter.hint": {
-    "type": "plural",
-    "value": {
-      "0": "Not started — {limit} to go",
-      "1": "One step in, {limit} is the ceiling",
-      "*": "{count} of {limit}"
-    }
-  },
-  "cart.items": {
-    "type": "plural",
-    "value": {
-      "0": "Your cart is empty",
-      "1": "One item in your cart",
-      "*": "{count} items in your cart"
-    }
-  }
+  "counter.hint": ".input {$count :integer}\n.match $count\n0 {{Not started — {$limit} to go}}\none {{One step in, {$limit} is the ceiling}}\n* {{{$count} of {$limit}}}",
+  "cart.items": ".input {$count :integer}\n.match $count\n0 {{Your cart is empty}}\none {{One item in your cart}}\n* {{{$count} items in your cart}}"
 }

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Lips from '../src/lips'
-import I18N from '../src/i18n'
+import I18N, { lookupTags } from '../src/i18n'
+import { parseMessage } from 'messageformat'
+import { messageFormat } from '../src/mf2'
 import { compileTemplate } from '../src/ir/compiler'
 
 function settle( check: () => boolean, timeout = 3000 ){
@@ -16,22 +18,25 @@ function settle( check: () => boolean, timeout = 3000 ){
   })
 }
 const q = ( sel: string ) => document.querySelector( sel )
-const txt = ( sel: string ) => q( sel )?.textContent
+/** Text as read: MF2 isolates each placeholder (U+2066–2069), which no reader sees */
+const bare = ( s?: string | null ) => s?.replace( /[\u2066-\u2069]/g, '' )
+const txt = ( sel: string ) => bare( q( sel )?.textContent )
 
 const EN = {
   'Count': 'Count',
   'Reply': 'Reply',
-  'welcome_user': { type: 'text', value: 'Welcome {name}!' },
-  'items_count': {
-    type: 'plural',
-    value: { '0': 'No items', '1': 'One item', '*': '{count} items' }
-  }
+  'welcome_user': 'Welcome {$name}!',
+  'items_count': `.input {$count :integer}
+                  .match $count
+                  0   {{No items}}
+                  one {{One item}}
+                  *   {{{$count} items}}`
 }
 const FR = {
   'Count': 'Compter',
   'Reply': 'Repondre',
   'Search…': 'Rechercher…',
-  'welcome_user': { type: 'text', value: 'Bienvenue {name}!' }
+  'welcome_user': 'Bienvenue {$name}!'
 }
 
 let lips: any
@@ -332,22 +337,19 @@ describe('i18n.translate', () => {
     expect( lips.i18n.translate('Count', 'fr-FR').lang ).toBe('fr-FR')
   })
 
-  it('selects a region variant, including for the current language', () => {
-    lips.i18n.setDictionary('en', {
-      ...EN,
-      'Device Screens': { '*': 'Device Screens', UK: 'Media Devices' }
-    })
+  it('serves a regional dictionary first, and its language for what it lacks', () => {
+    lips.i18n.setDictionary('en-GB', { 'Device Screens': 'Media Devices' })
+    lips.i18n.setDictionary('en', { ...EN, 'Device Screens': 'Device Screens' })
 
-    // The variant must be reachable through BOTH forms
-    lips.setLanguage('en-UK')
+    // The region must be reachable through BOTH forms
+    lips.setLanguage('en-GB')
     expect( lips.i18n.translate('Device Screens').text ).toBe('Media Devices')
-    expect( lips.i18n.translate('Device Screens', 'en-UK').text ).toBe('Media Devices')
+    expect( lips.i18n.translate('Device Screens', 'en-GB').text ).toBe('Media Devices')
+    expect( lips.i18n.translate('Count', 'en-GB').text ).toBe('Count')
 
-    // …and an unknown region falls back to '*'
+    // …and another region reads its language
     expect( lips.i18n.translate('Device Screens', 'en-CA').text ).toBe('Device Screens')
     expect( lips.i18n.translate('Device Screens', 'en').text ).toBe('Device Screens')
-
-    lips.i18n.setDictionary('en', EN )
   })
 
   it('passes unknown keys and unknown languages through unchanged', () => {
@@ -415,29 +417,29 @@ describe('i18n', () => {
     })
     c.appendTo('#app')
 
-    await settle( () => q('.f')?.textContent === 'Welcome Ada!' )
+    await settle( () => txt('.f') === 'Welcome Ada!' )
 
     c.state.name = 'Grace'
-    await settle( () => q('.f')?.textContent === 'Welcome Grace!' )
+    await settle( () => txt('.f') === 'Welcome Grace!' )
 
     lips.setLanguage('fr-FR')
-    await settle( () => q('.f')?.textContent === 'Bienvenue Grace!' )
+    await settle( () => txt('.f') === 'Bienvenue Grace!' )
   })
 
-  it('supports plural-style formats', async () => {
+  it('selects plurals by the reader\'s CLDR categories, an exact number first', async () => {
     const c = lips.render('t-plural', {
       state: { n: 0 },
       default: `<b class="c" @format="items_count, { count: state.n }"></b>`
     })
     c.appendTo('#app')
 
-    await settle( () => q('.c')?.textContent === 'No items' )
+    await settle( () => txt('.c') === 'No items' )
 
     c.state.n = 1
-    await settle( () => q('.c')?.textContent === 'One item' )
+    await settle( () => txt('.c') === 'One item' )
 
     c.state.n = 5
-    await settle( () => q('.c')?.textContent === '5 items' )
+    await settle( () => txt('.c') === '5 items' )
   })
 
   it('exposes getLanguage and useTranslator', async () => {
@@ -500,18 +502,19 @@ describe('lazy dictionaries', () => {
     await settle( () => txt('.p') === 'Compter' )
   })
 
-  it('attempts each language root only once', async () => {
+  it('asks for each tag of the lookup chain, each only once', async () => {
     const calls: string[] = []
     const l: any = new Lips({ lang: 'en-US' })
-    l.i18n.setLoader( async ( id: string ) => { calls.push( id ); return { Count: 'Compter' } })
+    l.i18n.setLoader( async ( tag: string ) => { calls.push( tag ); return tag === 'fr' ? { Count: 'Compter' } : undefined })
 
     l.setLanguage('fr-FR')
     await new Promise( r => setTimeout( r, 20 ) )
     l.setLanguage('en-US')
-    l.setLanguage('fr-CA')   // same root — must not refetch
+    l.setLanguage('fr-CA')   // `fr` again — must not refetch
+    l.setLanguage('fr-FR')   // answered `undefined` once — must not refetch
     await new Promise( r => setTimeout( r, 20 ) )
 
-    expect( calls ).toEqual([ 'fr', 'en' ])
+    expect( calls ).toEqual([ 'fr-FR', 'fr', 'en-US', 'en', 'fr-CA' ])
   })
 
   it('does not re-fetch a language whose load failed', async () => {
@@ -524,19 +527,19 @@ describe('lazy dictionaries', () => {
     l.setLanguage('fr-FR')
     await new Promise( r => setTimeout( r, 20 ) )
 
-    expect( calls ).toBe( 1 )
+    expect( calls ).toBe( 2 )   // `fr-FR` and `fr`, once each
   })
 
   it('skips the loader for a dictionary already registered', async () => {
-    let calls = 0
+    const calls: string[] = []
     const l: any = new Lips({ lang: 'en-US' })
     l.i18n.setDictionary('fr', { Count: 'Compter' })
-    l.i18n.setLoader( async () => { calls++; return {} })
+    l.i18n.setLoader( async ( tag: string ) => { calls.push( tag ); return undefined })
 
     l.setLanguage('fr-FR')
     await new Promise( r => setTimeout( r, 20 ) )
 
-    expect( calls ).toBe( 0 )
+    expect( calls ).toEqual([ 'fr-FR' ])   // `fr` is registered; only the region is asked for
   })
 
   it('re-translates when a dictionary is registered after render', async () => {
@@ -553,6 +556,170 @@ describe('lazy dictionaries', () => {
     l.i18n.setDictionary('fr', { Count: 'Compter' })
 
     expect( l.i18n.has('fr-CA') ).toBe( true )
+    expect( l.i18n.has('FR') ).toBe( true )
     expect( l.i18n.has('de') ).toBe( false )
+  })
+})
+
+describe('MessageFormat 2', () => {
+  it('isolates each placeholder, so a value in another direction cannot reorder the text', async () => {
+    lips.render('t-bidi', { default: `<p class="iso" @format="welcome_user, { name: 'Ada' }"></p>` }).appendTo('#app')
+    await settle( () => !!q('.iso')?.textContent )
+
+    expect( q('.iso')?.textContent ).toBe('Welcome ⁨Ada⁩!')
+  })
+
+  it('selects plurals by the reader\'s CLDR categories', () => {
+    const i = new I18N( 'pl', messageFormat )
+    i.setDictionary('pl', { files: `.input {$n :integer}
+                                    .match $n
+                                    one  {{{$n} plik}}
+                                    few  {{{$n} pliki}}
+                                    many {{{$n} plików}}
+                                    *    {{{$n} pliku}}` })
+
+    expect( [ 1, 3, 5, 22, 12 ].map( n => bare( i.format( 'files', { n } ) ) ) )
+      .toEqual([ '1 plik', '3 pliki', '5 plików', '22 pliki', '12 plików' ])
+  })
+
+  it('formats in the reader\'s own language, from a dictionary of its parent', () => {
+    const i = new I18N( 'en', messageFormat )
+    i.setDictionary('en', { total: 'Total: {$n :number}' })
+
+    expect( bare( i.format( 'total', { n: 1234567.5 } ) ) ).toBe('Total: 1,234,567.5')
+    expect( bare( i.format( 'total', { n: 1234567.5 }, 'en-IN' ) ) ).toBe('Total: 12,34,567.5')
+  })
+
+  it('has the default functions and the draft ones: currency from the data, dates, units', () => {
+    const i = new I18N( 'en-US', messageFormat )
+    i.setDictionary('en', {
+      price:  'Costs {$amount :currency currency=$currency}',
+      due:    'Due {$on :date length=long}',
+      weight: 'Weighs {$kg :unit unit=kilogram}',
+      share:  '{$part :percent} done'
+    })
+
+    expect( bare( i.format( 'price', { amount: 1234.5, currency: 'EUR' } ) ) ).toBe('Costs €1,234.50')
+    expect( bare( i.format( 'due', { on: new Date('2026-03-01T12:00:00Z') } ) ) ).toBe('Due March 1, 2026')
+    expect( bare( i.format( 'weight', { kg: 3 } ) ) ).toBe('Weighs 3 kg')
+    expect( bare( i.format( 'share', { part: 0.25 } ) ) ).toBe('25% done')
+  })
+
+  it('takes a message as its data model, as a server that parsed it serves it', () => {
+    const i = new I18N( 'fr', messageFormat )
+    i.setDictionary('fr', { greet: JSON.parse( JSON.stringify( parseMessage('Salut {$name}') ) ) })
+
+    expect( bare( i.format( 'greet', { name: 'Ada' } ) ) ).toBe('Salut Ada')
+  })
+
+  it('takes a host\'s own function, named with a namespace', () => {
+    const i = new I18N( 'en', messageFormat )
+    i.functions['app:upper'] = ( _ctx, _options, input ) => {
+      const value = String( input ).toUpperCase()
+      return { type: 'string', source: '', toString: () => value, toParts: () => [{ type: 'string', value }] } as any
+    }
+    i.setDictionary('en', { shout: 'Hey {$who :app:upper}' })
+
+    expect( bare( i.format( 'shout', { who: 'ada' } ) ) ).toBe('Hey ADA')
+  })
+
+  it('reports a message that does not parse or cannot fill, and renders around it', () => {
+    const errors: string[] = []
+    const i = new I18N( 'en', messageFormat )
+    i.onError = ( _e, key ) => errors.push( key )
+    i.setDictionary('en', { broken: 'Hello {$name', unfilled: 'Hello {$name}' })
+
+    expect( i.translate( 'Hello', 'en', 'broken' ).text ).toBe('Hello')
+    expect( bare( i.format( 'unfilled', {} ) ) ).toBe('Hello {$name}')
+    expect( errors ).toEqual([ 'broken', 'unfilled' ])
+  })
+
+  it('never evaluates what a dictionary holds — no code runs, under any CSP', () => {
+    const errors: unknown[] = []
+    const i = new I18N( 'en', messageFormat )
+    i.onError = e => errors.push( e )
+    i.setDictionary('en', { cond: { type: 'condition', value: { '(globalThis.__lipsRan = 1)': 'x' } } as any })
+
+    expect( i.format( 'cond', {} ) ).toBeUndefined()
+    expect( ( globalThis as any ).__lipsRan ).toBeUndefined()
+    expect( errors ).toHaveLength( 1 )
+  })
+})
+
+describe('the engine', () => {
+  it('is handed in, so a build that never translates ships without it', () => {
+    const bare = new I18N('fr')
+    expect( bare.translate('Count').text ).toBe('Count')
+    expect( () => bare.setDictionary( 'fr', { Count: 'Compter' } ) ).toThrow(/without a MessageFormat engine/)
+  })
+
+  it('is what the full build wires in, and what a config passes', () => {
+    expect( () => new Lips({ lang: 'fr' } as any ).i18n.setDictionary( 'fr', { Count: 'Compter' } ) ).not.toThrow()
+    const l: any = new Lips({ lang: 'fr', messageFormat } as any )
+    l.i18n.setDictionary( 'fr', { Count: 'Compter' } )
+    expect( l.i18n.translate('Count').text ).toBe('Compter')
+  })
+})
+
+describe('language lookup', () => {
+  it('is RFC 4647 Lookup, the RFC\'s own example', () => {
+    expect( lookupTags('zh-Hant-CN-x-private1-private2') )
+      .toEqual([ 'zh-Hant-CN-x-private1-private2', 'zh-Hant-CN-x-private1', 'zh-Hant-CN', 'zh-Hant', 'zh' ])
+  })
+
+  it('serves a script before its language, whatever the casing', () => {
+    const i = new I18N( 'zh-Hant-TW', messageFormat )
+    i.setDictionary('zh', { tea: '茶 (简)' })
+    i.setDictionary('ZH-hant', { tea: '茶 (繁)' })
+
+    expect( i.translate( 'Tea', undefined, 'tea' ).text ).toBe('茶 (繁)')
+    expect( i.translate( 'Tea', 'zh-CN', 'tea' ).text ).toBe('茶 (简)')
+  })
+
+  it('picks a translatable name\'s text the same way, and follows the language', async () => {
+    const site = { default: 'en', names: { en: 'North yard', fr: 'Cour nord', 'zh-Hant': '北院' } }
+    expect( lips.i18n.pick( site, 'fr-CA' ) ).toBe('Cour nord')
+    expect( lips.i18n.pick( site, 'zh-Hant-HK' ) ).toBe('北院')
+    expect( lips.i18n.pick( site, 'de' ) ).toBe('North yard')
+
+    lips.render('t-pick', { state: { site }, default: `<b class="pk">{self.pick( state.site )}</b>` }).appendTo('#app')
+    await settle( () => txt('.pk') === 'North yard' )
+
+    lips.setLanguage('fr-FR')
+    await settle( () => txt('.pk') === 'Cour nord' )
+  })
+})
+
+describe('an engine with no Intl', () => {
+  it('gets the least MF2 needs: plain numbers, exact matches, every plural `other`', async () => {
+    vi.stubGlobal( 'Intl', undefined )
+    try {
+      vi.resetModules()
+      const { messageFormat: fresh } = await import('../src/mf2')
+      const i = new I18N( 'pl', fresh )
+      i.setDictionary('pl', {
+        files: `.input {$n :integer}
+                .match $n
+                1    {{one file}}
+                one  {{{$n} plik}}
+                *    {{{$n} files}}`,
+        total: 'Total {$n :number}',
+        on:    'On {$d :datetime}'
+      })
+
+      expect( bare( i.format( 'files', { n: 1 } ) ) ).toBe('one file')
+      expect( bare( i.format( 'files', { n: 5 } ) ) ).toBe('5 files')
+      expect( bare( i.format( 'total', { n: 1234.5 } ) ) ).toBe('Total 1234.5')
+      expect( bare( i.format( 'on', { d: new Date('2026-03-01T00:00:00Z') } ) ) ).toBe('On 2026-03-01T00:00:00.000Z')
+    }
+    finally { vi.unstubAllGlobals() }
+  })
+
+  it('leaves a real Intl alone', async () => {
+    const real = Intl
+    vi.resetModules()
+    await import('../src/mf2')
+    expect( Intl ).toBe( real )
+    expect( new Intl.PluralRules('pl').select( 3 ) ).toBe('few')
   })
 })

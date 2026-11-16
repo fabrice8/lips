@@ -33,6 +33,15 @@ let STYLE_COMPILER: StyleCompilerFn | null = null
 export function setStyleCompiler( fn: StyleCompilerFn ){ STYLE_COMPILER = fn }
 
 /**
+ * The MessageFormat 2 engine is INJECTED too: `messageformat` is ~7.2 KB
+ * gzipped, which `./runtime` should not ship to apps that never
+ * translate. The full entry sets it; `LipsConfig.messageFormat` passes
+ * it to a `./runtime` app that does.
+ */
+let MESSAGE_FORMAT: MessageFormatEngine | undefined
+export function setMessageFormat( engine: MessageFormatEngine ){ MESSAGE_FORMAT = engine }
+
+/**
  * Built-in components (e.g. `<router>`) are INJECTED by the full
  * entry rather than imported here, so the precompiled-only
  * `./runtime` build — which can't compile their source templates
@@ -47,7 +56,7 @@ import { reactive, effect, signal } from './signal'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import type { StyleIR, StyleCompileResult, StyleCompileOptions } from './style'
-import type { Template, Metavars, LipsConfig, Handler } from '../types'
+import type { Template, Metavars, LipsConfig, Handler, MessageFormatEngine } from '../types'
 import I18N from '../i18n'
 
 /**
@@ -225,9 +234,11 @@ export class IRLips<Context extends Object = Record<string, any>> {
     this.debug = !!config?.debug
     this.context = reactive( { ...( config?.context || {} ) }, true ) as Context
 
-    this.i18n = new I18N( config?.lang )
-    this.debug && ( this.i18n.onMissing = ( key, lang ) =>
-      console.warn(`[lips:i18n] no <${lang}> entry for key "${key}"`) )
+    this.i18n = new I18N( config?.lang, config?.messageFormat ?? MESSAGE_FORMAT )
+    if( this.debug ){
+      this.i18n.onMissing = ( key, lang ) => console.warn(`[lips:i18n] no <${lang}> entry for key "${key}"`)
+      this.i18n.onError = ( error, key, lang ) => console.warn(`[lips:i18n] <${lang}> message "${key}" —`, error )
+    }
 
     const [ getLang, setLang ] = signal( this.i18n.lang )
     this.getLang = getLang
