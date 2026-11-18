@@ -5,6 +5,61 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — untrusted templates (RFC-007)
+
+- **`new Lips({ untrusted: untrusted() })`** runs templates you did not write
+  — a generated UI, a partner's embed — under one replaceable policy. From the
+  new opt-in entry `@lipsjs/lips/untrusted` (9.2 KB gzipped), passed by value
+  like `messageFormat`, so apps that never use it ship none of it.
+  - A template reaches the data and functions the host hands it, frozen copies
+    of a few pure globals, and its own subtree through the template language.
+    Not the page, not the realm's prototypes or constructors, not script, not
+    page-wide CSS, not the router's globals.
+  - **Compile time:** `checkTemplate( policy )`, a new `CompileOptions.check`
+    hook, checks the template and its macros. Each refusal is a positioned
+    diagnostic (`LIPS-U001`…`U042`, with `line`/`col`/`hint`), and the refused
+    element, attribute or expression is dropped before it compiles.
+  - **Runtime:** a guarded expression evaluator (refusals throw into `onError`),
+    and a guarded DOM host that checks skeletons once in an inert `<template>`,
+    sanitizes `@html` by the same rules, and asks the policy about every
+    element, attribute, style value and listener after that. Handlers receive a
+    snapshot of the event, never the event. Refusals there go to
+    `policy.report`.
+  - **Stylesheets:** `@import`, loading functions and disallowed `url()`s are
+    reported where written, and a sheet with any refusal ships empty. A
+    precompiled `style` is not injected (`LIPS-U042`).
+  - **Replace the policy whole or in part:**
+    `untrusted({ ...untrustedPolicy, url: sameOriginOnly })`.
+  - **Works on `./runtime`** with precompiled templates: their skeletons are
+    checked when first used.
+  - `mode` is ignored under a guard — no option switches it off.
+- **`tests/untrusted.spec.ts`** maps every route found, each with a control
+  that proves the route is real when the template is trusted.
+
+### Changed
+
+- **Each mode claims only what it guarantees.** `interpreted` is CSP-safe — it
+  never builds a `Function` — and was documented as a sandbox for untrusted
+  embeds. It is not one: it limits the names an expression starts from, not
+  what it reaches. The docs (`expression.ts`, `LipsConfig.mode`, RFC-001,
+  RFC-002, RFC-003, ROADMAP, README) now say so and point to RFC-007.
+- Size budgets: full 33.85 → 34.05, `./runtime` 15 → 15.15, `./precompile`
+  14 → 14.15, for the guard seam, token positions and the fixes below. The
+  reasons are in `scripts/size-check.mjs`.
+
+### Fixed
+
+- **Names found through `Object.prototype`.** In the interpreted mode, `constructor`,
+  `__proto__`, `toString`… resolved to `Object.prototype`'s members, because arrow
+  frames and the globals table were `{}`. In the compiled mode the rename table
+  did the same and emitted the source text of `Object` for an identifier named
+  `constructor`. The tables are prototype-free now.
+- **Comments round-trip.** A template comment starting with `>` or `->` was
+  re-emitted as `<!-->…`, which the browser reads as an empty comment followed by
+  markup.
+- **Scope names are quoted.** A component name with a quote in it closed the
+  stylesheet's `[rel="…"]` scope, and the injector's `<head>` lookup.
+
 ### Changed — i18n messages are Unicode MessageFormat 2 (BREAKING)
 
 - **Every dictionary entry is an MF2 message** (CLDR 47), formatted by

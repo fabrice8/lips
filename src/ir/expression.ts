@@ -5,8 +5,10 @@
  *  - positioned, machine-readable diagnostics (never throws)
  *  - AST-derived precise dependency paths
  *  - two interchangeable executors over the same AST:
- *      compiled    — one Function per unique expression (trusted contexts)
- *      interpreted — sandboxed AST walker (CSP / untrusted embeds)
+ *      compiled    — one Function per unique expression
+ *      interpreted — an AST walker that never builds a Function (CSP)
+ *    Both are for templates you trust. Neither is a boundary: a template
+ *    you did not write runs under a policy instead (RFC-007, ./policy).
  *
  * Grammar (expression-only, no statements):
  *   literals (number, string, boolean, null, undefined), identifiers,
@@ -26,8 +28,9 @@ export interface ExprDiagnostic {
 // ------------------------------------------------------------------------ AST
 export type Expr =
   | { t: 'lit', v: any }
-  | { t: 'id', name: string }
-  | { t: 'member', obj: Expr, prop: string | Expr, computed: boolean, optional: boolean }
+  /** `at`: where the name (or a member's key) starts in the source — for diagnostics */
+  | { t: 'id', name: string, at?: number }
+  | { t: 'member', obj: Expr, prop: string | Expr, computed: boolean, optional: boolean, at?: number }
   | { t: 'call', callee: Expr, args: Expr[], optional: boolean }
   | { t: 'unary', op: '!' | '-' | '+', arg: Expr }
   | { t: 'update', op: '++' | '--', arg: Expr, prefix: boolean }
@@ -37,7 +40,7 @@ export type Expr =
   | { t: 'assign', op: string, target: Expr, value: Expr }
   | { t: 'arrow', params: string[], body: Expr }
   | { t: 'arr', items: { spread?: boolean, value: Expr }[] }
-  | { t: 'obj', props: { key?: string, value: Expr, spread?: boolean }[] }
+  | { t: 'obj', props: { key?: string, value: Expr, spread?: boolean, at?: number }[] }
   | { t: 'error' }
 
 // ------------------------------------------------------------------ tokenizer
@@ -315,27 +318,29 @@ class Parser {
       if( this.eat( '.' ) ){
         const prop = this.next()
         if( prop.t !== 'id' ) return this.error( 'LIPS-E008', 'Expected property name', prop )
-        expr = { t: 'member', obj: expr, prop: prop.value, computed: false, optional: false }
+        expr = { t: 'member', obj: expr, prop: prop.value, computed: false, optional: false, at: prop.start }
       }
       else if( this.eat( '?.' ) ){
         if( this.at( '(' ) ){
           expr = { t: 'call', callee: expr, args: this.argList(), optional: true }
         }
         else if( this.eat( '[' ) ){
+          const at = this.peek().start
           const idx = this.assign()
           this.expect( ']', 'LIPS-E009' )
-          expr = { t: 'member', obj: expr, prop: idx, computed: true, optional: true }
+          expr = { t: 'member', obj: expr, prop: idx, computed: true, optional: true, at }
         }
         else {
           const prop = this.next()
           if( prop.t !== 'id' ) return this.error( 'LIPS-E008', 'Expected property name', prop )
-          expr = { t: 'member', obj: expr, prop: prop.value, computed: false, optional: true }
+          expr = { t: 'member', obj: expr, prop: prop.value, computed: false, optional: true, at: prop.start }
         }
       }
       else if( this.eat( '[' ) ){
+        const at = this.peek().start
         const idx = this.assign()
         this.expect( ']', 'LIPS-E009' )
-        expr = { t: 'member', obj: expr, prop: idx, computed: true, optional: false }
+        expr = { t: 'member', obj: expr, prop: idx, computed: true, optional: false, at }
       }
       else if( this.at( '(' ) ){
         expr = { t: 'call', callee: expr, args: this.argList(), optional: false }
@@ -371,7 +376,7 @@ class Parser {
         case 'undefined': return { t: 'lit', v: undefined }
         case 'NaN': return { t: 'lit', v: NaN }
         case 'Infinity': return { t: 'lit', v: Infinity }
-        default: return { t: 'id', name: t.value }
+        default: return { t: 'id', name: t.value, at: t.start }
       }
     }
 
@@ -393,7 +398,7 @@ class Parser {
     }
 
     if( this.eat( '{' ) ){
-      const props: { key?: string, value: Expr, spread?: boolean }[] = []
+      const props: { key?: string, value: Expr, spread?: boolean, at?: number }[] = []
       while( !this.at( '}' ) && this.peek().t !== 'eof' ){
         if( this.eat( '...' ) ){
           props.push({ spread: true, value: this.assign() })
@@ -404,9 +409,9 @@ class Parser {
             return this.error( 'LIPS-E011', 'Invalid object key', key )
 
           if( this.eat( ':' ) )
-            props.push({ key: String( key.value ), value: this.assign() })
+            props.push({ key: String( key.value ), value: this.assign(), at: key.start })
           else if( key.t === 'id' ) // shorthand { a }
-            props.push({ key: key.value, value: { t: 'id', name: key.value } })
+            props.push({ key: key.value, value: { t: 'id', name: key.value, at: key.start }, at: key.start })
           else
             return this.error( 'LIPS-E011', 'Invalid shorthand property', key )
         }
@@ -427,6 +432,35 @@ export function parseExpression( src: string ): { ast: Expr, diagnostics: ExprDi
   const ast = new Parser( tokens, diagnostics ).parse()
 
   return { ast, diagnostics }
+}
+
+/**
+ * Split an instruction (`on-click( fn, a, b )`, `<log( a, b )>`) on its
+ * top-level commas — strings and brackets are opaque.
+ */
+export function splitTopLevel( src: string ): string[] {
+  const out: string[] = []
+  let depth = 0, start = 0
+
+  for( let i = 0; i < src.length; i++ ){
+    const c = src[ i ]
+    if( c === "'" || c === '"' || c === '`' ){
+      i++
+      while( i < src.length && src[ i ] !== c ){
+        if( src[ i ] === '\\' ) i++
+        i++
+      }
+      continue
+    }
+    if( c === '(' || c === '[' || c === '{' ) depth++
+    else if( c === ')' || c === ']' || c === '}' ) depth--
+    else if( c === ',' && depth === 0 ){
+      out.push( src.slice( start, i ) )
+      start = i + 1
+    }
+  }
+  out.push( src.slice( start ) )
+  return out.map( s => s.trim() ).filter( Boolean )
 }
 
 // ------------------------------------------------------------ dep extraction
@@ -545,7 +579,13 @@ export function extractDeps( ast: Expr, scopeNames: string[] = [] ): string[] {
  * codegen, never via regex on emitted source, keeps string literals
  * containing those words intact.
  */
-const ID_RENAMES: Record<string, string> = { static: '__static', arguments: '__args__' }
+/**
+ * Name tables are prototype-free (`__proto__: null`): looked up by an
+ * author's identifier, a `{}` answered `constructor` with `Object`
+ * (RFC-007 §8). A literal, not a helper call, so a bundle that never
+ * reads a table can still drop it.
+ */
+const ID_RENAMES: Record<string, string> = { __proto__: null, static: '__static', arguments: '__args__' } as any
 
 function gen( node: Expr ): string {
   switch( node.t ){
@@ -645,17 +685,23 @@ export function compileExpression( src: string, scopeNames: string[] = [] ): Com
 }
 
 /**
- * Interpreted mode: sandboxed AST walker — only whitelisted
- * globals are reachable. CSP-safe (no eval, no Function).
+ * Interpreted mode: an AST walker. CSP-safe — it never builds a Function
+ * and never calls eval — and names resolve only to the scope, the
+ * metavars and the globals below.
+ *
+ * It is NOT a sandbox. Members, calls and writes are unrestricted, and
+ * these globals are the page's own objects. For a template you did not
+ * write, use `new Lips({ untrusted })` (RFC-007).
  */
-const SAFE_GLOBALS: Record<string, any> = {
+const GLOBALS: Record<string, any> = {
+  __proto__: null,
   Math, JSON, Object, Array, String, Number, Boolean, Date,
   parseInt, parseFloat, isNaN, isFinite,
   encodeURIComponent, decodeURIComponent, console
-}
+} as any
 
 export function interpretExpression( ast: Expr, env: ExprEnv ): any {
-  const scope = env.scope || {}
+  const scope = env.scope || Object.create( null )
 
   const resolveId = ( name: string, locals: Record<string, any>[] ): any => {
     for( const frame of locals )
@@ -672,7 +718,7 @@ export function interpretExpression( ast: Expr, env: ExprEnv ): any {
       case 'arguments': return env.arguments
     }
 
-    if( name in SAFE_GLOBALS ) return SAFE_GLOBALS[ name ]
+    if( name in GLOBALS ) return GLOBALS[ name ]
     return undefined
   }
 
@@ -776,7 +822,7 @@ export function interpretExpression( ast: Expr, env: ExprEnv ): any {
 
       case 'arrow':
         return ( ...args: any[] ) => {
-          const frame: Record<string, any> = {}
+          const frame: Record<string, any> = Object.create( null )
           node.params.forEach( ( p, k ) => frame[ p ] = args[ k ] )
           return ev( node.body, [ frame, ...locals ] )
         }

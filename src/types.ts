@@ -14,6 +14,7 @@ import type { MessageFormat, Model } from 'messageformat'
 import type { MessageFunction } from 'messageformat/functions'
 import type { TemplateIR } from './ir/compiler'
 import type { StyleIR } from './ir/style'
+import type { Untrusted } from './ir/policy'
 
 /**
  * The four typed surfaces of a component. Defaults are permissive on
@@ -188,12 +189,29 @@ export type LipsConfig<Context extends Object = {}> = {
    */
   messageFormat?: MessageFormatEngine
   /**
-   * Expression execution:
+   * Expression execution, for templates you trust:
    *  - 'compiled' (default) — one cached Function per expression
-   *  - 'interpreted' — sandboxed AST walker, required under a CSP
-   *    without `unsafe-eval`
+   *  - 'interpreted' — an AST walker that never builds a Function, for a
+   *    CSP without `unsafe-eval`. CSP-safe, NOT a sandbox: a template run
+   *    this way can still reach anything it can name a path to.
    */
   mode?: 'compiled' | 'interpreted'
+  /**
+   * Every template this instance renders is one you did not write
+   * (RFC-007). It reaches only the data and functions it is handed, the
+   * globals the policy offers, and its own subtree through the template
+   * language; refusals are diagnostics.
+   *
+   *   import { untrusted, untrustedPolicy } from '@lipsjs/lips/untrusted'
+   *   new Lips({ untrusted: untrusted() })
+   *   new Lips({ untrusted: untrusted({ ...untrustedPolicy, url: sameOriginOnly }) })
+   *
+   * Passed by value, like `messageFormat`: an app that never renders an
+   * untrusted template ships none of it. Runs interpreted — `mode:
+   * 'compiled'` is refused. On `./runtime` templates must be precompiled;
+   * their skeletons are checked when first used.
+   */
+  untrusted?: Untrusted
 }
 
 export type EventListener = ( ...args: any[] ) => void

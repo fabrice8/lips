@@ -14,13 +14,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import * as L from '../src/lips'
+import { untrusted as guard, untrustedPolicy, checkTemplate } from '../src/untrusted'
 import Stylesheet from '../src/stylesheet'
 import { compileStyle } from '../src/ir/style'
 import { parseTemplate } from '../src/ir/parser'
 import { parseExpression, compileExpression, interpretExpression } from '../src/ir/expression'
 
 const Lips = L.default
-const { untrustedPolicy, checkTemplate } = L as any
 
 function settle( check: () => boolean, timeout = 2000 ){
   return new Promise<void>( ( resolve, reject ) => {
@@ -41,7 +41,7 @@ const polluted = () => ( {} as any ).lipsPolluted
 let n = 0
 /** The mode that claimed "sandboxed" — the control for every expression route */
 const trusted = () => new Lips({ mode: 'interpreted' } as any )
-const untrusted = ( policy: any = true ) => new Lips({ untrusted: policy } as any )
+const untrusted = ( policy?: any ) => new Lips({ untrusted: guard( policy ) })
 const mount = ( lips: any, template: any, input?: any ) => {
   const c = lips.render( `t${n++}`, template, input )
   c.appendTo('#app')
@@ -217,8 +217,7 @@ describe('route: names looked up through Object.prototype', () => {
    * The interpreter's arrow frames and its globals table were `{}`, so
    * `name in table` found Object.prototype's members: `constructor`
    * resolved to `Object` and `__proto__` to Object.prototype. Compiled
-   * mode had the same lookup in its rename table, and emitted the source
-   * text of `Object` for an identifier called `constructor`.
+   * mode had the same lookup in its rename table.
    */
   const NAMES = [ '( x => constructor )( 0 )', '( x => __proto__ )( 0 )', 'toString', 'hasOwnProperty' ]
 
@@ -230,12 +229,17 @@ describe('route: names looked up through Object.prototype', () => {
 
   it('the interpreted mode resolves only scope, metavars and its globals', () => {
     for( const src of NAMES )
-      expect( interpretExpression( parseExpression( src ).ast, { scope: { a: 1 } }), src ).toBeUndefined()
+      expect( interpretExpression( parseExpression( src ).ast, {} ), src ).toBeUndefined()
   })
 
-  it('compiled mode treats them as the free names they are', () => {
+  /**
+   * Compiled mode resolves a free name through the global object, like any
+   * JavaScript would — it was never a boundary. The bug was the source it
+   * emitted: `function Object() { [native code] }` in place of the name.
+   */
+  it('compiled mode emits them as the names they are', () => {
     for( const src of NAMES )
-      expect( () => compileExpression( src ).run({}), src ).toThrow( ReferenceError )
+      expect( () => compileExpression( src ).run({}), src ).not.toThrow()
   })
 
   it('untrusted: a name nothing provides is refused where it is written', () => {
@@ -767,8 +771,12 @@ describe('the untrusted mode', () => {
     expect( spy ).not.toHaveBeenCalled()
   })
 
-  it('refuses mode: "compiled" — a guard cannot sit inside a Function', () => {
-    expect( () => new Lips({ untrusted: true, mode: 'compiled' } as any ) ).toThrow(/untrusted/)
+  it('mode: "compiled" cannot switch the guard off', () => {
+    const spy = vi.spyOn( globalThis, 'Function' as any )
+    mount( new Lips({ untrusted: guard(), mode: 'compiled' }), { state: { u2: 'a' }, default: `<b class="m">{state.u2 + 'x'}</b><b>{ self.node }</b>` })
+    expect( q('.m')?.textContent ).toBe('ax')
+    expect( spy ).not.toHaveBeenCalled()
+    expect( coded('LIPS-U005') ).toHaveLength( 1 )
   })
 
   it('takes a replacement policy — one place decides', () => {
@@ -788,7 +796,7 @@ describe('the untrusted mode', () => {
 
   it('reports every compile-time refusal through compileTemplate as well', () => {
     const src = `<b onclick="x()">{ self.node }</b>`
-    const { diagnostics: ds } = L.compileTemplate( src, { check: checkTemplate( untrustedPolicy ) } as any )
+    const { diagnostics: ds } = L.compileTemplate( src, { check: checkTemplate( untrustedPolicy ) })
     expect( ds.map( ( d: any ) => [ d.code, d.loc.line, d.loc.col ] ) ).toEqual([
       [ 'LIPS-U020', 1, at( src, 'onclick' ).col ],
       [ 'LIPS-U005', 1, at( src, 'node' ).col ]

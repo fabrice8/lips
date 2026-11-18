@@ -152,6 +152,9 @@ function skipLine( src: string, i: number ){
   const end = src.indexOf( '\n', i + 2 )
   return end < 0 ? src.length : end
 }
+/** A value safe inside a double-quoted CSS string */
+const quote = ( value: string ) => value.replace( /["\\]/g, '\\$&' )
+
 export function locOf( src: string, offset: number, length: number ){
   let line = 1, last = -1
   for( let i = 0; i < offset; i++ ) if( src[ i ] === '\n' ){ line++; last = i }
@@ -825,7 +828,11 @@ export function compileStyle( src: string, options: StyleCompileOptions ): Style
    * rule.
    */
   const
-  scoped = options.meta || !css ? css : `${options.scope || `[rel="${options.nsp}"]`}{${css}}`,
+  /**
+   * The name is quoted: it can come from a template object, and a quote in
+   * it would close the attribute selector and scope the sheet to the page.
+   */
+  scoped = options.meta || !css ? css : `${options.scope || `[rel="${ quote( options.nsp ) }"]`}{${css}}`,
   body = hoisted + scoped,
   source = options.layer ? `@layer ${options.layer}{${body}}` : body
 

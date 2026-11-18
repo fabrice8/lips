@@ -32,8 +32,9 @@ export default class Stylesheet {
   private get rel(){
     return `${this.settings.meta ? '@' : ''}${this.nsp}`
   }
+  /** Quoted, so a name can only ever select its own `<style>` */
   private get styleElement(){
-    return document.head.querySelector<HTMLStyleElement>(`style[rel="${this.rel}"]`)
+    return document.head.querySelector<HTMLStyleElement>(`style[rel="${ this.rel.replace( /["\\]/g, '\\$&' ) }"]`)
   }
 
   /**
