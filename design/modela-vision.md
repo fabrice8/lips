@@ -333,7 +333,8 @@ page is not resampled and cannot drift.
 - selection-scoped generation and revision
 - diagnostics (`code`/`line`/`col`/`hint`) fed back for self-correction
 - `SwapReport.changes` drives canvas highlighting of what a revision touched
-- untrusted generations previewed under `mode: 'interpreted'`
+- untrusted generations previewed under `untrusted` ([RFC-007](./untrusted-templates.md)) —
+  `mode: 'interpreted'` alone is CSP-safe, not a boundary
 
 **Exit:** a targeted change to one region leaves the rest byte-identical, and a
 bad generation is reported rather than applied.

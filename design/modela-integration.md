@@ -121,7 +121,7 @@ When Modela's canvas/sketch board resumes, the pieces it needs already exist:
 | Revise a component without losing editing state | `instance.swap( newIR )` |
 | Highlight what a revision changed | `SwapReport.changes` (`skeleton` / `binds` / `block` + path) |
 | Store / stream a generated component | `TemplateIR` is JSON; `precompile()` emits it |
-| Render untrusted generated UI in a preview | `mode: 'interpreted'` — no `eval`/`Function` |
+| Render untrusted generated UI in a preview | `new Lips({ untrusted: untrusted() })` — [RFC-007](./untrusted-templates.md). (`mode: 'interpreted'` is CSP-safe, not a boundary.) |
 | Report a bad generation back to the assistant | parser/compiler diagnostics with `line`/`col`/`code`/`hint` |
 
 ### Instance salvage
