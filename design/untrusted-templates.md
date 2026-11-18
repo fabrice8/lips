@@ -326,9 +326,11 @@ Found while mapping the routes; each has a spec in `tests/untrusted.spec.ts`.
   if the sweep ever shows up in a profile.
 - **A CSS parser for precompiled styles.** Refusing them (U042) is the honest
   default until one exists.
-- **The handler-name fallback calls unbound.** `on-click( emit, … )` fails in every
-  mode because `self.emit` is called without its `this`. Unrelated to this RFC;
-  noted for a fix of its own.
+- **The handler-name fallback calls unbound.** `on-click( name, … )` is documented
+  for handler methods, which are bound; the way to emit from a template is
+  `on-click( () => self.emit( … ) )`. A bare `emit` happens to work in a nested
+  component, whose `emit` is a closure, and not in a root one, whose `emit`
+  reads `this`. Unrelated to this RFC; worth making consistent on its own.
 - **Resource limits.** A cap on `<for>` ranges or evaluation steps could live in
   the policy; nothing asks for it yet.
 
