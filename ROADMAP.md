@@ -33,7 +33,8 @@ Consequences that re-rank the phases:
   features** — keep them as opt-in layers (`historySignal()`, devtools plugin) so the
   editor retains them while published UIs stop paying for them.
 - Published/embedded Modela UIs run generated code in third-party contexts → dual
-  execution mode on one IR: eval-compiled (trusted, fast) / interpreter (CSP, sandboxed).
+  execution mode on one IR: eval-compiled (trusted, fast) / interpreter (CSP-safe). Untrusted
+  templates need more than an interpreter — see RFC-007 (Phase 3).
 
 ## Guiding decisions
 
@@ -101,7 +102,7 @@ Consequences that re-rank the phases:
 - [x] **Legacy engine deleted (2026-07-23)**: `component.ts`, `tps.ts`, `iuc/`, `dws.ts`, `uqs.ts`, `metrics.ts`, the old `signal.ts`/`utils.ts`/`constants.ts`, `syntax/` and the legacy manual harness — 7.4k lines. cash-dom dropped entirely (RFC decision #8); `stylesheet.ts` rewritten on native DOM. Bundle 95.6 KB min → **63 KB min / 21 KB gzip**
 - [x] **Instance salvage across `swap()` (2026-08-03)**: components inside a rebuilt region are released, offered to the fresh render and re-homed — same state, same nodes, same handlers, no lifecycle fired; only parent-side wiring is rebuilt against the new call site. `key` decides identity, position decides without one. Covers call-site-only changes too. `SwapReport.salvaged` reports what carried over; focus is restored. Also fixed a pre-existing bug where a rebuild dropped the root's scoped stylesheet — 11 swap specs + 5 browser checks
 - [ ] Deferred refinements: LIS reconciler
-- [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** sandboxed AST interpreter (CSP mode) — 31 parity specs
+- [x] Expression subsystem (`src/ir/expression.ts`, 2026-07-23): own tokenizer + Pratt parser with positioned diagnostics (never throws), AST-derived precise deps, compiled executor (one cached `Function` per source+scope, no `with`) **and** an AST interpreter (CSP mode — CSP-safe, not a sandbox; see RFC-007) — 31 parity specs
 - [ ] Per-key signal state; delete Proxy layer, deep-clone snapshots, and the digest loop
 - [ ] `historySignal()` opt-in wrapper; base `signal()` is value-only
 - [ ] Clone-based template instantiation (decision #5)
@@ -117,6 +118,7 @@ Consequences that re-rank the phases:
 - [x] **Precompilation + CSP-safe mode (2026-07-23)**: `precompile()` turns authoring templates into IR ahead of time (macros inlined, source dropped); `lipsPlugin()` compiles `.lips` SFCs to modules with embedded IR and fails the build on template errors with file:line:col. With `mode: 'interpreted'` a precompiled app **never constructs a Function** — proven by spec with a non-vacuous control
 - [ ] SSR/hydration spike on the same IR
 - [ ] Publish styled-component/scoped-CSS docs and security model page (`@html`, "templates are code")
+- [x] **Untrusted templates (2026-11-18)** — the security model the page will publish: [design/untrusted-templates.md](design/untrusted-templates.md) (RFC-007). `new Lips({ untrusted: untrusted() })` from the opt-in `./untrusted` entry holds a template you did not write to one replaceable policy — compile-time refusals as positioned diagnostics, a guarded evaluator, a page-boundary host — and the routes it found are specs, each with a control (`tests/untrusted.spec.ts`). Each mode now claims only what it guarantees: compiled and interpreted are for trusted templates
 
 **Exit criteria:** `@lipsjs/core` standalone on npm · CSP demo app running with `unsafe-eval` disabled.
 

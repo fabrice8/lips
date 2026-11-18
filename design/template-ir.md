@@ -28,7 +28,8 @@ serializable/portable Modela artifact, (3) the target of an optional build-time 
 1. Template string → IR in one pass, with positioned machine-readable diagnostics
 2. IR → DOM via `cloneNode` + bind walk; updates via per-key signals — O(changed)
 3. IR is JSON-serializable and deterministic (same template → same IR)
-4. Dual expression execution: compiled (`Function`, trusted) / interpreted (CSP/sandbox)
+4. Dual expression execution: compiled (`Function`) / interpreted (CSP-safe). Both are
+   for trusted templates — neither is a sandbox; untrusted templates are RFC-007
 5. State-preserving hot-swap: `swap(instance, newIR)` re-renders only changed regions
 6. Public template syntax unchanged — the 64-spec suite is the compatibility contract
 
@@ -131,7 +132,14 @@ Two interchangeable executors over the same expression table:
 | mode | mechanism | context | cost |
 |---|---|---|---|
 | compiled | one `new Function(params…)` per unique expr at IR load — no `with`, strict-safe | trusted pages, the Modela editor | ~vanilla |
-| interpreted | small AST walker | CSP (`script-src` without `unsafe-eval`), untrusted embeds | 3–10× per eval — acceptable off the hot path because deps are precise |
+| interpreted | small AST walker | CSP (`script-src` without `unsafe-eval`) | 3–10× per eval — acceptable off the hot path because deps are precise |
+
+> **Corrected 2026-11-18 ([RFC-007](./untrusted-templates.md)).** This table used to
+> list "untrusted embeds" as a context for the interpreter, and §2 called it a sandbox.
+> It is CSP-safe — it never builds a `Function` — but it restricts only the *names*
+> an expression may start from, not the members it can walk to, so it is no boundary.
+> A template you did not write runs under `new Lips({ untrusted })`: the same AST,
+> a guarded evaluator, and a policy at the page boundary.
 
 A build-time step (Vite plugin, Phase 3) emits the compiled functions as a module —
 same IR, zero runtime eval, closing both the CSP gap and the startup gap to compiled

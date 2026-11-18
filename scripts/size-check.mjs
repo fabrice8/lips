@@ -154,13 +154,40 @@ const KB = 1024
  * serves dictionaries (Cosense) parses and checks every message with the
  * same library, so a message cannot mean one thing there and another
  * here. A second implementation would be a second meaning.
+ *
+ * 2026-11-18: full 33.85→34.05, runtime 15→15.15, precompile 14→14.15,
+ * and a new `untrusted` entry at 9.35 — RFC-007, templates you did not
+ * write. The policy, its guarded evaluator, its compile-time check and
+ * its page-boundary host are the `untrusted` entry, passed to Lips by
+ * VALUE like `messageFormat`: first measured inside the full build it was
+ * +5.6 KB gz on every app, for a feature most never use. What stays in
+ * the core is what the core has to carry:
+ *  - the seam: a `guard` hook in the expression runner and in the
+ *    handler-name fallback, the `self` mark, the facade passing the
+ *    policy's pieces through — ~0.09 on runtime; it is also what lets
+ *    `./runtime` render untrusted PRECOMPILED templates
+ *  - token positions in the expression AST (`at`), so a refusal is
+ *    reported at its column — ~0.025 on every entry
+ *  - three fixes the review found in the trusted modes too: name tables
+ *    that answered `constructor` through Object.prototype, a comment that
+ *    did not round-trip, an unquoted scope name — ~0.04
+ * Savings were taken first: the name tables are `__proto__: null`
+ * literals rather than a helper call (a call is not droppable, and kept
+ * the interpreter's globals in `precompile`), `mode: 'compiled'` is
+ * ignored under a guard instead of thrown on, and the style hook wraps
+ * the compiler rather than repeating its arguments.
+ *
+ * The untrusted entry is ~60% policy and ~40% the expression parser it
+ * needs to check expressions where they are written. It ships only to the
+ * apps that import it.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 33.85,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 15,     // precompiled-only: none of the above
-  'dist/precompile.min.js': 14,  // build-time: parser + compiler + style compiler
+  'dist/lips.min.js': 34.05,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 15.15,  // precompiled-only: none of the above
+  'dist/precompile.min.js': 14.15, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
-  'dist/mf2.min.js': 7.8         // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
+  'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
+  'dist/untrusted.min.js': 9.35  // opt-in policy for templates you did not write (RFC-007) — no entry carries it
 }
 
 let failed = false

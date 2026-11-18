@@ -135,6 +135,14 @@ export interface CompileOptions {
    * (`compileLynxTemplate`, RFC-006 §4.3). Macro bodies are not passed.
    */
   transform?: ( nodes: TemplateNode[], diagnostics: TemplateDiagnostic[] ) => void
+  /**
+   * Inspects — and may rewrite — the parsed template AND the macros
+   * source before either compiles, reporting into `diagnostics` located
+   * against `src`, the source the nodes came from. How an untrusted
+   * template is held to its policy (RFC-007 §5.1): a refusal is reported
+   * where it is written, and the refused construct never compiles.
+   */
+  check?: ( nodes: TemplateNode[], diagnostics: TemplateDiagnostic[], src: string ) => void
 }
 
 interface MacroDef {
@@ -146,12 +154,12 @@ interface MacroDef {
 // ------------------------------------------------------------------ tables
 const ANCHOR = '<!--$-->'
 
-const CONTROL_TAGS = new Set([
+export const CONTROL_TAGS = new Set([
   'if', 'else-if', 'else', 'for', 'switch', 'async', 'let', 'const', 'log',
   // RFC-005 §4 — scoped context / scoped language
   'context', 'i18n'
 ])
-const ARM_TAGS = new Set([ 'case', 'default', 'then', 'catch', 'loading' ])
+export const ARM_TAGS = new Set([ 'case', 'default', 'then', 'catch', 'loading' ])
 
 /** Standard HTML + common SVG tags — anything else is a component candidate */
 export const HTML_TAGS = new Set([
@@ -403,7 +411,13 @@ class Compiler {
              */
             if( tree ) break
 
-            html.push( `<!--${node.value.replace( /--/g, '- -' )}-->` )
+            /**
+             * Round-trip it as ONE comment. `--` would close it early, and
+             * a leading `>` or `->` makes `<!-->` / `<!--->` — an empty
+             * comment for the browser, followed by the rest as markup.
+             */
+            const text = node.value.replace( /--/g, '- -' )
+            html.push( `<!--${ /^-?>/.test( text ) ? ' ' + text : text }-->` )
             lastWasText = false
             index++
             break
@@ -1100,12 +1114,13 @@ class Compiler {
 
 // -------------------------------------------------------------------- API
 /** Parse `<macro [argv] name="X">…</macro>` blocks into a lookup */
-function parseMacros( src: string, diagnostics: TemplateDiagnostic[] ){
+function parseMacros( src: string, diagnostics: TemplateDiagnostic[], check?: CompileOptions['check'] ){
   const macros = new Map<string, MacroDef>()
   if( !src?.trim() ) return macros
 
   const parsed = parseTemplate( src )
   diagnostics.push( ...parsed.diagnostics )
+  check?.( parsed.root.children, diagnostics, src )
 
   for( const node of parsed.root.children ){
     if( node.t !== 'element' ) continue
@@ -1144,9 +1159,10 @@ function parseMacros( src: string, diagnostics: TemplateDiagnostic[] ){
 
 export function compileTemplate( src: string, options?: CompileOptions ): CompileResult {
   const diagnostics: TemplateDiagnostic[] = []
-  const macros = parseMacros( options?.macros || '', diagnostics )
+  const macros = parseMacros( options?.macros || '', diagnostics, options?.check )
 
   const parsed = parseTemplate( src )
+  options?.check?.( parsed.root.children, diagnostics, src )
   options?.transform?.( parsed.root.children, diagnostics )
   const compiler = new Compiler( src, macros, options?.target === 'tree' )
   const ir = compiler.compile( parsed.root.children )

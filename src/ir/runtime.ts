@@ -10,8 +10,9 @@
  *    O(changed bindings), no digest, no clones, no deep equality
  *  - block instances are bracketed by owned comment markers so
  *    control-flow content moves/disposes as a range
- *  - dual expression modes over the same IR: 'compiled' (Function,
- *    trusted) / 'interpreted' (sandboxed AST walker, CSP-safe)
+ *  - dual expression modes over the same IR: 'compiled' (Function) /
+ *    'interpreted' (AST walker, CSP-safe) — both for trusted templates;
+ *    an untrusted one runs through a `guard` instead (RFC-007)
  *
  * Hot-swap (§8): instances retain their structure (bind handles,
  * child handles, resolved path nodes) so `instance.swap( newIR )`
@@ -24,7 +25,7 @@
 
 import type { TemplateIR, BlockIR, BindIR, ChildIR, ArmIR, CompInput, E, Path } from './compiler'
 import type { ExprEnv, Expr } from './expression'
-import { parseExpression, compileExpression, interpretExpression } from './expression'
+import { parseExpression, compileExpression, interpretExpression, splitTopLevel } from './expression'
 import { signal, effect, untrack, reactive } from './signal'
 import type { SwapChange, SwapReport } from './swap'
 import type { StyleIR } from './style'
@@ -53,8 +54,21 @@ export interface IRComponentDef {
   handlers?: Record<string, ( this: any, ...args: any[] ) => any>
 }
 
+/**
+ * How an untrusted template's expressions run (RFC-007): `run` replaces
+ * the executor, and `self` decides which members of the component a bare
+ * handler name in an event instruction may reach. Built by `./policy`.
+ */
+export interface Guard {
+  run( src: string ): ( env: ExprEnv ) => any
+  /** A refusal (truthy) keeps the instruction off `self[ key ]` */
+  self( key: string ): unknown
+}
+
 export interface RuntimeOptions {
   mode?: 'compiled' | 'interpreted'
+  /** Untrusted templates only — set by `new Lips({ untrusted })` */
+  guard?: Guard
   /**
    * What the IR renders into (RFC-006 §4.1). Defaults to the DOM. A host
    * that builds nodes one by one (`treeHost` in `./tree`) needs IR compiled
@@ -376,37 +390,17 @@ function destroy( h: Host, inst: BlockInstance | null ){
   for( const n of nodesOf( h, inst ) ) h.remove( n, true )
 }
 
-/** Split an instruction on top-level commas (strings/brackets opaque) */
-function splitTopLevel( src: string ): string[] {
-  const out: string[] = []
-  let depth = 0, start = 0
-
-  for( let i = 0; i < src.length; i++ ){
-    const c = src[ i ]
-    if( c === "'" || c === '"' || c === '`' ){
-      i++
-      while( i < src.length && src[ i ] !== c ){
-        if( src[ i ] === '\\' ) i++
-        i++
-      }
-      continue
-    }
-    if( c === '(' || c === '[' || c === '{' ) depth++
-    else if( c === ')' || c === ']' || c === '}' ) depth--
-    else if( c === ',' && depth === 0 ){
-      out.push( src.slice( start, i ) )
-      start = i + 1
-    }
-  }
-  out.push( src.slice( start ) )
-  return out.map( s => s.trim() ).filter( Boolean )
-}
-
 const applyAttr = ( h: Host, el: N, name: string, v: any ) =>
   h.attr( el, name, v === false || v == null ? null : v === true ? '' : String( v ) )
 
 const defineGetter = ( scope: any, name: string, get: () => any ) =>
   Object.defineProperty( scope, name, { get, enumerable: true, configurable: true } )
+
+/**
+ * Marks a component `self`. A guard needs to tell it apart from data: the
+ * policy has its own rules for members of `self` (RFC-007 §5.2).
+ */
+export const SELF = Symbol.for('lips.self') // registered: `./untrusted` is a bundle of its own, and asks for it by name
 
 /** Marks a `<context>` layer and carries its owned-key setters */
 const LAYER = Symbol('lips.ctx.layer')
@@ -449,6 +443,7 @@ function selfBus( h: Host, langOf: () => string ){
   let instOf: () => BlockInstance | null = () => null
 
   const proto = {
+    [ SELF ]: true,
     /**
      * Live element nodes — the handle external controls (drag/resize/
      * sort) bind to. Elements only: comment boundaries are an
@@ -596,6 +591,7 @@ class IRRenderer {
     return this.srcRunner( this.ir.exprs[ e ], scopeNames )
   }
   private srcRunner( src: string, scopeNames: string[] ): ( env: RunEnv ) => any {
+    if( this.options.guard ) return this.options.guard.run( src )
     if( this.options.mode === 'interpreted' ){
       const ast = astOf( src )
       return env => interpretExpression( ast, env )
@@ -1714,7 +1710,7 @@ class IRRenderer {
         let v: any
         try { v = this.srcRunner( src, scopeNames )( benv ) }
         catch( e ){ v = undefined }
-        if( typeof v !== 'function' && benv.self && typeof benv.self[ src ] === 'function' )
+        if( typeof v !== 'function' && benv.self && !this.options.guard?.self( src ) && typeof benv.self[ src ] === 'function' )
           v = benv.self[ src ]
         return v
       }

@@ -51,6 +51,7 @@ const BUILTINS: Record<string, any> = {}
 export function registerBuiltin( name: string, template: any ){ BUILTINS[ name ] = template }
 
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
+import type { Untrusted } from './policy'
 import { renderIR } from './runtime'
 import { reactive, effect, signal } from './signal'
 import Events from '../events'
@@ -216,6 +217,13 @@ export class IRLips<Context extends Object = Record<string, any>> {
   private styleCache = new WeakMap<FacadeTemplate, StyleIR>()
   private context: Context
   private __root?: IRFacadeComponent<any>
+  /**
+   * `new Lips({ untrusted: untrusted() })` — every template this instance
+   * renders is held to it (RFC-007). Passed by value from
+   * `@lipsjs/lips/untrusted`, so only an app that renders untrusted
+   * templates ships the policy.
+   */
+  private u?: Untrusted
 
   public i18n: I18N
   /** Language signal — translated binds subscribe through it */
@@ -231,6 +239,8 @@ export class IRLips<Context extends Object = Record<string, any>> {
   private componentsProxy: Record<string, IRComponentDef>
 
   constructor( private config?: FacadeConfig<Context> ){
+    this.u = config?.untrusted
+
     this.debug = !!config?.debug
     this.context = reactive( { ...( config?.context || {} ) }, true ) as Context
 
@@ -290,7 +300,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
           'This build has no template compiler — templates must be precompiled to `ir` '
           + '(import from "@lipsjs/lips" instead of "@lipsjs/lips/runtime")' )
 
-      const result = COMPILER( template.default || '', { macros: template.macros })
+      const result = COMPILER( template.default || '', { macros: template.macros, check: this.u?.check })
       result.diagnostics.length
         && console.warn('[lips:ir] template diagnostics —', result.diagnostics )
 
@@ -317,7 +327,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
 
     let style = this.styleCache.get( template )
     if( !style ){
-      const result = STYLE_COMPILER( template.stylesheet, {
+      const result = ( this.u ? this.u.style( STYLE_COMPILER ) : STYLE_COMPILER )( template.stylesheet, {
         nsp: name,
         layer: this.config?.styleLayer,
         preprocess: this.config?.stylePreprocessor
@@ -351,7 +361,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
 
   // ---- rendering
   render<MT extends Metavars = Metavars>( name: string, template: Template<MT>, input?: MT['Input'] ){
-    return new IRFacadeComponent( this, name, template, input, this.compile( template ), {
+    const options: RuntimeOptions = {
       mode: this.config?.mode,
       components: this.componentsProxy,
       /**
@@ -405,7 +415,9 @@ export class IRLips<Context extends Object = Record<string, any>> {
         },
         lang: () => this.getLang()
       }
-    })
+    }
+
+    return new IRFacadeComponent( this, name, template, input, this.compile( template ), this.u ? this.u.runtime( options ) : options )
   }
   root<MT extends Metavars = Metavars>( template: Template<MT>, selector: string ){
     this.__root = this.render<MT>( '__ROOT__', template )

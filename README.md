@@ -70,6 +70,7 @@ import Lips from '@lipsjs/lips'
 | `@lipsjs/lips` | full: runtime + parser/compiler + styles + router | ~21 KB |
 | `@lipsjs/lips/runtime` | precompiled-only: no parser/compiler (CSP-friendly) | ~12 KB |
 | `@lipsjs/lips/precompile` | build-time helpers + Vite/Rollup plugin | — |
+| `@lipsjs/lips/untrusted` | opt-in policy for templates you did not write ([RFC-007](design/untrusted-templates.md)) | ~9 KB |
 | `@lipsjs/lips/dev` | unminified full build | — |
 
 ## 🧩 Template syntax
@@ -154,7 +155,8 @@ deliberately not exposed.
 
 Compile templates to IR at build time — no runtime parsing, and with
 `mode: 'interpreted'` no `eval`/`Function`, so the app runs under `script-src` without
-`unsafe-eval`.
+`unsafe-eval`. That is CSP-safety, not a sandbox: both modes are for templates you
+trust. For one you did not write — a generated UI, a partner's embed — see below.
 
 ```js
 import { precompile } from '@lipsjs/lips/precompile'
@@ -173,6 +175,24 @@ export default { plugins: [ lipsPlugin() ] }
 import Card from './card.lips'   // already-compiled IR
 lips.register('card', Card)
 ```
+
+## 🛡 Untrusted templates
+
+A template you did not write runs under a policy:
+
+```js
+import Lips from '@lipsjs/lips'
+import { untrusted, untrustedPolicy } from '@lipsjs/lips/untrusted'
+
+const embed = new Lips({ untrusted: untrusted() })
+const strict = new Lips({ untrusted: untrusted({ ...untrustedPolicy, url: sameOriginOnly }) })
+```
+
+It reaches the data and functions you hand it, a few pure globals, and its own
+subtree through the template language — not the page, not the realm's prototypes,
+not script. What it may not do is reported as a diagnostic with `line`/`col`/`code`/`hint`,
+and refused again at runtime. What Lips leaves to CSP and to the page is listed in
+[RFC-007](design/untrusted-templates.md).
 
 ## 🔥 Hot-swap
 

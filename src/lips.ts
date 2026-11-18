@@ -36,6 +36,7 @@ setMessageFormat( messageFormat )
 registerBuiltin( 'router', routerTemplate )
 
 export * from './types'
+export type { TemplatePolicy, Refusal, Verdict, Untrusted } from './ir/policy'
 
 export {
   parseTemplate,
