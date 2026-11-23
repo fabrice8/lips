@@ -5,6 +5,23 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-23
+
+Lips on Lynx (RFC-006 L0–L3 and its accessibility), untrusted templates
+(RFC-007), i18n in Unicode MessageFormat 2, and a `<context>` layer. Breaking
+before 1.0, hence the minor version: messages are MessageFormat 2,
+`watchContext` replaces the `context` template field, and Stylis is opt-in.
+
+### Added — ARIA read as Lynx's own accessibility attributes (RFC-006 §4.8)
+
+- The background host keeps each element's ARIA and, once per flush, sends
+  what it comes to: `role`, and the roles of `button`, `a` and `h1`–`h6`, as
+  traits; labels from `aria-label`, `alt`, `aria-labelledby` and
+  `<label for>`, resolved to text at run time; states as translatable words
+  in `accessibility-value`; `aria-hidden`, `aria-modal` and `tabindex`.
+- Live regions announce through `lynx.accessibilityAnnounce`.
+- The vocabulary pass warns on ARIA Lynx cannot read (`LIPS-L105`–`L107`).
+
 ### Added — untrusted templates (RFC-007)
 
 - **`new Lips({ untrusted: untrusted() })`** runs templates you did not write
