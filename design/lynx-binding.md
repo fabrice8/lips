@@ -152,6 +152,45 @@ properties; elsewhere the bound variable carries the full value (`"12px"`).
   with an LLM writing directly against the element API. This validates
   templates-as-data on Lynx, and is the space RFC-003's Modela export enters.
 
+### 3.8 Accessibility — Lynx has its own attributes, not ARIA
+
+Checked on 2026-11-23 in the engine source and the official docs (§10,
+"Accessibility"). No device run: what a screen reader says is tier C.
+
+| Lynx attribute | iOS | Android | HarmonyOS |
+|---|---|---|---|
+| `accessibility-element` | `isAccessibilityElement`; default off on `view`, on for `text` and `image` | important-for-accessibility; the default comes from page config `enableAccessibilityElement` (default `true`) | yes |
+| `accessibility-label` | `accessibilityLabel` | `contentDescription` | yes |
+| `accessibility-traits` | a comma list of 14 words (`button`, `link`, `header`, `image`, `selected`, `disabled`, `search`, `adjustable`, `tabbar`, …), not trimmed | **one** of `none`, `image`, `button`, and only on the `enableA11y` path (below) | **one** of `text`, `image`, `button` |
+| `accessibility-value` | `accessibilityValue` | `setStateDescription` (API 30+) | — |
+| `accessibility-heading` | — (the `header` trait) | `setAccessibilityHeading` (API 28+) | — |
+| `accessibility-role-description` | — | `enableA11y` path: `checkbox`, `switch`, `progressbar`, `image`, `button` set the class, so Android speaks it in the user's language; anything else is spoken as written | — |
+| `accessibility-status` | prefixed to the label, `"status, label"` | `enableA11y` path: the same | — |
+| `accessibility-elements-hidden` | `accessibilityElementsHidden` | `IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS` | yes |
+| `accessibility-exclusive-focus` | only that subtree can be focused | the same | yes |
+| `accessibility-elements` | reading order of child ids; the others become unfocusable | the same | — |
+| `requestAccessibilityFocus` (UI method) | posts `LayoutChanged` with the view | moves accessibility focus | — |
+| `lynx.accessibilityAnnounce({ content }, cb)` | `UIAccessibilityAnnouncementNotification` | API 28+: `setAccessibilityPaneTitle`, else `announceForAccessibility` | module exists |
+| `focusable` | — | keyboard focus; Clay on every desktop | Clay |
+
+- **Android has three accessibility paths**, picked by page config. By
+  default (neither flag set) a node provider builds virtual nodes. It reads
+  `accessibility-element`, `-label` (or the children's text) and `-elements`,
+  and reports each node's class as its Lynx UI class, so **traits and role
+  descriptions are ignored**. `enableA11y: true` selects the helper path,
+  which reads all of the above. `enableNewAccessibility` is deprecated since
+  3.5.
+- **An iOS view that is an accessibility element hides its subviews**, and
+  Lynx gives it no label from them. A promoted `view` needs one.
+- **There is no live region**, only the imperative `accessibilityAnnounce`,
+  and no distinction between polite and assertive.
+- **There is no id-reference labelling** (`labelledby`), no
+  checked/selected/expanded state API, and no list, table or grid
+  semantics.
+- Lynx for Web passes none of these attributes on to ARIA.
+- Unknown attributes are ignored by `__SetAttribute`, so ARIA sent as written
+  is lost without an error.
+
 ## 4. Architecture
 
 ### 4.1 Layer 0 — the IR host seam (Lips core, prerequisite)
@@ -590,6 +629,109 @@ the existing `mode: 'interpreted'`. Nothing depends on `eval`.
 - A runtime entry (`@lipsjs/lips/lynx`) holds the background host and the
   main-thread applier, with its own size budget in `scripts/size-check.mjs`.
 
+### 4.8 Accessibility
+
+One template source keeps its screen-reader semantics on Lynx. ARIA is the
+source language. The background host reads it and sends Lynx's own
+attributes (§3.8). It is not passed on as written, because Lynx would drop
+it without an error.
+
+**Where it runs.** Mostly in the background host, because the values are
+bound and several ARIA attributes become one Lynx attribute. Each element
+with ARIA keeps a record. At each flush where text, structure or ARIA
+changed, every record is derived again, and only what differs from what
+was sent goes out as `ATTR` ops. The protocol and the applier are
+unchanged. The vocabulary pass reports what has no Lynx equivalent.
+
+| Template | Lynx | Notes |
+|---|---|---|
+| `role`, and the roles of `button`, `a`, `h1`–`h6` | `accessibility-traits`, `-element`, and `-heading` for headings | One trait word per element: Android and HarmonyOS read the whole string as one word, and `button,selected` would read as none. |
+| `checkbox`, `switch`, `menuitemcheckbox`, `progressbar` | `-role-description` set to Android's class name | Android speaks the class in the user's language. |
+| `radio`, `tab`, `menuitemradio` | `-role-description` from a word | Android only (§3.8). |
+| `none`, `presentation`, `alt=""` | `accessibility-element: false` | |
+| `aria-label`, `alt` | `accessibility-label` | |
+| `aria-labelledby`, `<label for>` | `accessibility-label`: the text of those ids | Resolved in the background, at run time, and kept current. The background keeps an id map; ids resolve in the same host. |
+| `aria-describedby` | appended to the label, after `", "` | Lynx has no description or hint (§9.7). |
+| button, link and heading roles on a `view`, with no label | `accessibility-label`: the content's text | iOS would read nothing otherwise (§3.8). A part's own `aria-label` or `alt` stands in for its text. `aria-hidden` parts are left out. |
+| `aria-checked`, `-pressed`, `-selected`, `-expanded`, `-current`, `-disabled`, `-invalid`, `-required`, `-valuetext`, `-valuenow` | `accessibility-value`, as words joined by `", "` | `"false"` reads `not checked` and `collapsed` where ARIA has a word for it, and nothing elsewhere. `"mixed"` reads `mixed`. Empty is ARIA's "not set" (§9.6). |
+| `aria-roledescription` | `accessibility-role-description` | |
+| `aria-hidden="true"` | `accessibility-elements-hidden` | The whole subtree, as in ARIA. `accessibility-element: false` would leave the children reachable. |
+| `aria-modal="true"` | `accessibility-exclusive-focus` | |
+| `aria-live`, `role=status`, `log`, `alert` | `lynx.accessibilityAnnounce` with the region's whole text | A region announces a change of its text. An alert also announces its arrival, but not when present at first render. `aria-live="off"` is silent. |
+| `tabindex` | `focusable`: true at 0 or more, false below | This is keyboard focus (Android, Clay). Screen-reader order is the tree's. |
+
+**Words.** States, and the roles that have no Android class, are spoken
+words. They are the same on every platform. `WORDS` holds the English
+defaults, and `connectBackground( words )` replaces them to translate
+(§9.5).
+
+**Diagnostics** (vocabulary pass, literal values only; a bound value Lynx
+cannot read is ignored at run time):
+
+| Code | Severity | What |
+|---|---|---|
+| LIPS-L105 | warning | a `role` with no Lynx equivalent (`tablist`, `listbox`, `table`, `row`, `grid`, `dialog`, …): the content stays readable, the grouping is not announced |
+| LIPS-L106 | warning | an `aria-*` attribute with no Lynx equivalent (`aria-controls`, `aria-level`, `aria-setsize`, `aria-relevant`, `aria-atomic="false"`, …) |
+| LIPS-L107 | warning | a positive `tabindex`: Lynx has no focus order |
+
+A component's attributes are its props, so they are not checked. A role
+list takes its first token, as ARIA does with the first role it knows.
+
+**As built (2026-11-23).**
+
+- `src/lynx/a11y.ts` holds the tables (`ROLES`, `LIVE`, `IMPLICIT`, `WORDS`,
+  `A11Y`) and `lynxA11y`, the derivation. `src/lynx/background.ts`:
+  - keeps the records and the id and `for` maps, and derives once per
+    flush;
+  - takes `{ announce, words }`; `connectBackground` wires `announce` to
+    `lynx.accessibilityAnnounce`, which is absent on Lynx for Web and is
+    skipped there.
+- `src/lynx/template.ts`: LIPS-L105 to L107.
+- **The core cost is nothing.** `src/ir` is untouched, and no budgeted
+  bundle holds `src/lynx/`.
+- **Found on the way.**
+  - A change that is only ARIA emits no op of its own, so it must
+    schedule the flush itself.
+  - A descendant's `aria-hidden` or `aria-label` changes its ancestors'
+    names, so any ARIA change derives every record again.
+  - "After the first render" cannot be read from the batch counter: a
+    first render of only `<if>` anchors sends nothing.
+- **Tests.**
+  - Tier A, `tests/lynx-binding.spec.ts` (8 specs, both threads where
+    the main thread is the point):
+    - buttons, links and headings;
+    - a tab with roving tabindex;
+    - checkbox states in words;
+    - `labelledby`, `describedby` and `<label for>` in either order,
+      following bound text;
+    - hidden, modal, decorative and presentational;
+    - status and alert announcements;
+    - translated words.
+  - Tier A, `tests/lynx-template.spec.ts` (2 specs): every code, with its
+    location and with no false alarms.
+  - Eleven deliberate breakages were each caught:
+    - no name from content;
+    - a text change not read again;
+    - an ARIA change not scheduled;
+    - alerts never announcing their arrival;
+    - alerts announcing at first render;
+    - hidden content named;
+    - `<label for>` written after its input;
+    - no word for `"false"`;
+    - the whole role list taken as one role;
+    - `aria-atomic="true"` warned;
+    - ARIA passed on as written.
+  - Tier B: `run.sh` adds one check. The demo's `<button>` reaches the
+    real engine's element with `accessibility-traits="button"` and
+    `accessibility-label="+1"`. 21/21 pass on Lynx 4.1 Clay (macOS arm64),
+    with no JS errors. With the tag's implied role switched off, the check
+    fails.
+  - What VoiceOver and TalkBack say, and announcements, are tier C.
+- **Not done.**
+  - Focus moves need element references (§4.5, §9.9).
+  - HTML's `disabled` on a `button` is not mapped. Lynx does not block
+    the tap either.
+
 ## 5. Engine APIs: allowed and refused
 
 **Allowed** (public types and official guidance): page/view/text/raw-text/
@@ -684,6 +826,38 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      would lay out differently.
 3. **Packaging:** subpath entries of `@lipsjs/lips`, or a separate
    `@lipsjs/lynx` package.
+4. **Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
+   set `enableA11y: true`?
+   - Without it, Android reads labels, hidden subtrees, values and headings,
+     but no traits or role descriptions: a button is not called a button.
+   - With it, Android switches to the helper path for the whole page, which
+     the host app may not expect.
+   - Recommended: set it. Not set yet, because it changes the host app's
+     Android behaviour and only tier C can check it.
+5. **States: words, or iOS's own traits.**
+   - As built: words in `accessibility-value`, the same on every
+     platform, translated through `connectBackground( words )`.
+   - The alternative is the `selected` and `disabled` traits on iOS, which
+     iOS speaks in the user's language. That needs a `SystemInfo.platform`
+     branch, and words would still be needed on Android.
+   - Also open: whether `WORDS` should come from the app's i18n catalog
+     (`design/i18n-context.md`) instead of an argument.
+6. **Boolean binds on `aria-*` (core runtime, affects the DOM too).**
+   `runtime.ts:394` writes `true` as `""` (presence) and `false` as removed.
+   ARIA reads `aria-checked=""` as unset, so `aria-selected=state.on` never
+   reads as selected, on the DOM or on Lynx. The Lynx host follows ARIA,
+   not the runtime.
+   - Proposed fix: write `String( v )` for names starting `aria-`.
+   - This changes DOM output, so it is the owner's call and a separate PR.
+7. **`aria-describedby`.** As built, it is appended to the label. The
+   alternatives are an L106 warning and drop, or HarmonyOS's untyped
+   `accessibility-description`.
+8. **Warning volume.** L105 and L106 fire once per occurrence, so a tab set
+   gives one `aria-controls` warning per tab. Keep that, or add one summary
+   per template or a way to opt out.
+9. **Focus moves.** Once Lips has element references (§4.5), `focus()`
+   could become `focus` on inputs and `requestAccessibilityFocus` elsewhere,
+   with `Host.keepFocus` mapped the same way. Not built.
 
 ## 10. Sources
 
@@ -709,6 +883,31 @@ All read on 2026-10-16.
   - `docs/en/api/css/media-query.mdx`
   - `docs/en/guide/styling/custom-theming.mdx`
   - `docs/en/guide/scripting-runtime/index.mdx`
+- Accessibility (§3.8), read on 2026-11-23:
+  - `lynx-family/lynx` @ `02e1c8d`:
+    - `platform/darwin/ios/lynx/ui/LynxUI.m`, `LynxUI+Accessibility.m`,
+      `LynxUIView.m`, `text/LynxUIText.m`
+    - `platform/darwin/common/lynx/base/LynxConverter+UI.m`
+      (`toAccessibilityTraits`)
+    - `platform/darwin/ios/lynx/module/LynxAccessibilityModule.mm`,
+      `LynxTemplateRenderHelper.mm`
+    - `platform/android/lynx_android/src/main/java/com/lynx/tasm/behavior/`:
+      `PropsConstants.java`, `ui/LynxBaseUI.java`, `ui/LynxUI.java`,
+      `ui/view/UIView.java`, and in `ui/accessibility/`:
+      `LynxAccessibilityHelper.java`, `CustomAccessibilityDelegateCompat.java`,
+      `LynxNodeProvider.java`, `LynxAccessibilityWrapper.java`
+    - `platform/android/lynx_android/src/main/java/com/lynx/jsbridge/LynxAccessibilityModule.java`,
+      `com/lynx/tasm/LynxHostEnvironment.java`
+    - `platform/harmony/lynx_harmony/src/main/cpp/ui/ui_base.cc`
+    - `core/template_bundle/template_codec/binary_decoder/lynx_config.yml`
+      (page config defaults)
+    - `js_libraries/lynx-core/src/lynx/lynx.ts` (`accessibilityAnnounce`)
+  - `lynx-family/lynx-website` @ `619cc8e`:
+    `docs/en/guide/inclusion/accessibility.mdx`,
+    `docs/en/api/elements/built-in/view.mdx`,
+    `docs/en/api/lynx-api/lynx/lynx-accessibility-announce.mdx`
+  - `@lynx-js/types@4.2.1`: `types/common/props.d.ts`,
+    `element/methods.d.ts`, `events.d.ts`
 - npm packages:
   - `@lynx-js/type-element-api@0.0.10`
   - `@lynx-js/lynx-api-docs@0.3.9`
