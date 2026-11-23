@@ -13,19 +13,25 @@
  *    (RFC-006 §9.2, decided 2026-10-16).
  *  - An HTML tag with no Lynx element is an error, with what to use.
  *  - A `list` holds `list-item`s: Lynx renders nothing else in one.
+ *  - ARIA Lynx cannot read is a warning: the content stays readable, the
+ *    semantics are lost (RFC-006 §4.8; what it can read, `./a11y`).
  *
  *   code        what
  *   LIPS-L101   HTML tag with no Lynx element
  *   LIPS-L102   text beside block content, in an element that is not text
  *   LIPS-L103   text at the top level: renders only inside a text element (warning)
  *   LIPS-L104   a list child that is not a list-item
+ *   LIPS-L105   a role with no Lynx equivalent (warning)
+ *   LIPS-L106   an aria-* attribute with no Lynx equivalent (warning)
+ *   LIPS-L107   a positive tabindex: Lynx has no focus order (warning)
  *
  * Macro bodies are inlined after this pass, so it does not see them.
  */
 import { compileTemplate, HTML_TAGS, type CompileOptions, type CompileResult } from '../ir/compiler'
-import type { TemplateNode, ElementNode, TemplateDiagnostic } from '../ir/parser'
+import type { TemplateNode, ElementNode, TemplateDiagnostic, Loc } from '../ir/parser'
 import { locOf } from '../ir/style'
 import { LYNX_TAG } from './protocol'
+import { A11Y, LIVE, QUIET, ROLES, roleOf } from './a11y'
 
 /** Control flow and its arms: transparent, their content lands in the parent */
 const FLOW = new Set([
@@ -77,8 +83,28 @@ function* elements( nodes: TemplateNode[] ): Generator<TemplateNode> {
 
 export function lynxVocabulary( src: string ){
   return ( nodes: TemplateNode[], diagnostics: TemplateDiagnostic[] ) => {
-    const report = ( code: string, severity: 'error' | 'warning', message: string, at: TemplateNode, hint?: string ) =>
+    const report = ( code: string, severity: 'error' | 'warning', message: string, at: { loc: Loc }, hint?: string ) =>
       diagnostics.push({ code, severity, message, hint, loc: locOf( src, at.loc.offset, at.loc.length ) })
+
+    /** ARIA written as a literal is checked here; a bound value Lynx cannot read is ignored at run time */
+    const aria = ( n: ElementNode ) => {
+      for( const a of n.attrs ){
+        if( !( 'name' in a ) ) continue
+        const value = a.k === 'literal' ? a.value : undefined, role = value !== undefined && roleOf({ role: value })
+
+        if( a.name === 'role' && role && !ROLES[ role ] && !LIVE[ role ] && !QUIET.has( role ) )
+          report( 'LIPS-L105', 'warning', `role="${role}" has no Lynx equivalent: its content stays readable, the ${role} is not announced`, a,
+                  'Say what each item is and its state on the item: aria-label, aria-selected, aria-checked' )
+        else if( a.name.startsWith('aria-') && !A11Y.has( a.name ) && !( a.name === 'aria-atomic' && value === 'true' ) )
+          report( 'LIPS-L106', 'warning', `${a.name} has no Lynx equivalent: it is not read`, a,
+                  a.name === 'aria-atomic' || a.name === 'aria-relevant'
+                    ? 'Lynx announces the whole region on every change'
+                    : 'Put what it says in the aria-label or a state Lynx reads' )
+        else if( a.name === 'tabindex' && value && +value > 0 )
+          report( 'LIPS-L107', 'warning', 'A positive tabindex orders focus: Lynx has no focus order, so it reads as 0', a,
+                  'Use tabindex="0", and order the elements in the template' )
+      }
+    }
 
     const walk = ( nodes: TemplateNode[] ) => {
       for( const n of nodes ){
@@ -86,6 +112,9 @@ export function lynxVocabulary( src: string ){
         if( n.t !== 'element' ) continue
 
         const tag = n.tag
+        // A component's attributes are its props: what it does with them is its own
+        ;( HTML_TAGS.has( tag ) || NATIVE.has( tag ) || CONTAINERS.has( tag ) || tag === 'list' ) && aria( n )
+
         if( HTML_TAGS.has( tag ) && !LYNX_TAG[ tag ] && !NATIVE.has( tag ) )
           report( 'LIPS-L101', 'error', `<${tag}> has no Lynx element: it would render nothing`, n,
                   HINTS[ tag ] || 'Use a tag Lynx renders: <div>, <p>, <span>, <img>, <input> or a Lynx element' )

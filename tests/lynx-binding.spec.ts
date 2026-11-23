@@ -28,6 +28,7 @@ import { renderIR, type RenderSetup, type RuntimeOptions } from '../src/ir/runti
 import { createBackgroundHost, connectBackground, type LynxNode, type BackgroundHost } from '../src/lynx/background'
 import { connectMain } from '../src/lynx/main'
 import * as OP from '../src/lynx/protocol'
+import { WORDS } from '../src/lynx/a11y'
 
 const G = globalThis as any
 
@@ -188,7 +189,8 @@ describe('Lynx: both threads through the testing environment', () => {
       { state: { n: 0 }, handlers: { inc( this: any ){ this.state.n++ } } } )
 
     expect( app.html() ).toBe(
-      '<view class="counter"><text data-k="n">0</text><view data-k="inc"><text>+</text></view></view>' )
+      '<view class="counter"><text data-k="n">0</text>'
+      + '<view data-k="inc" accessibility-element="true" accessibility-traits="button" accessibility-label="+"><text>+</text></view></view>' )
 
     await app.fire('[data-k="inc"]')
     await app.fire('[data-k="inc"]')
@@ -433,6 +435,120 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 0</text>')
     await app.fire('[data-k="b"]')
     expect( app.q('[data-k="b"]').innerHTML ).toBe('<text>Count 1</text>')
+  })
+})
+
+// ----------------------------------------------------- RFC-006 §4.8: a11y
+describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
+  /** The Lynx accessibility attributes of an element on the main thread */
+  const a11y = ( el: any ) => Object.fromEntries( [ ...el.attributes ]
+    .filter( ( a: any ) => /^accessibility-|^focusable$/.test( a.name ) ).map( ( a: any ) => [ a.name, a.value ] ) )
+
+  it('a button is a button named by its content, which it follows', async () => {
+    const app = await boot( `<button data-k="b" on-click( inc )>Count {state.n}</button><h2 data-k="h">Title</h2><a data-k="a">Go</a>`,
+      { state: { n: 0 }, handlers: { inc( this: any ){ this.state.n++ } } } )
+    expect( a11y( app.q('[data-k="b"]') ) ).toEqual({
+      'accessibility-element': 'true', 'accessibility-traits': 'button', 'accessibility-label': 'Count 0'
+    })
+    await app.fire('[data-k="b"]')
+    expect( app.q('[data-k="b"]').getAttribute('accessibility-label') ).toBe('Count 1')
+    // A text reads its own content: no label, and Android's heading flag
+    expect( a11y( app.q('[data-k="h"]') ) ).toEqual({
+      'accessibility-element': 'true', 'accessibility-traits': 'header', 'accessibility-heading': 'true'
+    })
+    expect( a11y( app.q('[data-k="a"]') ) ).toEqual({ 'accessibility-element': 'true', 'accessibility-traits': 'link' })
+  })
+
+  it('a tab: one trait for every platform, its state in words, roving tabindex as focusable', async () => {
+    const app = await boot( `<div data-k="t" role="tab" aria-selected=state.sel tabindex=state.ti>Inbox</div>`,
+      { state: { sel: 'true', ti: '0' } } )
+    expect( a11y( app.q('[data-k="t"]') ) ).toEqual({
+      'accessibility-element': 'true', 'accessibility-traits': 'button', 'accessibility-label': 'Inbox',
+      'accessibility-role-description': 'tab', 'accessibility-value': 'selected', focusable: 'true'
+    })
+    await app.act( () => Object.assign( app.inst.state, { sel: 'false', ti: '-1' }) )
+    expect( a11y( app.q('[data-k="t"]') ) ).toMatchObject({ focusable: 'false' })
+    expect( app.q('[data-k="t"]').hasAttribute('accessibility-value') ).toBe( false )
+    // ARIA itself never crosses: Lynx would ignore it
+    expect( app.html() ).not.toMatch( /role=|aria-|tabindex/ )
+  })
+
+  it('states read as words, in order; "false" and "mixed" have their own', async () => {
+    const app = await boot( `<div data-k="c" role="checkbox" aria-checked=state.c aria-required="true" aria-invalid=state.i>Agree</div>`,
+      { state: { c: 'false', i: 'false' } } )
+    const value = () => app.q('[data-k="c"]').getAttribute('accessibility-value')
+    expect( value() ).toBe('not checked, required')
+    await app.act( () => Object.assign( app.inst.state, { c: 'mixed', i: 'true' }) )
+    expect( value() ).toBe('mixed, invalid, required')
+    // A bound `true` arrives as "" — ARIA's "not set" (RFC-006 §9)
+    await app.act( () => app.inst.state.c = true )
+    expect( value() ).toBe('invalid, required')
+    expect( app.q('[data-k="c"]').getAttribute('accessibility-role-description') ).toBe('checkbox')
+  })
+
+  it('labels by id and by <label for> resolve to text, and follow it', async () => {
+    const app = await boot(
+      `<label for="name">{state.l}</label><input data-k="i" id="name"><input data-k="j" id="mail"><label for="mail">Email</label>`
+      + `<div data-k="d" role="button" aria-labelledby="t" aria-describedby="h"><img alt="Bin"><span id="t">Delete</span></div><p id="h">Cannot be undone</p>`,
+      { state: { l: 'Name' } } )
+    expect( app.q('[data-k="i"]').getAttribute('accessibility-label') ).toBe('Name')
+    expect( app.q('[data-k="j"]').getAttribute('accessibility-label') ).toBe('Email')
+    expect( app.q('[data-k="d"]').getAttribute('accessibility-label') ).toBe('Delete, Cannot be undone')
+    await app.act( () => app.inst.state.l = 'Full name' )
+    expect( app.q('[data-k="i"]').getAttribute('accessibility-label') ).toBe('Full name')
+  })
+
+  it('hidden, modal, decorative and presentational', async () => {
+    const app = await boot(
+      `<button data-k="b"><span aria-hidden=state.h>×</span> Close</button><div><img data-k="x" alt=""></div>`
+      + `<div data-k="m" aria-modal="true" aria-roledescription="sheet"></div><div data-k="p" role="presentation"></div>`,
+      { state: { h: 'true' } } )
+    // Hidden content is not read: the label is the rest
+    expect( app.q('[data-k="b"]').getAttribute('accessibility-label') ).toBe('Close')
+    expect( app.q('[data-k="b"] text text').getAttribute('accessibility-elements-hidden') ).toBe('true')
+    expect( a11y( app.q('[data-k="x"]') ) ).toEqual({ 'accessibility-element': 'false' })
+    expect( a11y( app.q('[data-k="m"]') ) ).toEqual({ 'accessibility-exclusive-focus': 'true', 'accessibility-role-description': 'sheet' })
+    expect( a11y( app.q('[data-k="p"]') ) ).toEqual({ 'accessibility-element': 'false' })
+
+    await app.act( () => app.inst.state.h = 'false' )
+    expect( app.q('[data-k="b"]').getAttribute('accessibility-label') ).toBe('× Close')
+    expect( app.q('[data-k="b"] text text').hasAttribute('accessibility-elements-hidden') ).toBe( false )
+  })
+
+  /** The background alone: what is announced, and the words */
+  const announced = ( src: string, setup: RenderSetup, words?: any ) => {
+    const said: string[] = [], batches: any[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ), { announce: t => said.push( t ), words })
+    const inst = renderIR<LynxNode>( tree( src ), setup, { host: bg.host })
+    inst.mount( bg.root )
+    bg.flush()
+    return { said, inst, batches, async act( fn: () => void ){ fn(); await tick() } }
+  }
+
+  it('a status region announces its changes, not its first render', async () => {
+    const app = announced( `<p role="status">{state.s}</p><div aria-live="off">{state.s}</div>`, { state: { s: 'Ready' } })
+    expect( app.said ).toEqual( [] )
+    await app.act( () => app.inst.state.s = 'Saved' )
+    await app.act( () => app.inst.state.n = 1 )
+    await app.act( () => app.inst.state.s = 'Saved' )
+    expect( app.said ).toEqual([ 'Saved' ])
+  })
+
+  it('an alert announces its arrival after the first render; polite regions do not', async () => {
+    const app = announced( `<div role="alert">Offline</div><if( state.e )><div role="alert"><p>{state.e}</p></div></if><if( state.e )><p aria-live="polite">{state.e}</p></if>`,
+      { state: { e: '' } } )
+    expect( app.said ).toEqual( [] )
+    await app.act( () => app.inst.state.e = 'Card declined' )
+    expect( app.said ).toEqual([ 'Card declined' ])
+    await app.act( () => app.inst.state.e = 'Try again' )
+    expect( app.said ).toEqual([ 'Card declined', 'Try again', 'Try again' ])
+  })
+
+  it('the words translate', () => {
+    const app = announced( `<div role="tab" aria-selected="true">Boîte</div>`, {}, { ...WORDS, selected: 'sélectionné', tab: 'onglet' })
+    const ops = app.batches.flat()
+    expect( ops ).toContain('sélectionné')
+    expect( ops ).toContain('onglet')
   })
 })
 

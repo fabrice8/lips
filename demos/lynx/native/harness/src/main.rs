@@ -222,6 +222,13 @@ fn main() -> R<()> {
   );
   check("keyed list renders in order", in_order(&dom, &["one", "two"]), dom.clone());
   check("no markers or stray text reach the engine", !dom.contains("<raw-text text=\"\n"), dom.clone());
+  // RFC-006 §4.8: ARIA reaches the engine as Lynx's own attributes
+  let inc = dom.split("<view id=\"inc\"").nth(1).and_then(|s| s.split('>').next()).unwrap_or("");
+  check(
+    "a <button> reaches the engine as a button named by its content (+1)",
+    inc.contains("accessibility-traits=\"button\"") && inc.contains("accessibility-label=\"+1\""),
+    inc.to_string(),
+  );
 
   // Taps: main-thread listener → background handler → ops → main thread
   tap(&mut page, "#inc")?;
