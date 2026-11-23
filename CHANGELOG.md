@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-11-23
+
+The Lynx pass, published for a build step. Nothing changes for an app that
+does not import it, hence the patch version.
+
 ### Added — `@lipsjs/lips/lynx`, the Lynx pass for a build step
 
 - `compileLynxTemplate`, `lynxVocabulary`, `compileLynxStyle` and
