@@ -22,6 +22,7 @@
 import type { BlockIR, NodeIR } from '../ir/compiler'
 import type { Host } from '../ir/host'
 import { treeHost, treeNode, link, unlink, type TreeNode } from '../ir/tree'
+import { A11Y, IMPLICIT, LIVE, WORDS, lynxA11y, roleOf, type Aria, type Words } from './a11y'
 import {
   CREATE, TEXT, INSERT, REMOVE, ATTR, SET_TEXT, STYLES, LISTEN, UNLISTEN, RELEASE, INVOKE,
   PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, scopeClass, type WireEvent
@@ -45,6 +46,19 @@ export interface LynxNode extends TreeNode {
   /** Where its TEXT op's value sits in the unsent batch; the batch it was created in */
   slot?: number
   batch?: number
+  /** Its ARIA (RFC-006 §4.8), the role its tag implies, its `id`, what was sent for them, what it last announced */
+  aria?: Aria
+  role?: string
+  idv?: string
+  sent?: Record<string, unknown>
+  said?: string
+}
+
+export interface BackgroundOptions {
+  /** Speak a live region's new text: `lynx.accessibilityAnnounce` on the real thread */
+  announce?: ( text: string ) => void
+  /** The spoken words for states and roles (`WORDS`), to translate them */
+  words?: Words
 }
 
 export interface BackgroundHost {
@@ -57,7 +71,7 @@ export interface BackgroundHost {
   flush(): void
 }
 
-export function createBackgroundHost( send: ( ops: unknown[] ) => void ): BackgroundHost {
+export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announce, words = WORDS }: BackgroundOptions = {} ): BackgroundHost {
   let
   seq = PAGE_ID,
   ops: unknown[] = [],
@@ -68,21 +82,72 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
   /** What each input last reported holding — the value it already shows */
   const typed = new Map<number, string>()
 
+  /**
+   * Accessibility (RFC-006 §4.8): the elements with ARIA, the elements by
+   * `id` and by the `<label for>` them, and whether any text, structure
+   * or ARIA changed since the last flush. A name reads all three, across
+   * elements, so any change reads every element again; only what differs
+   * from what was sent is sent.
+   */
+  const a11y = new Set<LynxNode>(), ids = new Map<string, LynxNode>(), labels = new Map<string, LynxNode>()
+  let moved = false, rendered = false
+
+  /** What an element's content reads as: its text, or the name a part has instead */
+  const read = ( n: LynxNode ): string => {
+    let s = n.type === '#text' ? n.value : ''
+    for( let c = n.first; c; c = c.next ) s += ' ' + name( c )
+    return s.replace( /\s+/g, ' ' ).trim()
+  }
+  const name = ( n: LynxNode ) => n.aria?.[ 'aria-hidden' ] === 'true' ? '' : n.aria?.[ 'aria-label' ] || n.aria?.alt || read( n )
+  const refs = ( list: string ) => list.trim().split( /\s+/ ).map( id => ids.get( id ) ).filter( Boolean ).map( n => name( n! ) ).join(' ')
+
+  /** Send what each element's ARIA now comes to, and announce what live regions now say */
+  const derive = () => {
+    const said: string[] = []
+    for( const n of a11y ){
+      const a = n.aria || {}, role = roleOf( a, n.role ), label = n.idv && labels.get( n.idv )
+      const out = lynxA11y( a, role, n.type === 'text', refs, () => read( n ), label ? read( label ) : '', words )
+      const sent = n.sent ||= {}
+      for( const k of new Set([ ...Object.keys( out ), ...Object.keys( sent ) ]) )
+        out[ k ] !== sent[ k ] && emit( ATTR, n.id, k, ( sent[ k ] = out[ k ] ) ?? null )
+
+      // A region announces its changes; an alert also its arrival, after the first render
+      const live = a[ 'aria-live' ] ?? LIVE[ role ]
+      if( live && live !== 'off' ){
+        const text = read( n )
+        text && text !== n.said && ( n.said !== undefined || live === 'assertive' && rendered ) && said.push( text )
+        n.said = text
+      }
+    }
+    moved = false
+    return said
+  }
+  const track = ( n: LynxNode ) => {
+    a11y.add( n )
+    moved = true
+    schedule()
+  }
+
   const flush = () => {
+    const said = moved ? derive() : []
     scheduled = false
+    rendered = true
     if( !ops.length ) return
     const out = ops
     ops = []
     batch++
     send( out )
+    announce && said.forEach( announce )
+  }
+  const schedule = () => {
+    if( scheduled ) return
+    scheduled = true
+    // A promise job, not queueMicrotask: every Lynx background engine has one
+    Promise.resolve().then( flush )
   }
   const emit = ( ...args: unknown[] ) => {
     ops.push( ...args )
-    if( !scheduled ){
-      scheduled = true
-      // A promise job, not queueMicrotask: every Lynx background engine has one
-      Promise.resolve().then( flush )
-    }
+    schedule()
   }
 
   const node = ( type: string, value = '', id = 0, real = false ): LynxNode =>
@@ -100,6 +165,9 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
     if( !n.real ) return
     handlers.delete( n.id )
     typed.delete( n.id )
+    a11y.delete( n )
+    n.idv && ids.get( n.idv ) === n && ids.delete( n.idv )
+    n.aria?.for && labels.get( n.aria.for ) === n && labels.delete( n.aria.for )
     emit( RELEASE, n.id )
     n.real = false
   }
@@ -131,6 +199,10 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
       const el = node( LYNX_TAG[ tag ] || tag, '', ++seq, true )
       emit( CREATE, el.id, el.type )
       el.batch = batch
+      if( IMPLICIT[ tag ] ){
+        el.role = IMPLICIT[ tag ]
+        track( el )
+      }
       return el
     },
     text: value => node( '#text', value, ++seq ),
@@ -140,6 +212,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
       link( parent, n, ref )
 
       // Text becomes real the first time it lands where Lynx renders text
+      moved = true
       if( n.type === '#text' && !n.real && parent.type === 'text' ){
         n.real = true
         emit( TEXT, n.id, n.value )
@@ -167,6 +240,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
       }
     },
     remove( n, gone ){
+      moved = true
       unlink( n )
       n.at && emit( REMOVE, n.at.id, n.id )
       n.at = null
@@ -180,6 +254,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
      */
     setText( n, value ){
       n.value = value
+      moved = true
       if( !n.real ) return
       n.batch === batch
         ? ops[ n.slot! ] = value
@@ -211,7 +286,30 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void ): Backgr
       else if( name === 'value' && ( el.type === 'input' || el.type === 'textarea' ) && el.batch !== batch ){
         value !== typed.get( el.id ) && emit( INVOKE, el.id, 'setValue', { value: value ?? '' })
       }
-      else emit( ATTR, el.id, name, value )
+      /** ARIA is read here, not sent: Lynx has its own attributes (`./a11y`) */
+      else if( A11Y.has( name ) ){
+        const a = el.aria ||= {}
+        if( name === 'for' ){
+          a.for && labels.get( a.for ) === el && labels.delete( a.for )
+          value && labels.set( value, el )
+          // The labelled element is read again, wherever it is
+          const target = value && ids.get( value )
+          target && track( target )
+        }
+        value === null ? delete a[ name ] : a[ name ] = value
+        track( el )
+      }
+      else {
+        if( name === 'id' ){
+          el.idv && ids.get( el.idv ) === el && ids.delete( el.idv )
+          el.idv = value ?? undefined
+          value && ids.set( value, el )
+          // What labels or names it is read again, and it may be labelled now
+          moved = true
+          labels.has( value! ) && track( el )
+        }
+        emit( ATTR, el.id, name, value )
+      }
     },
     styleVar( el, prop, value ){
       value === null ? delete el.vars[ prop ] : el.vars[ prop ] = value
@@ -270,9 +368,13 @@ declare const lynx: any
  * thread `lynx.getCoreContext()` is the endpoint connected to the main
  * thread, both ways.
  */
-export function connectBackground(): BackgroundHost {
+export function connectBackground( words?: Words ): BackgroundHost {
   const main = lynx.getCoreContext()
-  const bg = createBackgroundHost( ops => main.dispatchEvent({ type: OPS_EVENT, data: ops }) )
+  const bg = createBackgroundHost( ops => main.dispatchEvent({ type: OPS_EVENT, data: ops }), {
+    words,
+    // A native module: absent on Lynx for Web, and in apps that leave it out
+    announce: content => lynx.accessibilityAnnounce?.({ content }, () => {})
+  })
 
   main.addEventListener( DOM_EVENT, ( e: { data: WireEvent } ) => bg.receive( e.data ) )
   return bg

@@ -95,6 +95,23 @@ describe('Lynx templates: what would not render is a diagnostic', () => {
       <scroll-view scroll-y><view><text>t</text></view></scroll-view><blockquote>q</blockquote></section>`) ).toEqual( [] )
   })
 
+  it('ARIA Lynx cannot read is a warning at the attribute', () => {
+    expect( found(`<div role="tablist">\n  <div role="tab" aria-controls="p1">A</div>\n</div>`) ).toEqual([
+      [ 'LIPS-L105', 'warning', 1, 6 ], [ 'LIPS-L106', 'warning', 2, 19 ]
+    ])
+    // A role list takes its first token, as ARIA does
+    expect( found(`<div role="grid button"></div><div role="button grid"></div>`) ).toEqual([ [ 'LIPS-L105', 'warning', 1, 6 ] ])
+    expect( found(`<p aria-live="polite" aria-atomic="false" aria-relevant="additions">x</p>`).map( d => d[ 0 ] ) ).toEqual([ 'LIPS-L106', 'LIPS-L106' ])
+    expect( found(`<div tabindex="2"></div>`) ).toEqual([ [ 'LIPS-L107', 'warning', 1, 6 ] ])
+  })
+
+  it('what Lynx reads is quiet, and so are bound values and components', () => {
+    expect( found(`<div role="tab" aria-selected="true" tabindex="-1" aria-label="A">A</div><p role="status" aria-live="polite" aria-atomic="true">x</p>
+      <div role="presentation"></div><img alt=""><label for="n">N</label><input id="n" aria-invalid="true" aria-required="true">
+      <div role="checkbox" aria-checked="mixed" aria-describedby="h" aria-labelledby="l" aria-hidden="true" aria-modal="true"></div>
+      <div role=state.r aria-expanded=state.x></div><my-tabs role="tablist" aria-orientation="vertical"/>`) ).toEqual( [] )
+  })
+
   it("the demo's template compiles clean", () => {
     expect( compileLynxTemplate( TEMPLATE ).diagnostics ).toEqual( [] )
   })
