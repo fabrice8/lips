@@ -8,6 +8,8 @@ import { describe, it, expect } from 'vitest'
 import { compileTemplate } from '../src/ir/compiler'
 import { compileLynxTemplate } from '../src/lynx/template'
 import { TEMPLATE } from '../demos/lynx/src/app'
+import * as entry from '../src/lynx'
+import { stylisPreprocessor } from '../src/stylis'
 
 const nodes = ( src: string ) => {
   const { ir, diagnostics } = compileLynxTemplate( src )
@@ -114,5 +116,15 @@ describe('Lynx templates: what would not render is a diagnostic', () => {
 
   it("the demo's template compiles clean", () => {
     expect( compileLynxTemplate( TEMPLATE ).diagnostics ).toEqual( [] )
+  })
+})
+
+describe('the Lynx pass, as its entry publishes it (@lipsjs/lips/lynx)', () => {
+  it('holds a template to what Lynx draws, and a sheet to what its CSS admits', () => {
+    expect( entry.compileLynxTemplate('<div><p>Hi</p></div>').diagnostics ).toEqual([])
+    expect( entry.compileLynxTemplate('<table><tr><td>x</td></tr></table>').diagnostics.map( d => d.code ) ).toContain('LIPS-L101')
+    expect( entry.compileLynxStyle( '.a { color: red }', { nsp: 'app', preprocess: stylisPreprocessor }).diagnostics ).toEqual([])
+    expect( entry.compileLynxStyle( 'p { color: red }', { nsp: 'app', preprocess: stylisPreprocessor }).diagnostics.length ).toBeGreaterThan( 0 )
+    expect( typeof entry.lynxVocabulary ).toBe('function')
   })
 })
