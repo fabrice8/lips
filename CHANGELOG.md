@@ -5,6 +5,14 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — `@lipsjs/lips/lynx`, the Lynx pass for a build step
+
+- `compileLynxTemplate`, `lynxVocabulary`, `compileLynxStyle` and
+  `LYNX_PAGE_CONFIG`, from an entry of their own. They were reachable only
+  from source, so an app could not hold its own templates and sheets to
+  what Lynx draws without copying Lips's tree. Build-time, like
+  `./precompile`; the main-thread and background hosts are not part of it.
+
 ## [0.3.0] — 2026-11-23
 
 Lips on Lynx (RFC-006 L0–L3 and its accessibility), untrusted templates

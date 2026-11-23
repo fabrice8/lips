@@ -71,6 +71,7 @@ import Lips from '@lipsjs/lips'
 | `@lipsjs/lips/runtime` | precompiled-only: no parser/compiler (CSP-friendly) | ~12 KB |
 | `@lipsjs/lips/precompile` | build-time helpers + Vite/Rollup plugin | — |
 | `@lipsjs/lips/untrusted` | opt-in policy for templates you did not write ([RFC-007](design/untrusted-templates.md)) | ~9 KB |
+| `@lipsjs/lips/lynx` | build-time Lynx pass: a template and a stylesheet held to what Lynx draws (RFC-006) | — |
 | `@lipsjs/lips/dev` | unminified full build | — |
 
 ## 🧩 Template syntax

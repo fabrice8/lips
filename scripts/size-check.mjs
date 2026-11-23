@@ -180,6 +180,13 @@ const KB = 1024
  * The untrusted entry is ~60% policy and ~40% the expression parser it
  * needs to check expressions where they are written. It ships only to the
  * apps that import it.
+ *
+ * 2026-11-23: a new `lynx` entry at 17.25 — the Lynx pass (RFC-006) for a
+ * build step: `compileLynxTemplate`, `lynxVocabulary`, `compileLynxStyle`.
+ * It was reachable only from source, so a consumer could not hold its own
+ * templates to it. Build-time like `precompile`, and the same parser and
+ * compiler plus the Lynx vocabulary and style rules (17.13 measured). No
+ * other entry moves: it imports what they already hold.
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.05,     // full: runtime + parser/compiler + style compiler + router
@@ -187,7 +194,8 @@ const BUDGETS = {
   'dist/precompile.min.js': 14.15, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
-  'dist/untrusted.min.js': 9.35  // opt-in policy for templates you did not write (RFC-007) — no entry carries it
+  'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
+  'dist/lynx.min.js': 17.25      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
 }
 
 let failed = false
