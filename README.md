@@ -89,6 +89,9 @@ import Lips from '@lipsjs/lips'
 <div on-keydown.capture(onKey)>…</div>                                  <!-- before its children -->
 <div class="menu" on-click.outside(dismiss)>…</div>                       <!-- a tap anywhere else -->
 
+<!-- element references: this.refs.search.focus(), .scrollIntoView(), .animate(…) -->
+<input @ref="search">
+
 <!-- conditionals -->
 <if(state.ready)>…</if>
 <else-if(state.loading)>…</else-if>

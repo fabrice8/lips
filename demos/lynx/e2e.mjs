@@ -160,6 +160,10 @@ try {
   const [ , out2 ] = await taps()
   check( 'on-click.outside runs for a tap elsewhere on the page', out2 === out1 + 1, JSON.stringify({ out1, out2 }) )
 
+  // lips#37: a ref's focus() reaches the input, whose own focus event comes back
+  await tap('focus')
+  check( "a ref's focus() focuses the input", await waitText('Focused: 1', 5000 ), await text() )
+
   await page.screenshot({ path: join( here, 'dist/e2e.png' ) })
   check( 'no page errors', !errors.length, errors.join(' | ') )
 }

@@ -9,8 +9,8 @@
  * `__InsertElementBefore` / `__AppendElement` / `__RemoveElement`,
  * `__SetAttribute` / `__SetClasses` / `__SetID` / `__AddDataset`,
  * `__SetInlineStyles`, `__AddEventListener` / `__RemoveEventListener`,
- * `__CreateList` with `update-list-info`, `__InvokeUIMethod` and
- * `__FlushElementTree`.
+ * `__CreateList` with `update-list-info`, `__InvokeUIMethod`,
+ * `__ElementAnimate` and `__FlushElementTree`.
  */
 
 import {
@@ -45,6 +45,7 @@ declare global {
   function __AddEventListener( el: Ref, name: string, fn: ( e: any ) => void, options: object ): void
   function __RemoveEventListener( el: Ref, name: string, fn: ( e: any ) => void, options: object ): void
   function __InvokeUIMethod( el: Ref, method: string, params: object, callback: ( result: unknown ) => void ): void
+  function __ElementAnimate( el: Ref, args: unknown[] ): void
   function __FlushElementTree( el?: Ref, options?: object ): void
 }
 
@@ -279,7 +280,9 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
 
     for( const id of touched ) lists.has( id ) && commit( id, lists.get( id )! )
     __FlushElementTree()
-    for( const [ el, method, params ] of invokes.splice( 0 ) ) __InvokeUIMethod( el, method, params, NOOP )
+    // `animate` is Element PAPI's own call, with Lynx's `Animation` arguments; the rest are UI methods
+    for( const [ el, method, params ] of invokes.splice( 0 ) )
+      method === 'animate' ? __ElementAnimate( el, params as unknown[] ) : __InvokeUIMethod( el, method, params, NOOP )
   }
 }
 

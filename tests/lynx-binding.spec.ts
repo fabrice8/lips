@@ -68,6 +68,7 @@ beforeEach( () => {
     __AddEventListener: ( el: any, name: string, fn: any, o: any ) => el.addEventListener( name, engine( fn, o ), phase( o ) ),
     __RemoveEventListener: ( el: any, name: string, fn: any, o: any ) => el.removeEventListener( name, engine( fn ), phase( o ) ),
     __InvokeUIMethod: ( el: any, method: string, params: any ) => { invoked.push([ el, method, params, flushes ]) },
+    __ElementAnimate: ( el: any, args: any ) => { invoked.push([ el, '__ElementAnimate', args, flushes ]) },
     __FlushElementTree: () => { flushes++ }
   })
 })
@@ -645,6 +646,111 @@ describe('event modifiers: one template, one meaning on both hosts (#36)', () =>
       expect( log ).toEqual([ 'dismiss', 'away', 'away' ])
       app.done()
     })
+  })
+})
+
+describe('element references: @ref (#37)', () => {
+  /** What the main thread was asked to call: element, method, params, and how many flushes came first */
+  const calls = () => invoked.map( ( [ el, method, params, after ] ) => [ el.localName, method, params, after ] )
+
+  it('Lynx: focus() is input focus on an input, accessibility focus elsewhere, and runs after the flush', async () => {
+    await boot( `<input data-k="f" @ref="field"><div data-k="d" @ref="box"><p>x</p></div>`,
+                { handlers: { onAttach( this: any ){ this.refs.field.focus(); this.refs.box.focus() } } } )
+    // Called while the elements were being created: run only after the batch that creates them is flushed
+    expect( calls() ).toEqual([
+      [ 'input', 'focus', {}, 1 ],
+      [ 'view', 'requestAccessibilityFocus', {}, 1 ]
+    ])
+  })
+
+  it('Lynx: blur, scrollTo, scrollIntoView and animate, with the arguments the DOM takes', async () => {
+    const app = await boot( `<input @ref="field"><scroll-view scroll-y @ref="pane"><p @ref="row">r</p></scroll-view>` )
+    const refs = app.inst.self.refs
+    let anim: any
+    await app.act( () => {
+      refs.field.blur()
+      refs.pane.scrollTo({ top: 120, behavior: 'smooth' })
+      refs.pane.scrollTo( 0, 40 )
+      refs.pane.scrollTo( 30, 0 )
+      refs.row.scrollIntoView()
+      refs.row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      anim = refs.row.animate( [ { opacity: 0 }, { opacity: 1 } ], 300 )
+      refs.row.animate( [ { opacity: 1 } ], { duration: 50, iterations: 2, easing: 'ease-in' })
+      anim.pause(); anim.play(); anim.cancel(); anim.finish()
+    })
+    const id = anim.id
+    expect( calls() ).toEqual([
+      [ 'input', 'blur', {}, 2 ],
+      [ 'scroll-view', 'scrollTo', { offset: 120, smooth: true }, 2 ],
+      [ 'scroll-view', 'scrollTo', { offset: 40, smooth: false }, 2 ],
+      [ 'scroll-view', 'scrollTo', { offset: 30, smooth: false }, 2 ],
+      [ 'text', 'scrollIntoView', { scrollIntoViewOptions: { behavior: 'auto', block: 'start', inline: 'start' } }, 2 ],
+      [ 'text', 'scrollIntoView', { scrollIntoViewOptions: { behavior: 'smooth', block: 'center', inline: 'start' } }, 2 ],
+      // Lynx's own Animation: START, its id, the keyframes, the options as the DOM writes them
+      [ 'text', '__ElementAnimate', [ 0, id, [ { opacity: 0 }, { opacity: 1 } ], { duration: 300 } ], 2 ],
+      [ 'text', '__ElementAnimate', [ 0, expect.any( String ), [ { opacity: 1 } ], { duration: 50, iterations: 2, easing: 'ease-in' } ], 2 ],
+      [ 'text', '__ElementAnimate', [ 2, id ], 2 ], [ 'text', '__ElementAnimate', [ 1, id ], 2 ], [ 'text', '__ElementAnimate', [ 3, id ], 2 ], [ 'text', '__ElementAnimate', [ 4, id ], 2 ]
+    ])
+  })
+
+  it('Lynx: keepFocus focuses again what was focused, by a ref or by a focus event a template listens for', async () => {
+    const app = await boot( `<input data-k="a" @ref="a"><input data-k="b" on-focus( noop ) on-blur( noop )>`, { handlers: { noop(){} } } )
+    const keep = () => app.act( () => app.bg.host.keepFocus!()() )
+
+    await app.act( () => app.inst.self.refs.a.focus() )
+    invoked = []
+    await keep()
+    expect( calls() ).toEqual([ [ 'input', 'focus', {}, expect.any( Number ) ] ])
+
+    await app.dispatch( '[data-k="b"]', w => new w.Event('focus') )
+    invoked = []
+    await keep()
+    expect( invoked.map( c => c[ 0 ].dataset.k ) ).toEqual([ 'b' ])
+
+    // Blurred: there is nothing to give focus back to
+    await app.dispatch( '[data-k="b"]', w => new w.Event('blur') )
+    invoked = []
+    await keep()
+    expect( invoked ).toEqual( [] )
+  })
+
+  /** One template, one meaning: the ref follows its element on both hosts */
+  const HOSTS: Record<string, ( src: string, setup: RenderSetup ) => Promise<{ inst: any, el( k: string ): any }>> = {
+    async dom( src, setup ){
+      const box = document.createElement('div')
+      document.body.append( box )
+      const inst = renderIR( compileTemplate( src ).ir, setup )
+      inst.mount( box )
+      return { inst, el: k => box.querySelector(`[data-k="${k}"]`) }
+    },
+    async lynx( src, setup ){
+      const app = await boot( src, setup )
+      return { inst: app.inst, el: () => undefined }
+    }
+  }
+  for( const [ host, mount ] of Object.entries( HOSTS ) ) it(`${host}: a ref is there while its element lives, under the name it has now`, async () => {
+    const { inst, el } = await mount( `<if( state.on )><input data-k="f" @ref=state.name></if>`, { state: { on: true, name: 'field' } } )
+    const refs = inst.self.refs
+    expect( refs.field ).toBeTruthy()
+    host === 'dom' && expect( refs.field ).toBe( el('f') )
+
+    inst.state.name = 'search'
+    await tick()
+    expect( Object.keys( refs ) ).toEqual([ 'search' ])
+
+    inst.state.on = false
+    await tick()
+    expect( refs ).toEqual( {} )
+  })
+
+  it('dom: the ref is the element, so its methods are the platform\'s', async () => {
+    const box = document.createElement('div')
+    document.body.append( box )
+    const inst = renderIR( compileTemplate(`<input class="f" @ref="field">`).ir, {} )
+    inst.mount( box )
+    inst.self.refs.field.focus()
+    expect( document.activeElement ).toBe( box.querySelector('.f') )
+    box.remove()
   })
 })
 

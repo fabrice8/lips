@@ -210,11 +210,21 @@ const KB = 1024
  * Savings were taken first: the messages were cut to one line each and
  * the hint folded into the message (-0.02), and the host reads the name
  * with `includes` rather than splitting it (-0.01). Budgets keep the
- * ~0.1 margin CI's bun has needed over a local read.
+ * ~0.1 margin CI's bun has needed over a local read. *
+ * 2026-11-24c: full 34.25→34.35, runtime 15.25→15.35 — element
+ * references (lips#37). `@ref="name"` already compiled (an `@` name is a
+ * prop bind), so the compiler is unchanged. The runtime keeps the node on
+ * the template's `self.refs` while it lives, and does the same on the path
+ * a tag no component claims renders by, which is how Lynx's own elements
+ * (`scroll-view`, `list`) render: +0.12 on runtime (15.14 → 15.26), +0.11
+ * on full. Both paths share one helper. There is no method table in the
+ * core: on the DOM the ref is the element, and the Lynx background host,
+ * in no entry, gives its nodes the DOM's methods. `untrusted` refuses
+ * `self.refs` as it refuses `self.node`, inside its budget (9.29).
  */
 const BUDGETS = {
-  'dist/lips.min.js': 34.25,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 15.25,  // precompiled-only: none of the above
+  'dist/lips.min.js': 34.35,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 15.35,  // precompiled-only: none of the above
   'dist/precompile.min.js': 14.25, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it

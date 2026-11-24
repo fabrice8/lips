@@ -362,9 +362,18 @@ fn main() -> R<()> {
   tap(&mut page, "#shuffle")?; // back to 1–40 for the list checks below
   wait_for(&mut page, "the list back in order", |p| Ok(cells(&p.content()?).starts_with(&[1])))?;
 
+  // #37: element references. focus() reaches the native input, whose own focus event comes back
+  tap(&mut page, "#focus")?;
+  let focused = has(&mut page, text("Focused: 1"))?;
+  check("a ref's focus() focuses the native input (its focus event comes back)", focused, page.content()?);
+
   drag(&mut page, "#scroller", -150.0)?;
   let top = has(&mut page, text("Top: 150"))?;
   check("a bare scroll-y scrolls, and scroll events reach the background (Top: 150)", top, page.content()?);
+
+  tap(&mut page, "#jump")?;
+  let jumped = has(&mut page, text("Top: 60"))?;
+  check("a ref's scrollTo({ top: 60 }) scrolls the native scroll view", jumped, page.content()?);
 
   tap(&mut page, "#shuffle")?;
   let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37, 36])))?;

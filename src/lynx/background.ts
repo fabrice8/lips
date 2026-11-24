@@ -15,6 +15,10 @@
  * Markers, fragments and stray text never cross. Insert positions skip
  * them, so the main thread sees exactly the real children, in order.
  *
+ * An element node answers the DOM element's own methods (`focus`, `blur`,
+ * `scrollTo`, `scrollIntoView`, `animate`), so a `@ref` means the same on
+ * both: each is a UI method, run once the batch is flushed (lips#37).
+ *
  * Nor do the parts of an `<svg>` (the elements the template pass stamped
  * `lips-svg`): Lynx draws an svg as one view from a markup string, so its
  * subtree is written into its `content`, once per flush when it changed.
@@ -34,6 +38,15 @@ import {
 
 /** Markup text: what an attribute value or a text run may not hold as is */
 const esc = ( s: string ) => s.replace( /[&<>"]/g, c => `&#${c.charCodeAt( 0 )};` )
+
+/** Where `focus()` is input focus; anywhere else it is accessibility focus (RFC-006 §9.9) */
+const INPUTS = new Set([ 'input', 'textarea' ])
+
+/** `__ElementAnimate`'s operations, as Lynx's own `Animation` sends them */
+const START = 0, PLAY = 1, PAUSE = 2, CANCEL = 3, FINISH = 4
+
+/** A DOM `animate` option: its duration alone, or the options Lynx's `animate` reads as they are */
+type AnimateOptions = number | Record<string, unknown>
 
 /** An svg's own attributes that stay on its element rather than in its markup */
 const ON_SVG = new Set([ 'class', 'style', 'id' ])
@@ -62,6 +75,12 @@ export interface LynxNode extends TreeNode {
   idv?: string
   sent?: Record<string, unknown>
   said?: string
+  /** What a `@ref` calls, as on the DOM element (lips#37) */
+  focus(): void
+  blur(): void
+  scrollTo( x?: number | { top?: number, left?: number, behavior?: string }, y?: number ): void
+  scrollIntoView( arg?: boolean | { behavior?: string, block?: string, inline?: string } ): void
+  animate( keyframes: unknown, options?: AnimateOptions ): { id: string, play(): void, pause(): void, cancel(): void, finish(): void }
   /** Part of an svg's markup: its SVG spelling. On an svg: the markup last sent */
   part?: string
   drawn?: string
@@ -95,6 +114,9 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
   /** The real nodes by id, and the one the event being dispatched happened on */
   const live = new Map<number, LynxNode>()
   let target: LynxNode | undefined
+  /** The element last focused, as far as this thread can know: a ref's `focus()`, or a `focus` event a template listens for */
+  let focused: LynxNode | undefined
+  let animations = 0
   /** What each input last reported holding — the value it already shows */
   const typed = new Map<number, string>()
 
@@ -198,8 +220,42 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     schedule()
   }
 
+  /** A UI method on a real element, run once the batch is flushed (`./main`) */
+  const invoke = ( n: LynxNode, method: string, params: unknown = {} ) => { n.real && emit( INVOKE, n.id, method, params ) }
+
+  /**
+   * The DOM element's methods, by its names and its arguments, as Lynx's
+   * UI methods take them (lynxjs.org: `<input>`, `<view>`, `<scroll-view>`,
+   * `animate`). A method a ref holds on the DOM holds the same here.
+   */
+  const UI = {
+    focus( this: LynxNode ){
+      focused = this
+      invoke( this, INPUTS.has( this.type ) ? 'focus' : 'requestAccessibilityFocus' )
+    },
+    blur( this: LynxNode ){
+      focused === this && ( focused = undefined )
+      invoke( this, 'blur' )
+    },
+    /** `( x, y )` or `{ top, left, behavior }`: a scroll-view scrolls along one axis, to one offset */
+    scrollTo( this: LynxNode, x?: number | { top?: number, left?: number, behavior?: string }, y?: number ){
+      const o = typeof x === 'object' ? x : { left: x, top: y }
+      invoke( this, 'scrollTo', { offset: o.top || o.left || 0, smooth: o.behavior === 'smooth' })
+    },
+    /** Lynx asks for every option explicitly: the DOM's defaults are written out */
+    scrollIntoView( this: LynxNode, arg?: boolean | { behavior?: string, block?: string, inline?: string } ){
+      const o = typeof arg === 'object' ? arg : { block: arg === false ? 'end' : 'start' }
+      invoke( this, 'scrollIntoView', { scrollIntoViewOptions: { behavior: o.behavior === 'smooth' ? 'smooth' : 'auto', block: o.block || 'start', inline: o.inline || 'start' } })
+    },
+    animate( this: LynxNode, keyframes: unknown, options: AnimateOptions = {} ){
+      const id = `lips-${this.id}-${++animations}`, to = ( op: number ) => () => invoke( this, 'animate', [ op, id ] )
+      invoke( this, 'animate', [ START, id, keyframes, typeof options === 'number' ? { duration: options } : options ] )
+      return { id, play: to( PLAY ), pause: to( PAUSE ), cancel: to( CANCEL ), finish: to( FINISH ) }
+    }
+  }
+
   const node = ( type: string, value = '', id = 0, real = false ): LynxNode =>
-    Object.assign( treeNode( type, value ), { id, real, at: null } ) as LynxNode
+    Object.assign( Object.create( UI ), treeNode( type, value ), { id, real, at: null } ) as LynxNode
 
   const classOf = ( n: LynxNode ) =>
     [ n.cls, n.scope && scopeClass( n.scope ) ].filter( Boolean ).join(' ')
@@ -390,6 +446,11 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       el.scope = nsp
       emit( ATTR, el.id, 'class', classOf( el ) )
     },
+    /** The element last focused, focused again once a swap has moved it (`Host.keepFocus`) */
+    keepFocus(){
+      const f = focused
+      return () => { f?.real && f.at && ( f as any ).focus() }
+    },
     /**
      * Modifiers (lips#36, `Host.listen`) become how the main thread binds:
      * `tap`, `tap.stop` (Lynx's catch), `tap.capture`, `tap.capture.stop`.
@@ -446,6 +507,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
         event.target = { ...event.target, value }
       }
       target = live.get( wire.t! )
+      wire.name === 'focus' ? focused = live.get( wire.id ) : wire.name === 'blur' && focused?.id === wire.id && ( focused = undefined )
       if( set ) for( const fn of [ ...set ] ) fn( event )
     }
   }

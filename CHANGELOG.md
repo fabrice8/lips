@@ -38,6 +38,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - `Host.listen` receives the event name with its modifiers. A custom host
   must read them.
 
+### Added — element references: `@ref` (lips#37)
+
+- `<input @ref="search">` puts the element on `this.refs.search` while it
+  lives. On the DOM it is the element. On Lynx it answers `focus()`,
+  `blur()`, `scrollTo()`, `scrollIntoView()` and `animate()` as the DOM
+  element would, through Lynx's UI methods after the flush. `focus()` is
+  accessibility focus on an element that is not an input. `Host.keepFocus`
+  works on Lynx too.
+- Untrusted templates cannot read `self.refs` (`LIPS-U005`), as they cannot
+  read `self.node`.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

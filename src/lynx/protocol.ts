@@ -20,7 +20,8 @@
  *   UNLISTEN   id, name             stop forwarding it
  *   RELEASE    id                   forget the id (the node is gone)
  *   INVOKE     id, method, params   a UI method (`setValue`, `scrollTo`, …),
- *                                   once the batch is flushed
+ *                                   once the batch is flushed; `animate`
+ *                                   is `__ElementAnimate( params )`
  *
  * A `list` is the exception to "INSERT inserts": Lynx asks for its cells
  * as they scroll into view. The applier keeps each list's order and

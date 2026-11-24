@@ -664,9 +664,10 @@ with `__LoadStyleSheet`, which is internal (§8).
   - The runner has no public drag or scroll, so `run.sh` applies
     `runner.patch`, six lines that expose its native view. The harness's
     `probe` mode gains `box=`, `touch=` and `drag=` steps.
-- **Not done.** UI methods from app code (`scrollTo`, `focus`) need element
-  references, which Lips does not have yet. List cell layout hints
-  (`full-span`, sticky, estimated sizes) and recycling are not passed on.
+- **Not done.** List cell layout hints (`full-span`, sticky, estimated
+  sizes) and recycling are not passed on. UI methods from app code, once
+  not done for want of element references, are built: "As built, element
+  references" below.
 
 **As built, event data (2026-11-24, lips#35).**
 
@@ -761,6 +762,55 @@ with `__LoadStyleSheet`, which is internal (§8).
 - **Not verified.** `global-bind` is not used. Whether a Lynx `catch`
   also stops the other listeners on the same element at its target is
   the engine's, not Lips's: the DOM does not stop them.
+
+**As built, element references (2026-11-24, lips#37).**
+
+- **The primitive.** `@ref="name"` puts the element on the template's own
+  `self.refs` while it lives, under the name it has now (`@ref=state.x`,
+  `@ref="row-{i}"` work). It needed no compiler change: an `@` name already
+  compiled to a prop bind. The runtime registers the node and takes it off
+  when the node is destroyed or renamed. It does the same on the path a
+  tag no component claims renders by, which is how Lynx's own elements
+  render (`scroll-view`, `list`, `list-item`). Without that, a ref on a
+  scroll-view reached `setAttribute('@ref')`.
+- **The ref is the host's node.** On the DOM it is the element, so
+  `focus`, `scrollTo`, `scrollIntoView` and `animate` are the platform's.
+  The Lynx background host gives its nodes the same methods, by the DOM's
+  names and arguments, so the core carries no method table. Each is a UI
+  method, sent as `INVOKE` and run after the batch's flush, as `setValue`
+  is:
+  - `focus()`: `focus` on an `input` or `textarea`,
+    `requestAccessibilityFocus` elsewhere (§9.9). `blur()`: `blur`.
+  - `scrollTo( x, y )` or `scrollTo({ top, left, behavior })`: a
+    scroll-view's `scrollTo({ offset, smooth })`, along its one axis.
+  - `scrollIntoView( bool | { behavior, block, inline } )`: `scrollIntoView(
+    { scrollIntoViewOptions })`, with every option written out, because
+    Lynx asks for them explicitly.
+  - `animate( keyframes, options | duration )`: `__ElementAnimate( [ START,
+    id, keyframes, options ] )`, as ReactLynx's own `Animation` calls it,
+    with options in the DOM's names (Lynx's `animate` reads them so). It
+    returns `{ id, play, pause, cancel, finish }`.
+- **`Host.keepFocus` on Lynx** refocuses, after a swap, the element last
+  focused: by a ref's `focus()`, or by a `focus` event a template listens
+  for, until its `blur`. That is all the background can know. An input
+  focused by touch, with no `focus` listener, is not known.
+- **Untrusted templates.** `self.refs` holds the same nodes as
+  `self.node`, so it is refused the same way (`LIPS-U005`, at the source).
+  A control shows a trusted template reaching `window` through a ref.
+- **Tests.**
+  - Tier A, 7 specs: focus mapping and after-the-flush order, blur,
+    `scrollTo`, `scrollIntoView` and `animate` with their arguments,
+    `keepFocus` through a ref and through focus events, and a ref that
+    follows its element on both hosts. On the DOM, the ref is the element.
+    `tests/untrusted.spec.ts` adds the `self.refs` route with a control
+    and a near miss. Thirteen deliberate breakages were each caught.
+  - Lynx for Web e2e (19/19) and tier B (27/27): a ref's `focus()`
+    focuses the input, and its own `focus` event comes back. On tier B, a
+    ref's `scrollTo({ top: 60 })` scrolls the native scroll view. Mapping
+    every `focus()` to `requestAccessibilityFocus` fails tier B.
+- **Not verified.** That `requestAccessibilityFocus` moves the screen
+  reader, and that `animate` plays, are tier C. `keepFocus` is
+  hot-swap only and has no tier B check.
 
 ### 4.6 Expressions
 
@@ -877,7 +927,8 @@ list takes its first token, as ARIA does with the first role it knows.
     fails.
   - What VoiceOver and TalkBack say, and announcements, are tier C.
 - **Not done.**
-  - Focus moves need element references (§4.5, §9.9).
+  - Focus moves: built with element references (§4.5, "As built, element
+    references"; §9.9).
   - HTML's `disabled` on a `button` is not mapped. Lynx does not block
     the tap either.
 
@@ -888,6 +939,7 @@ image/scroll-view/list creation; `__AppendElement`, `__InsertElementBefore`,
 `__RemoveElement`, `__ReplaceElements`; `__SetAttribute`, `__SetClasses`,
 `__AddClass`, `__SetInlineStyles`, `__SetID`, `__SetDataset`;
 `__AddEventListener` and `__RemoveEventListener`; `__InvokeUIMethod`;
+`__ElementAnimate` (as Lynx's own `Animation` calls it);
 `__GetElementUniqueID`, `__ElementIsEqual`; `__FlushElementTree`.
 
 **Deferred** until they reach 1.0 or prove stable: element templates (§3.5),
@@ -1004,9 +1056,10 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
 8. **Warning volume.** L105 and L106 fire once per occurrence, so a tab set
    gives one `aria-controls` warning per tab. Keep that, or add one summary
    per template or a way to opt out.
-9. **Focus moves.** Once Lips has element references (§4.5), `focus()`
-   could become `focus` on inputs and `requestAccessibilityFocus` elsewhere,
-   with `Host.keepFocus` mapped the same way. Not built.
+9. **Focus moves.** Built (lips#37): a ref's `focus()` is `focus` on an
+   input or textarea and `requestAccessibilityFocus` elsewhere, and
+   `Host.keepFocus` refocuses the same way (§4.5, "As built, element
+   references").
 
 ## 10. Sources
 
