@@ -78,7 +78,7 @@ export function lynxA11y( a: Aria, role: string, isText: boolean, refs: ( ids: s
   const value = [ a[ 'aria-valuetext' ] ?? a[ 'aria-valuenow' ] ]
   for( const [ name, on, off ] of STATES ){
     const v = a[ name ]
-    // Empty is ARIA's "not set": what a bound `true` arrives as (RFC-006 §9.6)
+    // Empty is ARIA's "not set". A bound boolean arrives written out, "true" or "false" (lips#40)
     v && value.push( words[ v === 'false' ? off! : v === 'mixed' ? 'mixed' : on ] )
   }
 

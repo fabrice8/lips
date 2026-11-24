@@ -67,6 +67,16 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - The Lynx demo builds from the packed package only (`demos/lynx/pack.sh`),
   and tier B runs against it.
 
+### Changed — a boolean bound on `aria-*` is written out (lips#40)
+
+- `aria-selected=state.on` now writes `"true"` or `"false"`, as ARIA reads
+  them. Before, `true` was written as `""` and `false` removed the
+  attribute, and ARIA reads both as "not set", so the element never read
+  as selected. **DOM output changes**: a bound `false` on `aria-*` is now
+  present as `"false"`. `null` and `undefined` still remove it, and every
+  other attribute keeps HTML's presence rule. Spreads follow the same
+  rule. RFC-006 §9.6.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

@@ -55,6 +55,40 @@ describe('attribute & prop binds', () => {
     expect( q('#b')?.hasAttribute('data-on') ).toBe( false )
   })
 
+  it('a boolean on aria-* is written out, as ARIA reads it; elsewhere it is presence (#40)', () => {
+    const { state } = mount(`<div role="option" aria-selected=state.on aria-label=state.label data-on=state.on hidden=state.on autoplay=state.on></div>`,
+      { state: { on: true, label: 'One' } })
+    const el = q('[role="option"]')!
+
+    // ARIA reads "" as "not set": a bound true must be "true", a bound false "false"
+    expect( el.getAttribute('aria-selected') ).toBe('true')
+    expect( el.getAttribute('data-on') ).toBe('')
+    expect( el.getAttribute('hidden') ).toBe('')
+    // `aria-` exactly: a boolean attribute that only starts with an `a` is presence
+    expect( el.getAttribute('autoplay') ).toBe('')
+
+    state.on = false
+    expect( el.getAttribute('aria-selected') ).toBe('false')
+    expect( el.hasAttribute('data-on') ).toBe( false )
+    expect( el.hasAttribute('hidden') ).toBe( false )
+    expect( el.hasAttribute('autoplay') ).toBe( false )
+
+    // null and undefined still remove, aria-* too
+    state.on = null
+    expect( el.hasAttribute('aria-selected') ).toBe( false )
+    state.label = undefined
+    expect( el.hasAttribute('aria-label') ).toBe( false )
+  })
+
+  it('a spread follows the same rule (#40)', () => {
+    const { state } = mount(`<div ...state.attrs>x</div>`, { state: { attrs: { 'aria-expanded': false, 'data-x': true } } })
+    const el = qa('div').find( d => d.hasAttribute('data-x') )!
+    expect( el.getAttribute('aria-expanded') ).toBe('false')
+    expect( el.getAttribute('data-x') ).toBe('')
+    state.attrs = { 'aria-expanded': true }
+    expect( el.getAttribute('aria-expanded') ).toBe('true')
+  })
+
   it('binds @html and @text props', () => {
     const { state } = mount(`<div @html=state.raw></div><p @text=state.txt></p>`,
       { state: { raw: '<b>bold</b>', txt: 'plain' } })

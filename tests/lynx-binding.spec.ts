@@ -887,9 +887,11 @@ describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
     expect( value() ).toBe('not checked, required')
     await app.act( () => Object.assign( app.inst.state, { c: 'mixed', i: 'true' }) )
     expect( value() ).toBe('mixed, invalid, required')
-    // A bound `true` arrives as "" — ARIA's "not set" (RFC-006 §9)
+    // A bound boolean is written out (lips#40): `true` reads as checked, `false` as not checked
     await app.act( () => app.inst.state.c = true )
-    expect( value() ).toBe('invalid, required')
+    expect( value() ).toBe('checked, invalid, required')
+    await app.act( () => app.inst.state.c = false )
+    expect( value() ).toBe('not checked, invalid, required')
     expect( app.q('[data-k="c"]').getAttribute('accessibility-role-description') ).toBe('checkbox')
   })
 

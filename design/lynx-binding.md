@@ -925,7 +925,7 @@ unchanged. The vocabulary pass reports what has no Lynx equivalent.
 | `aria-labelledby`, `<label for>` | `accessibility-label`: the text of those ids | Resolved in the background, at run time, and kept current. The background keeps an id map; ids resolve in the same host. |
 | `aria-describedby` | appended to the label, after `", "` | Lynx has no description or hint (§9.7). |
 | button, link and heading roles on a `view`, with no label | `accessibility-label`: the content's text | iOS would read nothing otherwise (§3.8). A part's own `aria-label` or `alt` stands in for its text. `aria-hidden` parts are left out. |
-| `aria-checked`, `-pressed`, `-selected`, `-expanded`, `-current`, `-disabled`, `-invalid`, `-required`, `-valuetext`, `-valuenow` | `accessibility-value`, as words joined by `", "` | `"false"` reads `not checked` and `collapsed` where ARIA has a word for it, and nothing elsewhere. `"mixed"` reads `mixed`. Empty is ARIA's "not set" (§9.6). |
+| `aria-checked`, `-pressed`, `-selected`, `-expanded`, `-current`, `-disabled`, `-invalid`, `-required`, `-valuetext`, `-valuenow` | `accessibility-value`, as words joined by `", "` | `"false"` reads `not checked` and `collapsed` where ARIA has a word for it, and nothing elsewhere. `"mixed"` reads `mixed`. Empty is ARIA's "not set"; a bound boolean arrives as `"true"`/`"false"` (§9.6, decided). |
 | `aria-roledescription` | `accessibility-role-description` | |
 | `aria-hidden="true"` | `accessibility-elements-hidden` | The whole subtree, as in ARIA. `accessibility-element: false` would leave the children reachable. |
 | `aria-modal="true"` | `accessibility-exclusive-focus` | |
@@ -1124,13 +1124,28 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      branch, and words would still be needed on Android.
    - Also open: whether `WORDS` should come from the app's i18n catalog
      (`design/i18n-context.md`) instead of an argument.
-6. **Boolean binds on `aria-*` (core runtime, affects the DOM too).**
-   `runtime.ts:394` writes `true` as `""` (presence) and `false` as removed.
-   ARIA reads `aria-checked=""` as unset, so `aria-selected=state.on` never
-   reads as selected, on the DOM or on Lynx. The Lynx host follows ARIA,
-   not the runtime.
-   - Proposed fix: write `String( v )` for names starting `aria-`.
-   - This changes DOM output, so it is the owner's call and a separate PR.
+6. ~~**Boolean binds on `aria-*` (core runtime, affects the DOM too).**~~
+   **Decided 2026-11-24: written out** (lips#40).
+   - `applyAttr` wrote `true` as `""` (presence) and `false` as removed.
+     ARIA reads `aria-checked=""` as unset, so `aria-selected=state.on`
+     never read as selected, on the DOM or on Lynx.
+   - Now a bound boolean on a name starting `aria-` is `String( v )`:
+     `"true"` or `"false"`. `null` and `undefined` still remove it. Every
+     other attribute keeps HTML's presence. Spreads follow the same rule.
+   - **It changes DOM output**: `aria-selected={false}` was no attribute and
+     is now `aria-selected="false"`, which ARIA reads as "not selected",
+     where it read "not set" before. An app that wrote the strings itself
+     (`on ? 'true' : 'false'`) sees no change.
+   - The Lynx host needed nothing: it already followed ARIA, so a bound
+     `true` now reads as the state's word where it read as nothing.
+   - Cost: +14 bytes gzipped on `runtime`, +10 on `full`.
+   - Tier A: two DOM specs (`tests/ir-runtime.spec.ts`: bound attributes,
+     and spreads) and the Lynx checkbox spec. Seven deliberate breakages
+     were each caught: the presence rule back, `true` or `false` alone left
+     as presence, `null` written as `"null"`, the rule on the wrong prefix,
+     on too wide a prefix (`a`, which `autoplay` caught), and a spread that
+     skips it. `aria` without the dash survived, and is equivalent: no
+     attribute starts `aria` but `aria-*`.
 7. **`aria-describedby`.** As built, it is appended to the label. The
    alternatives are an L106 warning and drop, or HarmonyOS's untyped
    `accessibility-description`.
