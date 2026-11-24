@@ -410,12 +410,16 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
 
   return {
     host, root, flush,
+    /**
+     * The event arrives DOM-shaped already (`e.key`, `e.touches[0].clientX`,
+     * `e.target.dataset`: `./main` picks it so). What an input reported
+     * joins its target, as `e.target.value` reads on the DOM.
+     */
     receive( wire ){
       const set = handlers.get( wire.id )?.get( wire.name ), event: any = wire.event, value = event.detail?.value
       if( typeof value === 'string' ){
         typed.set( wire.id, value )
-        // What a DOM handler reads
-        event.target = { value }
+        event.target = { ...event.target, value }
       }
       if( set ) for( const fn of [ ...set ] ) fn( event )
     }

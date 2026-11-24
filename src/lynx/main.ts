@@ -94,6 +94,38 @@ function stable( seq: number[] ){
 /** `data-user-id` → `userId`, the dataset spelling */
 const datasetKey = ( name: string ) => name.slice( 5 ).replace( /-([a-z])/g, ( _, c ) => c.toUpperCase() )
 
+/** A key event's fields (lynxjs.org, KeyEvent), and a touch point's (Touch) */
+const KEY = [ 'key', 'repeat', 'altKey', 'ctrlKey', 'metaKey', 'shiftKey' ]
+const POINT = [ 'identifier', 'x', 'y', 'pageX', 'pageY', 'clientX', 'clientY' ]
+
+const take = ( from: any, keys: string[], to: any = {} ) => {
+  if( from && typeof from === 'object' ) for( const k of keys ) k in from && ( to[ k ] = from[ k ] )
+  return to
+}
+const points = ( list: any ) => Array.from( list || [], ( p: any ) => take( p, POINT ) )
+const where = ( t: any ) => t && { id: t.id, dataset: { ...t.dataset } }
+
+/**
+ * What crosses for an event: a serializable pick of it, per kind (lips#35).
+ * The engine's event holds a `ref` to itself, which cannot cross, and
+ * puts much of what a handler reads outside `detail`:
+ *
+ *  - every event: `target` and `currentTarget`, with their `dataset`
+ *  - a key event: `key`, `repeat` and the modifiers. A platform that
+ *    sends it as a custom event puts them in `detail`, so both are read
+ *  - a touch event: `touches` and `changedTouches`, with their positions
+ */
+const pick = ( e: any, type: string ) => {
+  const out: any = take( e, KEY, take( e?.detail, KEY, { type: e?.type ?? type, detail: e?.detail }) )
+  if( e?.touches ){
+    out.touches = points( e.touches )
+    out.changedTouches = points( e.changedTouches )
+  }
+  out.target = where( e?.target )
+  out.currentTarget = where( e?.currentTarget )
+  return out
+}
+
 export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void ){
   const
   pageId = __GetElementUniqueID( page ),
@@ -194,7 +226,7 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
         case SET_TEXT: __SetAttribute( els.get( a )!, 'text', b ); break
         case STYLES: __SetInlineStyles( els.get( a )!, b ); break
         case LISTEN: {
-          const fn = ( e: any ) => forward({ id: a, name: b, event: { type: e?.type ?? b, detail: e?.detail } })
+          const fn = ( e: any ) => forward({ id: a, name: b, event: pick( e, b ) })
           let byName = listeners.get( a )
           byName || listeners.set( a, byName = new Map() )
           byName.set( b, fn )

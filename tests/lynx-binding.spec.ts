@@ -18,6 +18,12 @@
  * below map the listeners onto the jsdom element's own, and record UI
  * method calls with the number of flushes before them. Real event binding
  * and UI methods are exercised by the Lynx for Web and native runs.
+ *
+ * A listener gets what the native engine hands a plain callback
+ * (`LepusClosureEventListener::ConvertEventToLepusValue`): the event's
+ * data — its own fields, `target` and `currentTarget` as `{ id, uid,
+ * dataset }` — and `ref`, the event itself. A test event carries its
+ * Lynx fields (`key`, `touches`, …) as own properties.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { LynxTestingEnv } from '@lynx-js/testing-environment'
@@ -45,9 +51,13 @@ beforeEach( () => {
   // Its Element PAPI looks itself up here, as its vitest preset would install it
   G.lynxTestingEnv = env
   G.lynxEnv = env.env
+  const wrapped = new WeakMap<any, any>()
+  const where = ( t: any ) => t && { id: t.id, uid: env.mainThread.globalThis.__GetElementUniqueID( t ), dataset: { ...t.dataset } }
+  const engine = ( fn: any ) => wrapped.get( fn ) || wrapped.set( fn, ( e: any ) =>
+    fn({ ...e, type: e.type, detail: e.detail, target: where( e.target ), currentTarget: where( e.currentTarget ), ref: e }) ).get( fn )
   Object.assign( env.mainThread.globalThis, {
-    __AddEventListener: ( el: any, name: string, fn: any ) => el.addEventListener( name, fn ),
-    __RemoveEventListener: ( el: any, name: string, fn: any ) => el.removeEventListener( name, fn ),
+    __AddEventListener: ( el: any, name: string, fn: any ) => el.addEventListener( name, engine( fn ) ),
+    __RemoveEventListener: ( el: any, name: string, fn: any ) => el.removeEventListener( name, engine( fn ) ),
     __InvokeUIMethod: ( el: any, method: string, params: any ) => { invoked.push([ el, method, params, flushes ]) },
     __FlushElementTree: () => { flushes++ }
   })
@@ -113,6 +123,16 @@ async function boot( src: string, setup: RenderSetup = {}, options: RuntimeOptio
       expect( el, sel ).not.toBeNull()
       env.switchToMainThread()
       el.dispatchEvent( new env.env.window.Event( name ) )
+      env.switchToBackgroundThread()
+      await tick()
+      check()
+    },
+    /** Dispatch an event `make` builds, from the main thread's window */
+    async dispatch( sel: string, make: ( w: any ) => Event ){
+      const el = page.querySelector( sel )
+      expect( el, sel ).not.toBeNull()
+      env.switchToMainThread()
+      el.dispatchEvent( make( env.env.window ) )
       env.switchToBackgroundThread()
       await tick()
       check()
@@ -445,6 +465,67 @@ describe('Lynx L3: inputs, lists, attributes', () => {
 })
 
 // ----------------------------------------------------- RFC-006 §4.8: a11y
+describe('Lynx events: what crosses is what a handler reads (#35)', () => {
+  /** A Lynx event: its fields are its own, as the engine hands them over */
+  const lynxEvent = ( w: any, type: string, fields: object, bubbles = false ) =>
+    Object.assign( new w.Event( type, { bubbles }), fields )
+
+  it('a key event carries its key and modifiers', async () => {
+    const seen: any[] = []
+    const app = await boot( `<input data-k="f" on-keydown( onKey )>`, { handlers: { onKey: ( e: any ) => seen.push( e ) } } )
+
+    await app.dispatch( 'input', w => lynxEvent( w, 'keydown', { key: 'ArrowDown', repeat: false, shiftKey: true, ctrlKey: false, altKey: false, metaKey: false }) )
+    expect( seen[ 0 ] ).toMatchObject({ type: 'keydown', key: 'ArrowDown', shiftKey: true, ctrlKey: false, repeat: false })
+
+    // Where a platform sends it as a custom event, the fields are in its detail
+    await app.dispatch( 'input', w => new w.CustomEvent( 'keydown', { detail: { key: 'Enter', metaKey: true } }) )
+    expect( seen[ 1 ] ).toMatchObject({ key: 'Enter', metaKey: true })
+  })
+
+  it('a touch event carries its points', async () => {
+    const seen: any[] = []
+    const app = await boot( `<div data-k="pad" on-touchmove( onMove )></div>`, { handlers: { onMove: ( e: any ) => seen.push( e ) } } )
+    const point = { identifier: 0, x: 1, y: 2, pageX: 3, pageY: 4, clientX: 12, clientY: 34 }
+
+    await app.dispatch( 'view', w => lynxEvent( w, 'touchmove', { touches: [ point, { ...point, identifier: 1 } ], changedTouches: [ point ], detail: { x: 1, y: 2 } }) )
+    expect( seen[ 0 ].touches ).toEqual([ point, { ...point, identifier: 1 } ])
+    expect( seen[ 0 ].touches[ 0 ].clientX ).toBe( 12 )
+    expect( seen[ 0 ].changedTouches ).toEqual([ point ])
+    expect( seen[ 0 ].detail ).toEqual({ x: 1, y: 2 })
+  })
+
+  it('every event carries its target and current target, with their datasets', async () => {
+    const seen: any[] = []
+    const app = await boot( `<div data-row="7" on-click( onRow )><p data-part="label">x</p></div>`, { handlers: { onRow: ( e: any ) => seen.push( e ) } } )
+
+    await app.dispatch( '[data-part]', w => lynxEvent( w, 'tap', {}, true ) )
+    expect( seen[ 0 ].target.dataset ).toEqual({ part: 'label' })
+    expect( seen[ 0 ].currentTarget.dataset ).toEqual({ row: '7' })
+  })
+
+  it("an input's value joins its target, beside its dataset", async () => {
+    const seen: any[] = []
+    const app = await boot( `<input data-k="f" on-input( onInput )>`, { handlers: { onInput: ( e: any ) => seen.push( e ) } } )
+    await app.dispatch( 'input', w => new w.CustomEvent( 'input', { detail: { value: 'hi' } }) )
+    expect( seen[ 0 ].target ).toMatchObject({ value: 'hi', dataset: { k: 'f' } })
+  })
+
+  it('what crosses is data: it clones, and holds no ref to the engine event', async () => {
+    const wires: any[] = []
+    env.switchToMainThread()
+    const page = G.__CreatePage( '0', 0 )
+    const apply = ( await import('../src/lynx/main') ).createApplier( page, w => wires.push( w ) )
+    apply([ OP.CREATE, 2, 'view', OP.INSERT, 1, 2, 0, OP.LISTEN, 2, 'touchstart' ])
+    page.firstChild.dispatchEvent( lynxEvent( env.env.window, 'touchstart', { touches: [ { identifier: 0, clientX: 1 } ] }) )
+    env.switchToBackgroundThread()
+
+    expect( wires ).toHaveLength( 1 )
+    expect( () => structuredClone( wires[ 0 ] ) ).not.toThrow()
+    expect( JSON.stringify( wires[ 0 ] ) ).not.toContain('ref')
+    expect( 'ref' in wires[ 0 ].event ).toBe( false )
+  })
+})
+
 describe('Lynx svg: one element, its markup in content (#34)', () => {
   const SRC = `<svg viewBox="0 0 24 24" class="icon"><path d=state.d fill=state.c/>`
             + `<for [p] in=state.dots><circle cx=p r="1"/></for><text x="2">{state.t}</text></svg>`

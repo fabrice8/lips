@@ -668,6 +668,41 @@ with `__LoadStyleSheet`, which is internal (§8).
   references, which Lips does not have yet. List cell layout hints
   (`full-span`, sticky, estimated sizes) and recycling are not passed on.
 
+**As built, event data (2026-11-24, lips#35).**
+
+- **What the engine hands a listener.** Read in the engine source
+  (`LepusClosureEventListener::ConvertEventToLepusValue`): a plain callback
+  gets the event's own data, with `target` and `currentTarget` as `{ id,
+  uid, dataset }`, plus `ref`, the engine event itself. Touch fields
+  (`touches`, `changedTouches`) sit on the event, not in `detail`. Android
+  sends key events as custom events, with their fields in `detail`.
+- **What crosses** is a pick, per kind, made on the main thread:
+  - every event: `type`, `detail`, and `target` and `currentTarget` as
+    `{ id, dataset }`;
+  - a key event: `key`, `repeat`, `altKey`, `ctrlKey`, `metaKey` and
+    `shiftKey`, from the event or from its `detail`;
+  - a touch event: `touches` and `changedTouches`, each point as
+    `{ identifier, x, y, pageX, pageY, clientX, clientY }`.
+  It is plain data and never carries `ref`. Forwarding the event whole
+  would not clone, and would tie the wire to one engine's event shape.
+- **The background** gets a DOM-shaped event: `e.key`, `e.shiftKey`,
+  `e.touches[0].clientX`, `e.target.dataset`. What an input reports joins
+  its target, beside the dataset: `e.target.value`, as in L3.
+- **Tests.**
+  - Tier A: the spec's listener shim now hands over what the engine does
+    (the event's data, its targets and `ref`). 5 specs: key and modifiers,
+    key fields in `detail`, touch points, both datasets, the input value
+    beside the dataset, and a wire that clones with no `ref`. Five
+    deliberate breakages were each caught, today's `{ type, detail }`
+    among them.
+  - Tier B: a real hit-tested touch on the swatch reaches the demo's
+    handler, which reads `e.touches[0].clientX` and
+    `e.currentTarget.dataset.k`. Forwarding `{ type, detail }` only fails
+    the check (and the handler throws).
+- **Not verified.** Key events at tier B: the runner has no keyboard, and
+  the engine's key events do not type (L3). They are checked at tier A,
+  and on a device with a hardware keyboard (tier C).
+
 ### 4.6 Expressions
 
 Bundled apps compile template expressions to real functions at build time, so

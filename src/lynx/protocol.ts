@@ -48,11 +48,46 @@ export const PAGE_ID = 1
 export const OPS_EVENT = 'lips:ops'
 export const DOM_EVENT = 'lips:event'
 
-/** An element event as it crosses to the background: data only, never a ref */
+/** Where an event happened, or who listens: an element's `id` and `dataset` */
+export interface WireTarget {
+  id?: string
+  dataset: Record<string, unknown>
+}
+
+/** A touch point, as Lynx reports it */
+export interface WirePoint {
+  identifier?: number
+  x?: number
+  y?: number
+  pageX?: number
+  pageY?: number
+  clientX?: number
+  clientY?: number
+}
+
+/**
+ * An element event as it crosses to the background: data only, never a
+ * ref. What each kind carries is picked on the main thread (`./main`).
+ */
 export interface WireEvent {
   id: number
   name: string
-  event: { type: string, detail?: unknown }
+  event: {
+    type: string
+    detail?: unknown
+    target?: WireTarget
+    currentTarget?: WireTarget
+    /** Key events */
+    key?: string
+    repeat?: boolean
+    altKey?: boolean
+    ctrlKey?: boolean
+    metaKey?: boolean
+    shiftKey?: boolean
+    /** Touch events */
+    touches?: WirePoint[]
+    changedTouches?: WirePoint[]
+  }
 }
 
 /** A Lips template tag → the Lynx element it renders as (RFC-006 §4.3) */

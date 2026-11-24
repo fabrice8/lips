@@ -326,6 +326,17 @@ fn main() -> R<()> {
   let typed = has(&mut page, text("Typed: hello"))?;
   check("an input's value goes in through setValue, and its input event comes back", typed, page.content()?);
 
+  // #35: a touch's points and its target's dataset reach the background
+  touch(&mut page, "#swatch")?;
+  let touched = wait_for(&mut page, "the touch", |p| Ok(p.content()?.contains(" on swatch\""))).unwrap_or(false);
+  let dom = page.content()?;
+  let x: f64 = dom.split("Touch: ").nth(1).and_then(|s| s.split(' ').next()).and_then(|n| n.parse().ok()).unwrap_or(-1.0);
+  check(
+    "a touch carries its points and its target's dataset to the background (e.touches[0].clientX, e.currentTarget.dataset)",
+    touched && x > 0.0 && x < 400.0,
+    format!("clientX {x}"),
+  );
+
   drag(&mut page, "#scroller", -150.0)?;
   let top = has(&mut page, text("Top: 150"))?;
   check("a bare scroll-y scrolls, and scroll events reach the background (Top: 150)", top, page.content()?);

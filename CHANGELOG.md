@@ -17,6 +17,14 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - `svg` is an XElement: the host app must integrate XElement for it to
   draw.
 
+### Added — event data on Lynx (lips#35)
+
+- A Lynx event reaches its handler DOM-shaped: `e.key`, `e.repeat` and the
+  modifiers on key events; `e.touches` and `e.changedTouches`, with their
+  positions, on touch events; `e.target` and `e.currentTarget`, with their
+  `dataset`, on every event. Before, only `type` and `detail` crossed, so a
+  handler could not tell ArrowDown from Enter, or follow a swipe.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that
