@@ -91,6 +91,15 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   text, with `text-overflow: ellipsis`. Before, they got the generic
   `LIPS-L008` warning and the text was never cut.
 
+### Added — list cell hints on Lynx (lips#43)
+
+- `full-span`, `sticky-top`, `sticky-bottom`, `estimated-height-px` and
+  `estimated-main-axis-size-px` on a `list-item` reach Lynx's list in its
+  insert actions, as the booleans and numbers it reads, and in an update
+  action when they change on a cell it already has. Write the list's own
+  `sticky` for sticky cells. Cells are still built eagerly: recycling is a
+  later step.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

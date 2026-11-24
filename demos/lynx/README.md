@@ -50,8 +50,12 @@ would reach Lynx uncompiled.
   `e.target.value`, as on the DOM. The `fill` button sets the value from
   state, which reaches the native input through `setValue`.
 - `<scroll-view scroll-y>` reports where it is through `scroll`.
-- `<list>` holds 40 `<list-item>`s, and Lynx asks for each one as it
-  scrolls into view. `shuffle` reverses them.
+- `<list sticky>` holds a `full-span sticky-top` header and 40
+  `<list-item>`s, and Lynx asks for each one as it scrolls into view.
+  `shuffle` reverses them. The header's hints reach the list in its
+  insert action; Lynx for Web sticks it, and the headless engine does
+  not (RFC-006 §4.5, "As built, cell hints").
+- `#off` is a disabled button wired to the counter: its taps do not count.
 - The `fill` and `shuffle` labels and the cells' text are bare text in
   elements that are not text. `compileLynxTemplate` wraps each in one
   `text`, without which Lynx would render nothing.

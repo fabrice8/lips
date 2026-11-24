@@ -246,6 +246,17 @@ const KB = 1024
  * 17.89 locally); CI's bun has read this entry ~0.07 above a local read,
  * so the budget keeps the usual margin. The message is what a developer
  * reads, so it was kept whole.
+ *
+ * 2026-11-24g: lynx-main 2.3→2.5 — list cell hints (lips#43). A
+ * `list-item`'s `full-span`, `sticky-top`, `sticky-bottom` and estimated
+ * sizes reach Lynx's list in its insert actions, and in an update when
+ * they change on a cell it already has. Lynx reads them only as JSON
+ * booleans and numbers, so the applier keeps each cell's hints, converted,
+ * and the list each cell is in: +0.23 (2.21 → 2.44). Savings were looked
+ * for: one converter keyed by a table instead of two, and one action
+ * object shared by inserts and updates, measured 12 bytes LARGER, so the
+ * plainer form stays. It is the main thread's bundle, so the budget keeps
+ * the usual ~0.05–0.1 margin and no more.
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
@@ -255,7 +266,7 @@ const BUDGETS = {
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
   'dist/lynx.min.js': 18.05,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
-  'dist/lynx-main.min.js': 2.3,  // Lynx main thread: the applier over Element PAPI
+  'dist/lynx-main.min.js': 2.5,  // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 4.85 // Lynx background thread: the host the runtime renders into
 }
 

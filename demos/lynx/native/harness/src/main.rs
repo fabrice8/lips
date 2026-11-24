@@ -328,9 +328,20 @@ fn main() -> R<()> {
 
   let first = cells(&dom);
   check(
-    "a list builds only the cells in view (items 1–5 of 40)",
-    first == [1, 2, 3, 4, 5],
+    "a list builds only the cells in view (its header and items 1–4 of 40)",
+    first == [1, 2, 3, 4],
     format!("{first:?}"),
+  );
+  // lips#43: the header's hints reach the engine's list. That this engine sticks it is not
+  // checked: the headless runtime does not, nor applies span-count (RFC-006 §4.5, "As built, cell hints")
+  let head = dom.split("<list-item id=\"head\"").nth(1).and_then(|s| s.split('>').next()).unwrap_or("").to_string();
+  let feed = dom.split("<list id=\"feed\"").nth(1).unwrap_or("");
+  check(
+    "a list-item full-span sticky-top is the list's first cell, with its hints, in a sticky list",
+    head.contains("full-span=\"true\"") && head.contains("sticky-top=\"true\"")
+      && feed.split('>').next().unwrap_or("").contains("sticky=\"true\"")
+      && feed.find("id=\"head\"") < feed.find(&text("item 1")),
+    head,
   );
 
   // fill → setValue on the native input → its `input` event → `e.target.value`
@@ -388,9 +399,9 @@ fn main() -> R<()> {
   check("a ref's scrollTo({ top: 60 }) scrolls the native scroll view", jumped, page.content()?);
 
   tap(&mut page, "#shuffle")?;
-  let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37, 36])))?;
+  let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37])))?;
   check(
-    "a reordered list asks again for the cells in view (items 40–36)",
+    "a reordered list asks again for the cells in view (items 40–37, under its header)",
     shuffled,
     format!("{:?}", cells(&page.content()?)),
   );

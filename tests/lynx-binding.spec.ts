@@ -413,6 +413,77 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     expect( insertAction ).toHaveLength( 2 )
   })
 
+  describe('cell hints: full-span, sticky, estimated sizes (#43)', () => {
+    const HINTED = `<list sticky><list-item data-id="head" full-span sticky-top estimated-main-axis-size-px="40">Head</list-item>`
+      + `<for [row] in=state.rows by="id"><list-item data-id=row.id sticky-bottom=row.last estimated-height-px=row.h>{row.label}</list-item></for></list>`
+    const hinted = ( ...ids: number[] ) => ids.map( ( id, i ) => ({ id, label: `r${id}`, last: i === ids.length - 1, h: 20 + id }) )
+    const KEYS = [ 'full-span', 'sticky-top', 'sticky-bottom', 'estimated-height-px', 'estimated-main-axis-size-px' ]
+    const hintsOf = ( a: any ) => Object.fromEntries( KEYS.filter( k => k in a ).map( k => [ k, a[ k ] ] ) )
+
+    it('a list-item full-span sticky-top reaches its insert action with those fields, as Lynx reads them', async () => {
+      const app = await boot( HINTED, { state: { rows: hinted( 1, 2 ) } } )
+      const list = app.q('list')
+      const [ first ] = told( list )
+      // Lynx's list reads booleans and numbers only (`IsBool`, `IsNumber`): never attribute text
+      expect( first.insertAction.map( hintsOf ) ).toEqual([
+        { 'full-span': true, 'sticky-top': true, 'estimated-main-axis-size-px': 40 },
+        { 'sticky-bottom': false, 'estimated-height-px': 21 },
+        { 'sticky-bottom': true, 'estimated-height-px': 22 }
+      ])
+      expect( first.updateAction ).toEqual( [] )
+      // Lynx for Web reads them as attributes of the cell: still set there
+      ask( list, 0 )
+      expect( list.children[ 0 ].hasAttribute('sticky-top') ).toBe( true )
+      // The list's own switch is an attribute, as before
+      expect( list.getAttribute('sticky') ).toBe('true')
+    })
+
+    it('a cell with no hints carries none; a flag written "false" is false, as Lynx for Web reads it', async () => {
+      const app = await boot( LIST, { state: { rows: rows( 1 ) } } )
+      expect( Object.keys( told( app.q('list') )[ 0 ].insertAction[ 0 ] ).sort() ).toEqual([ 'item-key', 'position', 'type' ])
+
+      const flags = await boot( `<list><list-item full-span="false" sticky-top="">x</list-item></list>` )
+      expect( hintsOf( told( flags.q('list') )[ 0 ].insertAction[ 0 ] ) ).toEqual({ 'full-span': false, 'sticky-top': true })
+    })
+
+    it('a hint that changes on a cell the list has is an update, by its position, that rebuilds nothing', async () => {
+      const app = await boot( HINTED, { state: { rows: hinted( 1, 2 ) } } )
+      const list = app.q('list')
+      await app.act( () => app.inst.state.rows = [ { ...app.inst.state.rows[ 0 ], last: true, h: 50 }, app.inst.state.rows[ 1 ] ] )
+      const [ , second ] = told( list )
+      expect( second.insertAction ).toEqual( [] )
+      expect( second.removeAction ).toEqual( [] )
+      expect( second.updateAction ).toEqual([
+        { from: 1, to: 1, flush: false, type: 'default', 'item-key': first( list ).insertAction[ 1 ][ 'item-key' ], 'sticky-bottom': true, 'estimated-height-px': 50 }
+      ])
+
+      // Told once: the next change to the list does not tell it again
+      await app.act( () => app.inst.state.rows = [ ...app.inst.state.rows, { id: 9, label: 'r9', last: false, h: 29 } ] )
+      const [ , , third ] = told( list )
+      expect( third.insertAction.map( hintsOf ) ).toEqual([ { 'sticky-bottom': false, 'estimated-height-px': 29 } ])
+      expect( third.updateAction ).toEqual( [] )
+    })
+
+    it('a moved or added cell carries its hints again, as they are now', async () => {
+      const app = await boot( HINTED, { state: { rows: hinted( 1, 2 ) } } )
+      await app.act( () => app.inst.state.rows = hinted( 2, 1, 3 ) )
+      const [ , second ] = told( app.q('list') )
+      // Whichever cell stays, each position the list is told about has the hints of the row there now
+      const byPosition = Object.fromEntries([
+        ...second.insertAction.map( ( a: any ) => [ a.position, hintsOf( a ) ] ),
+        ...second.updateAction.map( ( a: any ) => [ a.from, hintsOf( a ) ] )
+      ])
+      expect( byPosition ).toEqual({
+        1: { 'sticky-bottom': false, 'estimated-height-px': 22 },
+        2: { 'sticky-bottom': false, 'estimated-height-px': 21 },
+        3: { 'sticky-bottom': true, 'estimated-height-px': 23 }
+      })
+      // The cell that stayed and whose hints did not change is not told again
+      expect( second.insertAction.length + second.updateAction.length ).toBe( 3 )
+    })
+  })
+  const first = ( list: any ) => told( list )[ 0 ]
+
   it('an input value: the attribute first, then setValue after the flush', async () => {
     const app = await boot( `<input data-k="in" value=state.v>`, { state: { v: 'a' } } )
     const input = app.q('[data-k="in"]')

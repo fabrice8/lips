@@ -693,7 +693,88 @@ with `__LoadStyleSheet`, which is internal (§8).
 - **Not done.** List cell layout hints (`full-span`, sticky, estimated
   sizes) and recycling are not passed on. UI methods from app code, once
   not done for want of element references, are built: "As built, element
-  references" below.
+  references" below. *Cell hints are built: "As built, cell hints" below.
+  Recycling is not.*
+
+**As built, cell hints (2026-11-24, lips#43).**
+
+- **What Lynx reads, and where** (engine source, `lynx-family/lynx` at
+  4.1.0 and at head): `core/list/decoupled_adapter_helper.cc`, the list
+  the 4.1 runtime uses (its log says `enable_native_list=true,
+  enable_decoupled_list=true`), reads `full-span`, `sticky-top`,
+  `sticky-bottom`, `estimated-height-px` and `estimated-main-axis-size-px`
+  from each `update-list-info` insert action, and again from an update
+  action, by item key. It reads them only as JSON: a flag counts only if
+  `IsBool()`, a size only if `IsNumber()`. ReactLynx's own list sends the
+  same fields (`platformInfo.ts`). Lynx for Web reads them as attributes
+  of the `list-item`, and sticks a cell with CSS only in a list whose
+  `sticky` is true.
+- **The applier** keeps each cell's hints, converted from the attribute
+  text Lips sends: a flag is set when present (HTML's rule) unless written
+  `"false"`, a size is a number or left out. They go into the cell's insert
+  action. A hint that changes on a cell the list already has, and did not
+  move, is an update action by its position with `flush: false`, so the
+  cell is not rebuilt; a value sent again unchanged tells the list
+  nothing. The attributes are still set on the cell, for Lynx for Web.
+  The list's own `sticky` is an ordinary attribute: an empty one goes as
+  `true` (L3).
+- **Recycling is a later step.** The applier still builds cells eagerly
+  and ignores `enqueueComponent`. Reusing cells needs the background to
+  rebind a cell to another row, and is to be measured at L4.
+- **Found on the way: list props that Lynx reads as numbers or `false`.**
+  `span-count`, `sticky-offset` and `experimental-*` are read only as JSON
+  numbers or booleans too (`ListContainerImpl::ResolveAttribute`), and a
+  Lips attribute is text, so `span-count="2"` is ignored. Cell hints are
+  converted here; the list's own props are not yet. Recorded as a
+  follow-up, not part of lips#43.
+- **Cost.** +233 bytes gzipped on `lynx-main` (2.21 → 2.44; budget
+  2.3 → 2.5). A single converter table and a shared action object
+  measured 12 bytes larger, so the plainer form stays.
+- **Tests.**
+  - Tier A, 5 specs in `tests/lynx-binding.spec.ts`, both threads: a
+    `list-item full-span sticky-top` and bound sizes reach the insert
+    action as booleans and numbers; a cell with none carries none, and
+    `"false"` is false; a changed hint on a staying cell is one update by
+    its position with `flush: false`, told once; a reorder carries each
+    position's current hints whichever cell stays. Thirteen deliberate
+    breakages were each caught: hints left out of the insert (twice, two
+    code shapes), hints as attribute text, `"false"` read as set (twice),
+    sizes not numbers, a size read as a flag, a changed hint not told, an
+    update that rebuilds the cell, an unchanged hint told again, an update
+    by its old position, hints not set on the cell, a hinted cell never
+    cleared.
+  - Lynx for Web e2e (21/21): the demo's list has a `full-span sticky-top`
+    header. After the list scrolls 200px, the header's top is still the
+    list's top, and the first item has moved up. Without `sticky-top` the
+    header scrolls away and the check fails.
+  - Tier B (29/29): the header is the list's first cell in the real
+    engine, with `full-span` and `sticky-top`, in a list whose `sticky` is
+    `true`, and the virtualization checks hold around it.
+- **Not verified: a sticky header in the native engine.** The issue asked
+  for it at tier B, and it could not be shown there. In the headless 4.1
+  runtime (macOS arm64), with the fields above in the insert action (read
+  in the built main-thread script) and `sticky` set, the header scrolls
+  away, in its element box and in the frame's pixels, after a 40px and a
+  200px drag. The same runtime also lays out `list-type="flow"` in one
+  column. Tried and ruled out: `sticky-offset`, `list-type`,
+  `custom-list-name="list-container"`, `experimental-recycle-sticky-item`
+  (which also could not arrive as `false`). lynx-stack has no headless
+  sticky test to compare with.
+- **Device check: not sticky on either platform either** (Lynx Explorer
+  4.1.0, iOS Simulator iPhone 17 / iOS 26.2 and Android emulator API
+  36.1; kept apart from tier B). Dragged on the device, the demo's header
+  scrolls away with its cells, at 26 pt as at 80 pt, also with
+  `span-count` and `sticky-offset` sent as numbers and `list-type="single"`
+  (a temporary applier change, not kept). **A bundle with no Lips in it**
+  (raw Element PAPI: `__CreateList`, `sticky` true, `sticky-offset` 0,
+  `span-count` 1, and an `update-list-info` whose header action carries
+  `full-span: true` and `sticky-top: true`, at index 0 or 5) **does not
+  stick it on iOS or Android either**. So Lips sends what the engine
+  documents, and the documented Element PAPI route does not produce a
+  sticky cell in Lynx 4.1. Whatever ReactLynx's sticky lists rely on
+  beyond it was not found. Recorded as open, with the raw-PAPI probe as
+  the reproduction to take upstream.
+
 
 **As built, event data (2026-11-24, lips#35).**
 

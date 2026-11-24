@@ -5,6 +5,9 @@
  * Ids are for the native headless run, which locates by id and class;
  * `data-k` is for the web e2e.
  *
+ * `#head` is the list's sticky header: it stays while the list scrolls
+ * (lips#43).
+ *
  * `#off` is a disabled button wired to the counter: a tap on it must not
  * count (lips#41).
  *
@@ -45,7 +48,8 @@ export const TEMPLATE = `
     <scroll-view class="pane" id="scroller" data-k="scroller" scroll-y on-scroll( onScroll ) @ref="scroller">
       <for [n] in=state.lines><p class="line">line {n}</p></for>
     </scroll-view>
-    <list class="pane" id="feed" data-k="feed">
+    <list class="pane" id="feed" data-k="feed" sticky>
+      <list-item class="cell head" id="head" full-span sticky-top estimated-main-axis-size-px="24">feed</list-item>
       <for [cell] in=state.feed by="id"><list-item class="cell" data-cell=cell.id>item {cell.id}</list-item></for>
     </list>
   </div>
