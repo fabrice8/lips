@@ -961,6 +961,75 @@ describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
   })
 })
 
+describe('Lynx: disabled on a button (#41)', () => {
+  const TEMPLATE = `<div data-k="row" on-click( row )>`
+    + `<button data-k="b" disabled=state.off aria-disabled=state.aria on-click( inc ) on-touchstart( touch )><span data-k="label">+1</span></button>`
+    + `<button data-k="other" on-click( inc )>other</button></div>`
+    + `<div data-k="menu" on-click.outside( out )><span>menu</span></div>`
+    + `<input data-k="in" disabled=state.off>`
+  const setup = ( off: unknown ) => ({
+    state: { off, aria: undefined as unknown, n: 0, rows: 0, outs: 0, touches: 0 },
+    handlers: { touch( this: any ){ this.state.touches++ }, inc( this: any ){ this.state.n++ }, row( this: any ){ this.state.rows++ }, out( this: any ){ this.state.outs++ } }
+  })
+  const counts = ( app: any ) => [ app.inst.state.n, app.inst.state.rows, app.inst.state.outs ]
+  /** A tap as Lynx dispatches it, bubbling: from the element, or from its raw text, which Lynx for Web hit-tests to */
+  const tap = ( app: any, k: string ) => app.dispatch( `[data-k="${k}"]`, ( w: any ) => new w.Event( 'tap', { bubbles: true }) )
+  const tapText = async ( app: any, k: string ) => {
+    env.switchToMainThread()
+    const text = app.q(`[data-k="${k}"]`).firstChild
+    expect( text.nodeType ).toBe( 3 )
+    text.dispatchEvent( new env.env.window.Event( 'tap', { bubbles: true }) )
+    env.switchToBackgroundThread()
+    await tick()
+  }
+
+  it('a tap on it, or inside it, reaches no handler: its own, one above it, or one outside', async () => {
+    const app = await boot( TEMPLATE, setup( true ) )
+    await tap( app, 'b' )
+    await tap( app, 'label' )
+    await tapText( app, 'label' )
+    expect( counts( app ) ).toEqual([ 0, 0, 0 ])
+
+    // Another button in the same row is not disabled
+    await tap( app, 'other' )
+    expect( counts( app ) ).toEqual([ 1, 1, 1 ])
+
+    // HTML blocks a disabled control's clicks only: a touch still reaches it
+    await app.dispatch( '[data-k="b"]', ( w: any ) => new w.Event( 'touchstart', { bubbles: true }) )
+    expect( app.inst.state.touches ).toBe( 1 )
+  })
+
+  it('carries the disabled state as aria-disabled does, and is not sent as an attribute', async () => {
+    const app = await boot( TEMPLATE, setup( true ) )
+    const b = app.q('[data-k="b"]')
+    expect( b.getAttribute('accessibility-value') ).toBe('disabled')
+    expect( b.hasAttribute('disabled') ).toBe( false )
+    // HTML's disabled wins over aria-disabled="false"
+    await app.act( () => app.inst.state.aria = 'false' )
+    expect( b.getAttribute('accessibility-value') ).toBe('disabled')
+  })
+
+  it('enabled again, both come back', async () => {
+    const app = await boot( TEMPLATE, setup( true ) )
+    await app.act( () => app.inst.state.off = false )
+    expect( app.q('[data-k="b"]').hasAttribute('accessibility-value') ).toBe( false )
+    await tapText( app, 'label' )
+    expect( counts( app ) ).toEqual([ 1, 1, 1 ])
+
+    await app.act( () => app.inst.state.off = true )
+    await tap( app, 'b' )
+    expect( counts( app ) ).toEqual([ 1, 1, 1 ])
+    expect( app.q('[data-k="b"]').getAttribute('accessibility-value') ).toBe('disabled')
+  })
+
+  it('a present attribute disables, as in HTML; on an input it stays the input\'s own', async () => {
+    const app = await boot( `<button data-k="b" disabled on-click( inc )>x</button><input data-k="in" disabled>`, setup( true ) )
+    await tap( app, 'b' )
+    expect( app.inst.state.n ).toBe( 0 )
+    expect( app.q('[data-k="in"]').getAttribute('disabled') ).toBe('true')
+  })
+})
+
 /**
  * Lynx's template encoder stores each background script as a C string, so
  * a raw NUL ends the script there and the engine reports "Unexpected EOF".

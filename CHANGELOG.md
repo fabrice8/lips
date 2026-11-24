@@ -77,6 +77,13 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   other attribute keeps HTML's presence rule. Spreads follow the same
   rule. RFC-006 §9.6.
 
+### Added — `disabled` on a button, on Lynx (lips#41)
+
+- A disabled `<button>` runs no tap handler, its own or one above it, as on
+  the DOM: Lynx does not block the tap itself. Its state is sent as
+  `aria-disabled` is, so assistive technology is told. Other events, and
+  `disabled` on an input, are unchanged.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

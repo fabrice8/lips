@@ -1003,7 +1003,51 @@ list takes its first token, as ARIA does with the first role it knows.
   - Focus moves: built with element references (§4.5, "As built, element
     references"; §9.9).
   - HTML's `disabled` on a `button` is not mapped. Lynx does not block
-    the tap either.
+    the tap either. *Built in lips#41, below.*
+
+**As built, disabled buttons (2026-11-24, lips#41).**
+
+- **What HTML does.** A disabled control gets no click: none is
+  dispatched, so neither its handlers nor its ancestors' run. Other
+  events (a touch) still reach it. Lynx has no disabled `view`, and taps
+  a `view` whatever its attributes.
+- **The background host reads `disabled` on a `<button>`** (the tag, whose
+  implied role is button) as it reads ARIA, and never sends it:
+  - **Taps.** `receive` drops a `tap` whose target, or failing that its
+    listening element, is inside a disabled button. Every listener, the
+    button's own, one above it and a `.outside` one, gets none. The
+    engine still forwards it: the main thread does not know the state,
+    and the protocol stays as it was. Other events pass.
+  - **The state** goes out as `aria-disabled` does, in
+    `accessibility-value` (`disabled`, in `WORDS`). `disabled` wins over
+    `aria-disabled="false"`, as in HTML.
+  - Enabled again, both come back at the next flush.
+  - `disabled` elsewhere (on an `input`, which Lynx reads) is sent as
+    before.
+- **Cost.** +63 bytes gzipped on `lynx-background` (4.74 → 4.80). No core
+  change.
+- **Tests.**
+  - Tier A, 4 specs, both threads: a tap on the button, on its label and
+    on its raw text reaches none of three handlers, while another button
+    in the same row works and a touch still reaches the disabled one; the
+    state, and `disabled` over `aria-disabled="false"`; enabled and
+    disabled again; a present attribute, and an input's own `disabled`.
+    Nine deliberate breakages were each caught: the tap forwarded
+    regardless, only the button's own listener checked, a tap inside it
+    not checked, `disabled` sent as an attribute, the state not sent,
+    `aria-disabled="false"` winning, `disabled` taken from every element,
+    enabling not restoring, and every event dropped, not only taps.
+  - Tier B: the demo's `#off` button, wired to the counter, gets a
+    hit-tested touch and a tap; the count does not move and the engine's
+    element reads `accessibility-value="disabled"` with no `disabled`
+    attribute. Forwarding the tap regardless fails it.
+  - **Device check** (Lynx Explorer 4.1.0, the demo from the dev server;
+    kept apart from tier B): on the iOS Simulator (iPhone 17, iOS 26.2)
+    and on the Android emulator (API 36.1, arm64), two taps on `#off`
+    left `Count: 0` and `Outside: 0`, and one on `+1` gave `Count: 1` and
+    `Outside: 1`. So the engines' own taps are dropped for the button's
+    handler and for the page-level `.outside` one alike.
+- **Not verified.** What a screen reader says for it is tier C.
 
 ## 5. Engine APIs: allowed and refused
 

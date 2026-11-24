@@ -237,6 +237,18 @@ fn main() -> R<()> {
   wait_dom(&mut page, "Count: 2", |c| c.contains(&text("Count: 2")))?;
   check("tap round-trips through both threads (×2)", true, String::new());
 
+  // lips#41: Lynx does not block a disabled button's tap; Lips drops it. Both kinds of tap
+  touch(&mut page, "#off")?;
+  tap(&mut page, "#off")?;
+  page.wait_for_timeout(Duration::from_millis(300));
+  let dom = page.content()?;
+  let off = dom.split("<view id=\"off\"").nth(1).and_then(|s| s.split('>').next()).unwrap_or("").to_string();
+  check(
+    "a disabled button's tap reaches no handler, and it reads as disabled",
+    dom.contains(&text("Count: 2")) && off.contains("accessibility-value=\"disabled\"") && !off.contains(" disabled="),
+    format!("{off} / count 2: {}", dom.contains(&text("Count: 2"))),
+  );
+
   tap(&mut page, "#add")?;
   let dom = wait_dom(&mut page, "row 3", |c| c.contains(&text("row 3")))?;
   check("keyed insert", in_order(&dom, &["one", "two", "row 3"]), dom.clone());

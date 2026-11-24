@@ -16,6 +16,7 @@
  *   aria-modal                             accessibility-exclusive-focus
  *   aria-live, role=status|log|alert       lynx.accessibilityAnnounce of the region's text
  *   tabindex                               focusable
+ *   disabled on a button                   accessibility-value, as aria-disabled; its taps are dropped
  *
  * What has no Lynx equivalent is a compile-time warning (`./template`).
  */
@@ -77,7 +78,8 @@ export function lynxA11y( a: Aria, role: string, isText: boolean, refs: ( ids: s
   const r = ROLES[ role ]
   const value = [ a[ 'aria-valuetext' ] ?? a[ 'aria-valuenow' ] ]
   for( const [ name, on, off ] of STATES ){
-    const v = a[ name ]
+    // HTML's `disabled` on a button wins over its `aria-disabled` (lips#41)
+    const v = name === 'aria-disabled' && a.disabled != null ? 'true' : a[ name ]
     // Empty is ARIA's "not set". A bound boolean arrives written out, "true" or "false" (lips#40)
     v && value.push( words[ v === 'false' ? off! : v === 'mixed' ? 'mixed' : on ] )
   }
