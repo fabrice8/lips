@@ -84,6 +84,13 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   `aria-disabled` is, so assistive technology is told. Other events, and
   `disabled` on an input, are unchanged.
 
+### Added — `LIPS-L012`: `line-clamp` on Lynx (lips#42)
+
+- `line-clamp` and `-webkit-line-clamp` in a Lynx sheet are an error of
+  their own, whose hint names the fix: the `text-maxline` attribute on the
+  text, with `text-overflow: ellipsis`. Before, they got the generic
+  `LIPS-L008` warning and the text was never cut.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

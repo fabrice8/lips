@@ -156,6 +156,9 @@ const PROPERTIES = new Set( `
   transition-timing-function vertical-align visibility white-space width word-break z-index
 `.trim().split( /\s+/ ) )
 
+/** Text cut to N lines, which Lynx does with an attribute instead */
+const LINE_CLAMP = /^(-webkit-)?line-clamp$/
+
 /** `@font-face` descriptors: declarations, but not properties */
 const DESCRIPTORS = new Set([ 'src', 'font-display', 'unicode-range' ])
 
@@ -227,7 +230,14 @@ function declaration( name: string, value: string ){
   if( name.startsWith('--') ) return found
 
   const property = name.toLowerCase()
-  PROPERTIES.has( property ) || DESCRIPTORS.has( property )
+  /**
+   * Lynx cuts text with an attribute, `text-maxline` on the `<text>`, and
+   * has no `line-clamp`: the text would never be cut (lips#42)
+   */
+  if( LINE_CLAMP.test( property ) )
+    found.push( error( 'LIPS-L012', `'${name}' does not cut text on Lynx`,
+      `Set the text-maxline attribute on the text element instead (text-maxline="${/^\d+$/.test( value.trim() ) ? value.trim() : 'N'}"), with text-overflow: ellipsis.` ) )
+  else PROPERTIES.has( property ) || DESCRIPTORS.has( property )
   || found.push( warning( 'LIPS-L008', `'${name}' is not a Lynx CSS property`, 'Lynx ignores it.' ) )
 
   // What the compiler generated for a bind is not the author's calc()

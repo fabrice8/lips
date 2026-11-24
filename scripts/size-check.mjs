@@ -239,6 +239,13 @@ const KB = 1024
  * `renderIR` from `./runtime`, so it is bundled once. No other entry
  * moves. `lynx-plugin.mjs` has no budget: it runs in Node, in the build,
  * and ships to no device (13.5 gz, Stylis and the style compiler inside).
+ *
+ * 2026-11-24f: lynx 17.95→18.05 — `LIPS-L012` (lips#42): `line-clamp`
+ * gets a code of its own that names the fix, `text-maxline`, with the
+ * literal line count in it, instead of the generic L008. +0.10 (17.79 →
+ * 17.89 locally); CI's bun has read this entry ~0.07 above a local read,
+ * so the budget keeps the usual margin. The message is what a developer
+ * reads, so it was kept whole.
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
@@ -247,7 +254,7 @@ const BUDGETS = {
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 17.95,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 18.05,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.3,  // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 4.85 // Lynx background thread: the host the runtime renders into
 }

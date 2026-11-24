@@ -508,11 +508,36 @@ with `__LoadStyleSheet`, which is internal (§8).
     | LIPS-L009 | error | `min()`, `max()`, `clamp()` (§3.3) |
     | LIPS-L010 | error | `calc()` off a length property (§3.2) |
     | LIPS-L011 | warning | `!important` (§3.3) |
+    | LIPS-L012 | error | `line-clamp`, `-webkit-line-clamp`: Lynx cuts text with the `text-maxline` attribute (lips#42) |
 
     Every CSS limit in §3.1–§3.3 has one. Layout defaults (§3.3) cannot be
     seen in a sheet.
   - **`LYNX_PAGE_CONFIG`**: `enableCSSInlineVariables`, `enableCSSRule`
     and `enableCSSInheritance`, all `true`.
+- **As built, `line-clamp` (2026-11-24, lips#42).** Lynx cuts a text to N
+  lines with an attribute, `text-maxline="N"` on the `<text>`, with
+  `text-overflow: ellipsis`, and has no `line-clamp` property. A sheet
+  using one got only the generic L008, and the text was never cut.
+  - `LIPS-L012` (error) fires on `line-clamp` and `-webkit-line-clamp`,
+    in any case, in place of L008. Its hint names `text-maxline`, with
+    the literal count when there is one (`text-maxline="3"`), `N` for a
+    bound one. An error, like L009 and L010: the rule would do nothing
+    on Lynx, and the fix is known.
+  - Mapping a literal `line-clamp: N` onto the elements a rule scopes
+    was not built. A rule's selector does not say which elements it
+    reaches at run time, so it would be right only where it is
+    unambiguous, and the issue preferred the lint as the cheaper route.
+  - Cost: +105 bytes gzipped on `lynx` (17.79 → 17.89; budget 18.05) and
+    on the plugin.
+  - Tier A: 1 spec in `tests/lynx-style.spec.ts`: both spellings with
+    their locations, the hint with a literal and with a bind, no L008
+    beside it, quiet `text-overflow` and `overflow`, and a longer name
+    that only contains it. Nine deliberate breakages were each caught:
+    no code of its own, `-webkit-` missed, L008 as well, any name
+    containing it, case-sensitive, the fix not named, the count not
+    carried, a warning instead of an error, `text-overflow` flagged.
+  - Not verified: that `text-maxline` cuts the text is Lynx's documented
+    behaviour, not checked at tier B.
 - **The core cost.** The style compiler gained a `scope` option and a
   `lint` hook. Its statements now start at their first character, so every
   diagnostic, not just Lynx's, points at the right column. That costs 69
