@@ -703,6 +703,65 @@ with `__LoadStyleSheet`, which is internal (§8).
   the engine's key events do not type (L3). They are checked at tier A,
   and on a device with a hardware keyboard (tier C).
 
+**As built, propagation (2026-11-24, lips#36).**
+
+- **The grammar had room.** The parser reads an attribute name up to its
+  `(`, so `on-click.stop( fn )` already parsed as the event `click.stop`.
+  Nothing read the suffix: the DOM listened for an event literally named
+  `click.stop`. No new syntax, then. A modifier rides in the event name,
+  and `Host.listen` gives it one meaning on every host:
+  - `.stop`: the event goes no further up once this handler has it;
+  - `.capture`: the handler has it on the way down, before its target;
+  - `.outside`: the handler runs for the event anywhere except in this
+    element, before anything on the way can stop it.
+  They combine (`.capture.stop`). The compiler refuses a modifier the
+  hosts do not know (`LIPS-C022`, error), which they would drop without a
+  word, and warns on one on a component, whose events do not propagate.
+- **DOM host.** `.stop` calls `stopPropagation()` before the handler.
+  `.capture` passes the capture flag. `.outside` is a capturing listener on
+  the page's `document` that skips targets inside the element. It is the
+  page's document, not the element's: a node cloned from a skeleton
+  belongs to the `<template>`'s inert document until it is placed.
+- **Lynx.** Lynx decides propagation where a listener is declared. The
+  background spells the binding `tap`, `tap.stop`, `tap.capture` or
+  `tap.capture.stop`, and the applier declares it through
+  `__AddEventListener`'s `bind_type` (bubble 1, capture 2, capture-catch
+  3, bubble-catch 4), with `closure_type` CORE (2), a main-thread function,
+  as `main-thread:bind` binds one. That is what the applier's listeners
+  are, and it is the form both engines read `bind_type` for: native
+  `FiberAddEventListener` and Lynx for Web's `eventTypeOf`. Found on the
+  way, in the engine source and then at tier B:
+  - a plain callback's options carry no catch on native: only `capture`
+    and global are read;
+  - `__StopPropagation( e.ref )` from inside the listener exists, and the
+    current engine source honours it, but Lynx 4.1's touch path does not:
+    a tap stopped that way still reached the row in the real engine.
+  `.outside` is a capturing listener on the PAGE, and its handler runs
+  only when the event's target is not inside the element. The target is
+  known by id: the applier maps Lynx's element ids (`target.uid`) to Lips's
+  for every element and raw text, and sends the target's as `t`. Raw text
+  too, because Lynx for Web hit-tests to it (an e2e check found this).
+  UNLISTEN unbinds with the options it bound with.
+- **Tests.**
+  - Tier A: each case runs the same template on the DOM host and on Lynx:
+    `.stop` keeps an inner tap from the row, `.capture` runs first,
+    `.capture.stop` keeps it from the target, `.outside` skips taps inside
+    (raw text included) and runs for one a `.stop` hides, and goes with its
+    element. Plus UNLISTEN for each kind, and `LIPS-C022`. The listener
+    shim reads options as native does (`bind_type` for a CORE closure,
+    only `capture` for a plain one). Eighteen deliberate breakages were each
+    caught, on both hosts and in the compiler.
+  - Lynx for Web e2e (18/18): the demo's `fill` button stops its tap from
+    the row while `shuffle`'s reaches it, and the row counts taps outside
+    it. Dropping the catch from `bind_type` fails it. The e2e is also what
+    found the raw-text target.
+  - Tier B (25/25): the same two checks with real hit-tested touches. The
+    plain-callback form with `__StopPropagation` failed `.stop` there,
+    which is how the 4.1 behaviour was found.
+- **Not verified.** `global-bind` is not used. Whether a Lynx `catch`
+  also stops the other listeners on the same element at its target is
+  the engine's, not Lips's: the DOM does not stop them.
+
 ### 4.6 Expressions
 
 Bundled apps compile template expressions to real functions at build time, so

@@ -337,6 +337,31 @@ fn main() -> R<()> {
     format!("clientX {x}"),
   );
 
+  // #36: .stop is Lynx's catch, .outside a capture listener on the page, both with real hit-tested touches
+  let taps = |p: &mut LynxPage| -> R<(u32, u32)> {
+    let dom = p.content()?;
+    let s = dom.split("text=\"Row: ").nth(1).unwrap_or("").split('"').next().unwrap_or("").to_string();
+    let mut n = s.split(" Outside: ").map(|x| x.parse::<u32>().unwrap_or(9999));
+    Ok((n.next().unwrap_or(9999), n.next().unwrap_or(9999)))
+  };
+  let (row0, out0) = taps(&mut page)?;
+  touch(&mut page, "#shuffle")?;
+  wait_for(&mut page, "the row's tap", |p| Ok(taps(p)?.0 == row0 + 1))?;
+  touch(&mut page, "#fill")?;
+  wait_for(&mut page, "fill's tap", |p| Ok(p.content()?.contains(&text("Typed: hello"))))?;
+  page.wait_for_timeout(Duration::from_millis(300));
+  let (row1, out1) = taps(&mut page)?;
+  check(
+    "on-click.stop keeps a tap from the row (Lynx's catch): shuffle reaches it, fill does not",
+    row1 == row0 + 1 && out1 == out0,
+    format!("row {row0} → {row1}, outside {out0} → {out1}"),
+  );
+  touch(&mut page, "#count")?;
+  let outside = wait_for(&mut page, "the outside tap", |p| Ok(taps(p)?.1 == out1 + 1))?;
+  check("on-click.outside runs for a tap elsewhere on the page, not for one inside", outside, format!("{:?}", taps(&mut page)?));
+  tap(&mut page, "#shuffle")?; // back to 1–40 for the list checks below
+  wait_for(&mut page, "the list back in order", |p| Ok(cells(&p.content()?).starts_with(&[1])))?;
+
   drag(&mut page, "#scroller", -150.0)?;
   let top = has(&mut page, text("Top: 150"))?;
   check("a bare scroll-y scrolls, and scroll events reach the background (Top: 150)", top, page.content()?);

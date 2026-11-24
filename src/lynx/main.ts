@@ -51,8 +51,23 @@ declare global {
 /** A free identifier, as on the background thread — see `./background` */
 declare const lynx: any
 
-const NO_OPTIONS = {}
 const NOOP = () => {}
+
+/**
+ * How a listener is bound (lips#36): a `LISTEN` name carries `.capture`
+ * and `.stop`, as the background spells them. Lynx decides propagation
+ * where a listener is declared, by its `bind_type` (`ElementEventBindType`:
+ * bubble 1, capture 2, capture-catch 3, bubble-catch 4), and reads it for
+ * a `closure_type` of CORE (2): a main-thread function, as `main-thread:bind`
+ * binds one, which is what the applier's listeners are. Both engines read
+ * it so (native `FiberAddEventListener`, Lynx for Web `eventTypeOf`). A
+ * plain callback's options would not do: native reads no catch from them,
+ * and Lynx 4.1's touch path ignores `__StopPropagation` (tier B).
+ */
+const bindOf = ( name: string ) => {
+  const capture = name.includes('.capture'), stop = name.includes('.stop')
+  return { capture, closure_type: 2, bind_type: capture ? stop ? 3 : 2 : stop ? 4 : 1 }
+}
 
 /**
  * Lynx reads an empty attribute as false (`scroll-y=""` does not scroll),
@@ -130,7 +145,9 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
   const
   pageId = __GetElementUniqueID( page ),
   els = new Map<number, Ref>([ [ PAGE_ID, page ] ]),
-  listeners = new Map<number, Map<string, ( e: any ) => void>>(),
+  listeners = new Map<number, Map<string, [ ( e: any ) => void, object ]>>(),
+  /** Lynx's element ids → Lips's: an event names its target by Lynx's */
+  uids = new Map<number, number>([ [ pageId, PAGE_ID ] ]),
   lists = new Map<number, ListState>(),
   /** UI methods wait for the flush: before it the engine throws */
   invokes: [ Ref, string, object ][] = []
@@ -203,8 +220,14 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
       let st: ListState | undefined
 
       switch( ops[ i ] ){
-        case CREATE: els.set( a, create( a, b ) ); break
-        case TEXT: els.set( a, __CreateRawText( b ) ); break
+        // An event names its target by Lynx's id: raw text too, which Lynx for Web hit-tests to
+        case CREATE:
+        case TEXT: {
+          const el = ops[ i ] === CREATE ? create( a, b ) : __CreateRawText( b )
+          els.set( a, el )
+          uids.set( __GetElementUniqueID( el ), a )
+          break
+        }
         case INSERT:
           if( st = lists.get( a ) ){
             const at = st.order.indexOf( c )
@@ -226,22 +249,24 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
         case SET_TEXT: __SetAttribute( els.get( a )!, 'text', b ); break
         case STYLES: __SetInlineStyles( els.get( a )!, b ); break
         case LISTEN: {
-          const fn = ( e: any ) => forward({ id: a, name: b, event: pick( e, b ) })
+          const type = b.split('.')[ 0 ], options = bindOf( b )
+          const fn = ( e: any ) => forward({ id: a, name: b, t: uids.get( e?.target?.uid ), event: pick( e, type ) })
           let byName = listeners.get( a )
           byName || listeners.set( a, byName = new Map() )
-          byName.set( b, fn )
-          __AddEventListener( els.get( a )!, b, fn, NO_OPTIONS )
+          byName.set( b, [ fn, options ] )
+          __AddEventListener( els.get( a )!, type, fn, options )
           break
         }
         case UNLISTEN: {
-          const fn = listeners.get( a )?.get( b )
-          if( fn ){
-            __RemoveEventListener( els.get( a )!, b, fn, NO_OPTIONS )
+          const bound = listeners.get( a )?.get( b )
+          if( bound ){
+            __RemoveEventListener( els.get( a )!, b.split('.')[ 0 ], ...bound )
             listeners.get( a )!.delete( b )
           }
           break
         }
         case RELEASE:
+          uids.delete( __GetElementUniqueID( els.get( a )! ) )
           els.delete( a )
           listeners.delete( a )
           lists.delete( a )

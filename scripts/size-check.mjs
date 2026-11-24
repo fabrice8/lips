@@ -195,15 +195,31 @@ const KB = 1024
  * the messages were kept whole, since they are what a developer reads.
  * The background host's half (writing the subtree into `content`) is in
  * no entry: the hosts ship with the app's own bundles.
+ *
+ * 2026-11-24b: full 34.05→34.25, runtime 15.15→15.25, precompile
+ * 14.15→14.25, lynx 17.75→17.85 — event modifiers (lips#36), the first
+ * change to `Host.listen` since the seam. Measured (gz):
+ *  - the DOM host reads `.stop`, `.capture` and `.outside` from the event
+ *    name: +0.09 on runtime (15.05 → 15.14), on every app. It is platform
+ *    calls a minifier cannot shorten (`stopPropagation`, `contains`, the
+ *    capture flag, the document); the runtime itself is unchanged, since
+ *    the name crosses the seam as written
+ *  - the compiler refuses a modifier the hosts do not know (`LIPS-C022`),
+ *    which they would otherwise drop without a word: +0.14 on precompile
+ *    (14.05 → 14.19) and on lynx, +0.23 on full with the host
+ * Savings were taken first: the messages were cut to one line each and
+ * the hint folded into the message (-0.02), and the host reads the name
+ * with `includes` rather than splitting it (-0.01). Budgets keep the
+ * ~0.1 margin CI's bun has needed over a local read.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 34.05,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 15.15,  // precompiled-only: none of the above
-  'dist/precompile.min.js': 14.15, // build-time: parser + compiler + style compiler
+  'dist/lips.min.js': 34.25,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 15.25,  // precompiled-only: none of the above
+  'dist/precompile.min.js': 14.25, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 17.75      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 17.85      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
 }
 
 let failed = false

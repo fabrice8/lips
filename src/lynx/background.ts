@@ -92,6 +92,9 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
   scheduled = false
 
   const handlers = new Map<number, Map<string, Set<( event: any ) => void>>>()
+  /** The real nodes by id, and the one the event being dispatched happened on */
+  const live = new Map<number, LynxNode>()
+  let target: LynxNode | undefined
   /** What each input last reported holding — the value it already shows */
   const typed = new Map<number, string>()
 
@@ -220,6 +223,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     for( let c = n.first; c; c = c.next ) release( c )
     if( !n.real ) return
     handlers.delete( n.id )
+    live.delete( n.id )
     typed.delete( n.id )
     a11y.delete( n )
     n.idv && ids.get( n.idv ) === n && ids.delete( n.idv )
@@ -253,6 +257,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     fragment: () => node('#fragment'),
     element( tag ){
       const el = node( LYNX_TAG[ tag ] || tag, '', ++seq, true )
+      live.set( el.id, el )
       emit( CREATE, el.id, el.type )
       el.batch = batch
       if( IMPLICIT[ tag ] ){
@@ -272,6 +277,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       moved = true
       if( n.type === '#text' && !n.real && parent.type === 'text' && !parent.part ){
         n.real = true
+        live.set( n.id, n )
         emit( TEXT, n.id, n.value )
         n.slot = ops.length - 1
         n.batch = batch
@@ -384,29 +390,47 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       el.scope = nsp
       emit( ATTR, el.id, 'class', classOf( el ) )
     },
+    /**
+     * Modifiers (lips#36, `Host.listen`) become how the main thread binds:
+     * `tap`, `tap.stop` (Lynx's catch), `tap.capture`, `tap.capture.stop`.
+     * `.outside` is a capture listener on the PAGE, which has the event
+     * before anything on the way can stop it, and runs the handler only
+     * when the event's target is not inside the element.
+     */
     listen( el, name, fn ){
       // An svg's parts are not elements: they have no events (LIPS-L108)
       if( el.part ) return () => {}
-      const type = LYNX_EVENT[ name ] || name
-      let byName = handlers.get( el.id )
-      byName || handlers.set( el.id, byName = new Map() )
+      const
+      [ ev, ...m ] = name.split('.'),
+      outside = m.includes('outside'),
+      on = outside ? root : el,
+      type = ( LYNX_EVENT[ ev ] || ev ) + ( outside || m.includes('capture') ? '.capture' : '' ) + ( !outside && m.includes('stop') ? '.stop' : '' ),
+      f = outside ? ( e: any ) => { within( target, el ) || fn( e ) } : fn
+
+      let byName = handlers.get( on.id )
+      byName || handlers.set( on.id, byName = new Map() )
 
       let set = byName.get( type )
       if( !set ){
         byName.set( type, set = new Set() )
-        emit( LISTEN, el.id, type )
+        emit( LISTEN, on.id, type )
       }
-      set.add( fn )
+      set.add( f )
 
       return () => {
-        if( !set!.delete( fn ) || set!.size || !el.real ) return
+        if( !set!.delete( f ) || set!.size || !on.real ) return
         byName!.delete( type )
-        emit( UNLISTEN, el.id, type )
+        emit( UNLISTEN, on.id, type )
       }
     }
   }
 
   const root = node( '#root', '', PAGE_ID, true )
+
+  const within = ( n: LynxNode | null | undefined, el: LynxNode ) => {
+    for( ; n; n = n.parent ) if( n === el ) return true
+    return false
+  }
 
   return {
     host, root, flush,
@@ -421,6 +445,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
         typed.set( wire.id, value )
         event.target = { ...event.target, value }
       }
+      target = live.get( wire.t! )
       if( set ) for( const fn of [ ...set ] ) fn( event )
     }
   }

@@ -15,7 +15,8 @@
  *   ATTR       id, name, value      routed: class / id / data-* / attribute
  *   SET_TEXT   id, value            raw text's value
  *   STYLES     id, css              the whole inline style
- *   LISTEN     id, name             forward that event to the background
+ *   LISTEN     id, name             forward that event to the background;
+ *                                   `name.capture`, `name.stop` bind it so
  *   UNLISTEN   id, name             stop forwarding it
  *   RELEASE    id                   forget the id (the node is gone)
  *   INVOKE     id, method, params   a UI method (`setValue`, `scrollTo`, …),
@@ -72,6 +73,8 @@ export interface WirePoint {
 export interface WireEvent {
   id: number
   name: string
+  /** The Lips id of the element the event happened on, when it is one */
+  t?: number
   event: {
     type: string
     detail?: unknown

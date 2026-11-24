@@ -26,8 +26,9 @@ export const TEMPLATE = `
   <input class="field" id="field" data-k="field" value=state.draft placeholder="Type here" on-input( onDraft )>
   <p class="echo" id="typed" data-k="typed">Typed: {state.typed}</p>
   <p class="echo" id="touched" data-k="touched">Touch: {state.touched}</p>
-  <div class="row">
-    <button class="btn" id="fill" data-k="fill" on-click( fill )>fill</button>
+  <p class="echo" id="taps" data-k="taps">Row: {state.rowTaps} Outside: {state.outTaps}</p>
+  <div class="row" id="actions" on-click( onRow ) on-click.outside( onOutside )>
+    <button class="btn" id="fill" data-k="fill" on-click.stop( fill )>fill</button>
     <button class="btn" id="shuffle" data-k="shuffle" on-click( shuffle )>shuffle</button>
   </div>
   <p class="echo" id="top" data-k="top">Top: {state.top}</p>
@@ -55,6 +56,8 @@ export const state = {
   draft: '',
   typed: '',
   touched: '',
+  rowTaps: 0,
+  outTaps: 0,
   top: 0,
   lines: Array.from({ length: 12 }, ( _, i ) => i + 1 ),
   feed: Array.from({ length: 40 }, ( _, i ) => ({ id: i + 1 }) )
@@ -71,6 +74,9 @@ export const handlers = {
   onDraft( this: any, e: any ){ this.state.draft = this.state.typed = e.target.value },
   fill( this: any ){ this.state.draft = 'hello' },
   // lips#35: a touch's points and its target's dataset, as on the DOM
+  // lips#36: fill stops its tap (.stop), so the row counts only shuffle's; .outside counts the rest of the page
+  onRow( this: any ){ this.state.rowTaps++ },
+  onOutside( this: any ){ this.state.outTaps++ },
   onTouch( this: any, e: any ){ this.state.touched = `${Math.round( e.touches[ 0 ].clientX )} on ${e.currentTarget.dataset.k}` },
   onScroll( this: any, e: any ){ this.state.top = Math.round( e.detail.scrollTop ) },
   shuffle( this: any ){ this.state.feed = [ ...this.state.feed ].reverse() },

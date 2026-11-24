@@ -25,6 +25,19 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   `dataset`, on every event. Before, only `type` and `detail` crossed, so a
   handler could not tell ArrowDown from Enter, or follow a swipe.
 
+### Added — event modifiers: `.stop`, `.capture`, `.outside` (lips#36)
+
+- `on-click.stop( fn )` keeps the event from the elements above,
+  `on-click.capture( fn )` has it on the way down, and
+  `on-click.outside( fn )` runs for a tap anywhere but inside the element
+  (a menu or popover closing). They combine (`.capture.stop`), and mean the
+  same on the DOM and on Lynx, where handlers run on another thread and
+  `e.stopPropagation()` cannot work.
+- `LIPS-C022`: an unknown modifier is an error; a modifier on a component's
+  event is a warning, since a component's events do not propagate.
+- `Host.listen` receives the event name with its modifiers. A custom host
+  must read them.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

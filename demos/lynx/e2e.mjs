@@ -146,6 +146,20 @@ try {
   const shuffled = await cells()
   check( 'a reordered list reorders its cells', shuffled[ 0 ] === 'item 40' && shuffled[ 39 ] === 'item 1', JSON.stringify( shuffled.slice( 0, 3 ) ) )
 
+  // lips#36: .stop is the catch `bind_type` declares (web-core reads it), .outside a capture listener on the page
+  const taps = async () => ( await text() ).match( /Row: (\d+) Outside: (\d+)/ )?.slice( 1 ).map( Number ) || []
+  const [ row0, out0 ] = await taps()
+  await tap('shuffle')
+  await tap('fill')
+  await page.waitForTimeout( 300 )
+  const [ row1, out1 ] = await taps()
+  check( 'on-click.stop keeps a tap from the row: shuffle reaches it, fill does not',
+    row1 === row0 + 1 && out1 === out0, JSON.stringify({ row0, row1, out0, out1 }) )
+  await tap('count')
+  await page.waitForTimeout( 300 )
+  const [ , out2 ] = await taps()
+  check( 'on-click.outside runs for a tap elsewhere on the page', out2 === out1 + 1, JSON.stringify({ out1, out2 }) )
+
   await page.screenshot({ path: join( here, 'dist/e2e.png' ) })
   check( 'no page errors', !errors.length, errors.join(' | ') )
 }
