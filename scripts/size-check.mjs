@@ -210,7 +210,8 @@ const KB = 1024
  * Savings were taken first: the messages were cut to one line each and
  * the hint folded into the message (-0.02), and the host reads the name
  * with `includes` rather than splitting it (-0.01). Budgets keep the
- * ~0.1 margin CI's bun has needed over a local read. *
+ * ~0.1 margin CI's bun has needed over a local read.
+ *
  * 2026-11-24c: full 34.25→34.35, runtime 15.25→15.35 — element
  * references (lips#37). `@ref="name"` already compiled (an `@` name is a
  * prop bind), so the compiler is unchanged. The runtime keeps the node on
@@ -221,15 +222,20 @@ const KB = 1024
  * core: on the DOM the ref is the element, and the Lynx background host,
  * in no entry, gives its nodes the DOM's methods. `untrusted` refuses
  * `self.refs` as it refuses `self.node`, inside its budget (9.29).
+ *
+ * 2026-11-24d: full 34.35→34.45, runtime 15.35→15.40, lynx 17.85→17.95 —
+ * no code change. CI's bun read the branch above every local read: full
+ * 34.36 (local 34.25), lynx 17.86 (17.79), runtime 15.31 (15.26). The
+ * budgets are set from CI's reads, with the usual ~0.1 margin.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 34.35,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 15.35,  // precompiled-only: none of the above
+  'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 15.40,  // precompiled-only: none of the above
   'dist/precompile.min.js': 14.25, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 17.85      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 17.95      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
 }
 
 let failed = false
