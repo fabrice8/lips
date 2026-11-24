@@ -187,15 +187,55 @@ const KB = 1024
  * templates to it. Build-time like `precompile`, and the same parser and
  * compiler plus the Lynx vocabulary and style rules (17.13 measured). No
  * other entry moves: it imports what they already hold.
+ *
+ * 2026-11-24: lynx 17.25→17.75 — inline SVG (lips#34). The template pass
+ * keeps an `<svg>` whole and holds it to what Lynx's svg draws: the 17
+ * tags and ~40 attributes Lynx publishes, and the `LIPS-L108` messages,
+ * +0.53 KB (17.12 → 17.65). The lists are the bulk and are Lynx's own;
+ * the messages were kept whole, since they are what a developer reads.
+ * The background host's half (writing the subtree into `content`) is in
+ * no entry: the hosts ship with the app's own bundles.
+ *
+ * 2026-11-24b: full 34.05→34.25, runtime 15.15→15.25, precompile
+ * 14.15→14.25, lynx 17.75→17.85 — event modifiers (lips#36), the first
+ * change to `Host.listen` since the seam. Measured (gz):
+ *  - the DOM host reads `.stop`, `.capture` and `.outside` from the event
+ *    name: +0.09 on runtime (15.05 → 15.14), on every app. It is platform
+ *    calls a minifier cannot shorten (`stopPropagation`, `contains`, the
+ *    capture flag, the document); the runtime itself is unchanged, since
+ *    the name crosses the seam as written
+ *  - the compiler refuses a modifier the hosts do not know (`LIPS-C022`),
+ *    which they would otherwise drop without a word: +0.14 on precompile
+ *    (14.05 → 14.19) and on lynx, +0.23 on full with the host
+ * Savings were taken first: the messages were cut to one line each and
+ * the hint folded into the message (-0.02), and the host reads the name
+ * with `includes` rather than splitting it (-0.01). Budgets keep the
+ * ~0.1 margin CI's bun has needed over a local read.
+ *
+ * 2026-11-24c: full 34.25→34.35, runtime 15.25→15.35 — element
+ * references (lips#37). `@ref="name"` already compiled (an `@` name is a
+ * prop bind), so the compiler is unchanged. The runtime keeps the node on
+ * the template's `self.refs` while it lives, and does the same on the path
+ * a tag no component claims renders by, which is how Lynx's own elements
+ * (`scroll-view`, `list`) render: +0.12 on runtime (15.14 → 15.26), +0.11
+ * on full. Both paths share one helper. There is no method table in the
+ * core: on the DOM the ref is the element, and the Lynx background host,
+ * in no entry, gives its nodes the DOM's methods. `untrusted` refuses
+ * `self.refs` as it refuses `self.node`, inside its budget (9.29).
+ *
+ * 2026-11-24d: full 34.35→34.45, runtime 15.35→15.40, lynx 17.85→17.95 —
+ * no code change. CI's bun read the branch above every local read: full
+ * 34.36 (local 34.25), lynx 17.86 (17.79), runtime 15.31 (15.26). The
+ * budgets are set from CI's reads, with the usual ~0.1 margin.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 34.05,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 15.15,  // precompiled-only: none of the above
-  'dist/precompile.min.js': 14.15, // build-time: parser + compiler + style compiler
+  'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 15.40,  // precompiled-only: none of the above
+  'dist/precompile.min.js': 14.25, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 17.25      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 17.95      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
 }
 
 let failed = false

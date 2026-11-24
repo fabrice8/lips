@@ -18,19 +18,27 @@ export const TEMPLATE = `
     <button class="btn" id="rev" data-k="rev" on-click( reverse )><span>reverse</span></button>
     <button class="btn" id="theme" data-k="theme" on-click( theme )><span>theme</span></button>
   </div>
-  <div class="swatch" id="swatch" data-k="swatch"></div>
+  <div class="swatch" id="swatch" data-k="swatch" on-touchstart( onTouch )></div>
+  <svg id="icon" data-k="icon" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill=state.accent/></svg>
   <for [row] in=state.rows by="id">
     <div class="item" data-id=row.id><span>{row.label}</span></div>
   </for>
-  <input class="field" id="field" data-k="field" value=state.draft placeholder="Type here" on-input( onDraft )>
+  <input class="field" id="field" data-k="field" value=state.draft placeholder="Type here" on-input( onDraft ) on-focus( onFocused ) @ref="field">
   <p class="echo" id="typed" data-k="typed">Typed: {state.typed}</p>
+  <p class="echo" id="touched" data-k="touched">Touch: {state.touched}</p>
+  <p class="echo" id="taps" data-k="taps">Row: {state.rowTaps} Outside: {state.outTaps}</p>
   <div class="row">
-    <button class="btn" id="fill" data-k="fill" on-click( fill )>fill</button>
+    <button class="btn" id="focus" data-k="focus" on-click( focusField )>focus</button>
+    <button class="btn" id="jump" data-k="jump" on-click( jump )>jump</button>
+  </div>
+  <p class="echo" id="focused" data-k="focused">Focused: {state.focusN}</p>
+  <div class="row" id="actions" on-click( onRow ) on-click.outside( onOutside )>
+    <button class="btn" id="fill" data-k="fill" on-click.stop( fill )>fill</button>
     <button class="btn" id="shuffle" data-k="shuffle" on-click( shuffle )>shuffle</button>
   </div>
   <p class="echo" id="top" data-k="top">Top: {state.top}</p>
   <div class="row">
-    <scroll-view class="pane" id="scroller" data-k="scroller" scroll-y on-scroll( onScroll )>
+    <scroll-view class="pane" id="scroller" data-k="scroller" scroll-y on-scroll( onScroll ) @ref="scroller">
       <for [n] in=state.lines><p class="line">line {n}</p></for>
     </scroll-view>
     <list class="pane" id="feed" data-k="feed">
@@ -52,6 +60,10 @@ export const state = {
   // L3
   draft: '',
   typed: '',
+  touched: '',
+  rowTaps: 0,
+  focusN: 0,
+  outTaps: 0,
   top: 0,
   lines: Array.from({ length: 12 }, ( _, i ) => i + 1 ),
   feed: Array.from({ length: 40 }, ( _, i ) => ({ id: i + 1 }) )
@@ -67,6 +79,15 @@ export const handlers = {
   // `e.target.value` as on the DOM; `e.detail.value` is Lynx's own spelling
   onDraft( this: any, e: any ){ this.state.draft = this.state.typed = e.target.value },
   fill( this: any ){ this.state.draft = 'hello' },
+  // lips#35: a touch's points and its target's dataset, as on the DOM
+  // lips#36: fill stops its tap (.stop), so the row counts only shuffle's; .outside counts the rest of the page
+  onRow( this: any ){ this.state.rowTaps++ },
+  // lips#37: element references; the input's own focus event says the focus landed
+  focusField( this: any ){ this.refs.field.focus() },
+  jump( this: any ){ this.refs.scroller.scrollTo({ top: 60 }) },
+  onFocused( this: any ){ this.state.focusN++ },
+  onOutside( this: any ){ this.state.outTaps++ },
+  onTouch( this: any, e: any ){ this.state.touched = `${Math.round( e.touches[ 0 ].clientX )} on ${e.currentTarget.dataset.k}` },
   onScroll( this: any, e: any ){ this.state.top = Math.round( e.detail.scrollTop ) },
   shuffle( this: any ){ this.state.feed = [ ...this.state.feed ].reverse() },
   theme( this: any ){

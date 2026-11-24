@@ -214,8 +214,9 @@ export const untrustedPolicy: TemplatePolicy = {
   self( key, write ){
     if( write ) return no( 'LIPS-U005', `self is read-only — '${key}' cannot be written`, 'Write state instead: state.x = …' )
     if( PROTO.has( key ) ) return this.member( key, false )
-    if( key === 'node' )
-      return no( 'LIPS-U005', "self.node holds the component's DOM nodes",
+    // `refs` (lips#37) holds the elements a template names with `@ref`: the same nodes, by name
+    if( key === 'node' || key === 'refs' )
+      return no( 'LIPS-U005', `self.${key} holds the component's DOM nodes`,
         'An untrusted template reaches the page only through the template language' )
   },
 

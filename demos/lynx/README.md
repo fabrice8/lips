@@ -38,6 +38,17 @@ would reach Lynx uncompiled.
   elements that are not text. `compileLynxTemplate` wraps each in one
   `text`, without which Lynx would render nothing.
 
+## Icons
+
+The `#icon` svg is written inline, its `fill` bound to state. Lynx draws an
+svg from a markup string, so the binding writes the subtree into the svg's
+`content` and rewrites it when the fill changes. A CSS variable does not
+reach inside that markup, so bind the value itself.
+
+Lynx's `svg` is an XElement. Your Lynx app must integrate XElement for it
+to draw, as it must for `blur-view`. The headless runner (tier B) does
+not, so tier B checks the element and its markup, not the pixels.
+
 ## Run it
 
 | Tier (RFC-006 §6) | Command, from `demos/lynx` | What it proves |

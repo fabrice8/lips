@@ -60,6 +60,14 @@ export interface ComponentSelf<MT extends Metavars = Metavars> {
   readonly node: Element[]
 
   /**
+   * The elements its template names with `@ref="name"`, while they live:
+   * `this.refs.search.focus()`. On the DOM each is the element; on Lynx a
+   * node that answers `focus`, `blur`, `scrollTo`, `scrollIntoView` and
+   * `animate` as the element would.
+   */
+  readonly refs: Record<string, any>
+
+  /**
    * Active language, read reactively — a bind that reads it re-renders
    * on `setLanguage()`. Component-grained: a component under
    * `<i18n lang=…>` reports the scoped language, but an `<i18n>` block

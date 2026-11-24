@@ -119,6 +119,40 @@ describe('Lynx templates: what would not render is a diagnostic', () => {
   })
 })
 
+describe('Lynx templates: an svg is kept whole (#34)', () => {
+  const ICON = `<svg viewBox="0 0 24 24" width="24" height="24"><path d="M2 2 L22 22" stroke="currentColor"/></svg>`
+
+  it('an inline icon compiles clean: every part stamped with its SVG spelling', () => {
+    expect( nodes( ICON ) ).toEqual([
+      [ 'svg', { viewBox: '0 0 24 24', width: '24', height: '24' }, [ [ 'path', { d: 'M2 2 L22 22', stroke: 'currentColor', 'lips-svg': 'path' } ] ] ]
+    ])
+  })
+
+  it('the spelling is SVG\'s, which the parser lowercases; control flow is crossed, not stamped', () => {
+    const { ir, diagnostics } = compileLynxTemplate(
+      `<svg><defs><linearGradient id="g"><stop offset="0"/></linearGradient><clipPath id="c"><rect width="2"/></clipPath></defs>`
+      + `<if( state.on )><text x="1">{state.t}</text></if></svg>` )
+    expect( diagnostics ).toEqual( [] )
+    const [ , , [ defs ] ] = ir.root.nodes![ 0 ] as any
+    expect( defs[ 2 ].map( ( n: any ) => n[ 1 ][ 'lips-svg' ] ) ).toEqual([ 'linearGradient', 'clipPath' ])
+    // The if arm is a block of its own: its root carries the stamp too
+    const arm = ( ir.root.blocks[ 0 ] as any ).branches[ 0 ].block.nodes[ 0 ]
+    expect( arm[ 1 ][ 'lips-svg' ] ).toBe('text')
+  })
+
+  it("what Lynx's svg does not draw is a warning: tags, attributes, events, components", () => {
+    expect( found(`<svg>\n<mask id="m"/>\n<path class="a" d="M0 0"/>\n<circle r="1" on-click( go )/>\n<my-icon/>\n</svg>`) ).toEqual([
+      [ 'LIPS-L108', 'warning', 2, 1 ], [ 'LIPS-L108', 'warning', 3, 7 ], [ 'LIPS-L108', 'warning', 4, 15 ], [ 'LIPS-L108', 'warning', 5, 1 ]
+    ])
+  })
+
+  it('the DOM target is left alone', () => {
+    expect( compileTemplate( ICON, { target: 'tree' }).ir.root.nodes ).toEqual([
+      [ 'svg', { viewBox: '0 0 24 24', width: '24', height: '24' }, [ [ 'path', { d: 'M2 2 L22 22', stroke: 'currentColor' } ] ] ]
+    ])
+  })
+})
+
 describe('the Lynx pass, as its entry publishes it (@lipsjs/lips/lynx)', () => {
   it('holds a template to what Lynx draws, and a sheet to what its CSS admits', () => {
     expect( entry.compileLynxTemplate('<div><p>Hi</p></div>').diagnostics ).toEqual([])

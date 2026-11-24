@@ -15,6 +15,11 @@
  *  - A `list` holds `list-item`s: Lynx renders nothing else in one.
  *  - ARIA Lynx cannot read is a warning: the content stays readable, the
  *    semantics are lost (RFC-006 §4.8; what it can read, `./a11y`).
+ *  - An `<svg>` is kept whole: Lynx draws it as ONE native view from a
+ *    markup string, not from child elements. Every element inside is
+ *    stamped `lips-svg` with its SVG spelling, and the background host
+ *    writes the subtree into the svg's `content` (`./background`). What
+ *    Lynx's svg does not read is a warning.
  *
  *   code        what
  *   LIPS-L101   HTML tag with no Lynx element
@@ -24,13 +29,14 @@
  *   LIPS-L105   a role with no Lynx equivalent (warning)
  *   LIPS-L106   an aria-* attribute with no Lynx equivalent (warning)
  *   LIPS-L107   a positive tabindex: Lynx has no focus order (warning)
+ *   LIPS-L108   inside an svg: a tag, attribute, event or component Lynx's svg does not draw (warning)
  *
  * Macro bodies are inlined after this pass, so it does not see them.
  */
 import { compileTemplate, HTML_TAGS, type CompileOptions, type CompileResult } from '../ir/compiler'
 import type { TemplateNode, ElementNode, TemplateDiagnostic, Loc } from '../ir/parser'
 import { locOf } from '../ir/style'
-import { LYNX_TAG } from './protocol'
+import { LYNX_TAG, SVG_PART } from './protocol'
 import { A11Y, LIVE, QUIET, ROLES, roleOf } from './a11y'
 
 /** Control flow and its arms: transparent, their content lands in the parent */
@@ -56,6 +62,20 @@ const HINTS: Record<string, string> = {
   pre: 'A <p> styled white-space: pre',
   iframe: "Lynx's <webview>"
 }
+
+/**
+ * What Lynx's svg reads (lynxjs.org, `<svg>`): 17 tags, keyed as the
+ * parser reads them (lowercase) to the spelling the markup needs, and
+ * its attributes.
+ */
+const SVG_TAGS: Record<string, string> = Object.fromEntries(
+  'circle clipPath defs text ellipse g image line linearGradient path polygon polyline radialGradient rect stop svg use'
+    .split(' ').map( t => [ t.toLowerCase(), t ] ) )
+const SVG_ATTRS = new Set(
+  ( 'xlink:href style points offset font-size id xmlns clip-path clip-rule clipPathUnits color cx cy d fill fill-opacity '
+  + 'fill-rule fx fy gradientTransform gradientUnits height width href opacity preserveAspectRatio r rx ry spreadMethod '
+  + 'stop-color stop-opacity stroke stroke-dasharray stroke-dashoffset stroke-linecap stroke-linejoin stroke-miterlimit '
+  + 'stroke-opacity stroke-width transform viewBox x y x1 y1 x2 y2' ).split(' ') )
 
 const lynxTag = ( tag: string ) => LYNX_TAG[ tag ] || tag
 const isText = ( tag: string ) => lynxTag( tag ) === 'text'
@@ -106,6 +126,41 @@ export function lynxVocabulary( src: string ){
       }
     }
 
+    /**
+     * Inside an svg, through control flow: each element is stamped with
+     * its SVG spelling, which tells the background host it is part of the
+     * markup and not an element of its own. A block inside an svg (an
+     * `if` arm, a `for` row) is built apart from it, so the host could
+     * not tell from where it lands; and `text` and `image` are Lynx
+     * elements too.
+     */
+    const part = ( nodes: TemplateNode[] ) => {
+      for( const n of nodes ){
+        if( n.t === 'fragment' ) part( n.children )
+        if( n.t !== 'element' ) continue
+        if( FLOW.has( n.tag ) ){
+          part( n.children )
+          continue
+        }
+
+        const spelling = SVG_TAGS[ n.tag ]
+        spelling
+          ? n.attrs.push({ k: 'literal', name: SVG_PART, value: spelling, loc: n.loc })
+          : report( 'LIPS-L108', 'warning', HTML_TAGS.has( n.tag )
+                      ? `<${n.tag}> is not drawn by Lynx's svg`
+                      : `<${n.tag}> inside an <svg>: Lynx draws an svg from its markup, so a component renders nothing there`, n,
+                    `Lynx's svg draws ${Object.values( SVG_TAGS ).join(', ')}` )
+
+        for( const a of n.attrs )
+          'name' in a && a.name !== SVG_PART && a.name[ 0 ] !== '@' && !SVG_ATTRS.has( a.name )
+          && report( 'LIPS-L108', 'warning', a.k === 'event'
+                       ? `on-${a.name} inside an <svg>: Lynx draws it as one view, so its parts have no events`
+                       : `${a.name} is not read by Lynx's svg`, a,
+                     a.k === 'event' ? 'Listen on the <svg> itself' : undefined )
+        part( n.children )
+      }
+    }
+
     const walk = ( nodes: TemplateNode[] ) => {
       for( const n of nodes ){
         if( n.t === 'fragment' ) walk( n.children )
@@ -114,6 +169,11 @@ export function lynxVocabulary( src: string ){
         const tag = n.tag
         // A component's attributes are its props: what it does with them is its own
         ;( HTML_TAGS.has( tag ) || NATIVE.has( tag ) || CONTAINERS.has( tag ) || tag === 'list' ) && aria( n )
+
+        if( tag === 'svg' ){
+          part( n.children )
+          continue
+        }
 
         if( HTML_TAGS.has( tag ) && !LYNX_TAG[ tag ] && !NATIVE.has( tag ) )
           report( 'LIPS-L101', 'error', `<${tag}> has no Lynx element: it would render nothing`, n,

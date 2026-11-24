@@ -78,6 +78,32 @@ afterEach( () => {
   delete ( Object.prototype as any ).lipsPolluted
 })
 
+// ==================================================== element references
+describe('route: expressions reach the page through self.refs (lips#37)', () => {
+  const src = `<input class="f" @ref="field"><button class="go" on-click( () => self.refs.field.ownerDocument.defaultView.__lips_pwned = 'self.refs' )>go</button>`
+
+  it('control: a trusted template reaches window through a ref', () => {
+    mount( trusted(), { default: src })
+    ;( q('.go') as HTMLElement ).click()
+    expect( pwned() ).toBe('self.refs')
+  })
+
+  it('untrusted: self.refs is refused where it is written, as self.node is', () => {
+    mount( untrusted(), { default: src })
+    ;( q('.go') as HTMLElement ).click()
+
+    expect( pwned() ).toBeUndefined()
+    const [ d ] = coded('LIPS-U005')
+    expect( d ).toMatchObject({ severity: 'error', loc: at( src, 'refs' ) })
+  })
+
+  it('near miss: an untrusted template may still name its elements; the host app reads them', () => {
+    const c = mount( untrusted(), { default: `<input class="f" @ref="field">` })
+    expect( coded('LIPS-U005') ).toEqual( [] )
+    expect( ( c as any ).instance.self.refs.field ).toBe( q('.f') )
+  })
+})
+
 // ============================================================ expressions
 describe('route: expressions reach the page through self', () => {
   const src = `<button class="go" on-click( () => self.node[0].ownerDocument.defaultView.__lips_pwned = 'self.node' )>go</button>`

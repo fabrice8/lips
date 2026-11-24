@@ -180,6 +180,9 @@ export const HTML_TAGS = new Set([
   'radialgradient', 'rect', 'stop', 'symbol', 'text', 'tspan', 'use'
 ])
 
+/** `on-click.stop( … )`: what a host does with an element event besides calling its handler (`Host.listen`) */
+const EVENT_MODS = new Set([ 'stop', 'capture', 'outside' ])
+
 const VOID_ELEMENTS = new Set([
   'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
   'link', 'meta', 'param', 'source', 'track', 'wbr'
@@ -676,6 +679,7 @@ class Compiler {
           break
         }
         case 'event':
+          this.modifiers( attr )
           block.binds.push({ t: 'event', p, name: attr.name, e: this.synth( attr.source ) })
           break
         case 'spread':
@@ -1072,6 +1076,19 @@ class Compiler {
     return true
   }
 
+  /**
+   * A modifier the hosts do not know would be dropped without a word, so
+   * the handler runs and the event goes on: an error. On a component it
+   * means nothing, since a component's events do not propagate (unless
+   * the tag resolves to no component and renders as an element).
+   */
+  private modifiers( attr: { name: string, loc: { offset: number, length: number } }, comp?: boolean ){
+    const mods = attr.name.split('.').slice( 1 ), bad = mods.find( m => !EVENT_MODS.has( m ) )
+    ;( bad || comp && mods[ 0 ] ) && this.report( 'LIPS-C022', bad ? 'error' : 'warning',
+      bad ? `Unknown event modifier .${bad}: use .stop, .capture or .outside` : `.${mods[ 0 ]} does nothing on a component's event`,
+      attr.loc.offset, attr.loc.length )
+  }
+
   private compLike( node: ElementNode, p: Path, scope: string[], kind: 'comp' | 'dynamic' ): ChildIR {
     const
     inputs: Record<string, CompInput> = {},
@@ -1088,6 +1105,7 @@ class Compiler {
           inputs[ attr.name ] = this.compInput( attr )
           break
         case 'event':
+          this.modifiers( attr, kind === 'comp' )
           events.push({ name: attr.name, e: this.synth( attr.source ) })
           break
         case 'spread':

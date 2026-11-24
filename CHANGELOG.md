@@ -5,6 +5,50 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — inline SVG on Lynx (lips#34)
+
+- An `<svg>` in a template renders on Lynx. Lynx draws an svg as one view
+  from a markup string, so the template pass keeps the subtree whole and
+  the background host writes it into the svg's `content`. A bound
+  attribute, control flow or text inside rewrites it, once per flush.
+  `width` and `height` size the element, as on the DOM.
+- `LIPS-L108` (warning): a tag, attribute, event or component inside an
+  svg that Lynx's svg does not draw.
+- `svg` is an XElement: the host app must integrate XElement for it to
+  draw.
+
+### Added — event data on Lynx (lips#35)
+
+- A Lynx event reaches its handler DOM-shaped: `e.key`, `e.repeat` and the
+  modifiers on key events; `e.touches` and `e.changedTouches`, with their
+  positions, on touch events; `e.target` and `e.currentTarget`, with their
+  `dataset`, on every event. Before, only `type` and `detail` crossed, so a
+  handler could not tell ArrowDown from Enter, or follow a swipe.
+
+### Added — event modifiers: `.stop`, `.capture`, `.outside` (lips#36)
+
+- `on-click.stop( fn )` keeps the event from the elements above,
+  `on-click.capture( fn )` has it on the way down, and
+  `on-click.outside( fn )` runs for a tap anywhere but inside the element
+  (a menu or popover closing). They combine (`.capture.stop`), and mean the
+  same on the DOM and on Lynx, where handlers run on another thread and
+  `e.stopPropagation()` cannot work.
+- `LIPS-C022`: an unknown modifier is an error; a modifier on a component's
+  event is a warning, since a component's events do not propagate.
+- `Host.listen` receives the event name with its modifiers. A custom host
+  must read them.
+
+### Added — element references: `@ref` (lips#37)
+
+- `<input @ref="search">` puts the element on `this.refs.search` while it
+  lives. On the DOM it is the element. On Lynx it answers `focus()`,
+  `blur()`, `scrollTo()`, `scrollIntoView()` and `animate()` as the DOM
+  element would, through Lynx's UI methods after the flush. `focus()` is
+  accessibility focus on an element that is not an input. `Host.keepFocus`
+  works on Lynx too.
+- Untrusted templates cannot read `self.refs` (`LIPS-U005`), as they cannot
+  read `self.node`.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

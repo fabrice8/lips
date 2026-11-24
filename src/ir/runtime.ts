@@ -390,6 +390,24 @@ function destroy( h: Host, inst: BlockInstance | null ){
   for( const n of nodesOf( h, inst ) ) h.remove( n, true )
 }
 
+/**
+ * `@ref="name"` (lips#37): the node, on the template's own `self.refs`,
+ * for as long as it lives, under the name it has now. It is the host's
+ * node: on the DOM the element, whose `focus`, `scrollIntoView` or
+ * `animate` are the platform's; a native host gives its nodes the same.
+ * Returns what takes it off again.
+ */
+const refTo = ( benv: RunEnv, node: N, name: () => any, watch: ( fn: () => void ) => { dispose(): void } ) => {
+  const refs = benv.self.refs ||= {}
+  let at = ''
+  const drop = () => { refs[ at ] === node && delete refs[ at ] }
+  const eff = watch( () => {
+    drop()
+    refs[ at = String( name() ) ] = node
+  })
+  return () => { eff.dispose(); drop() }
+}
+
 const applyAttr = ( h: Host, el: N, name: string, v: any ) =>
   h.attr( el, name, v === false || v == null ? null : v === true ? '' : String( v ) )
 
@@ -717,6 +735,8 @@ class IRRenderer {
       }
       case 'prop': {
         const run = this.runner( bind.e, scopeNames )
+
+        if( bind.name === 'ref' ) return { bind, node, dispose: refTo( benv, node, () => run( benv ), fn => this.guarded( fn ) ) }
 
         if( bind.name === 'format' ){
           const ref = bind.ref || ''
@@ -1672,7 +1692,12 @@ class IRRenderer {
     el = h.element( child.name )
 
     for( const [ name, ci ] of Object.entries( child.inputs ) ){
-      if( 'lit' in ci ) applyAttr( h, el, name, ci.lit )
+      // A tag no component claims renders as an element (Lynx's own: `scroll-view`, `list`), so `@ref` names it too
+      if( name === '@ref' ){
+        const run = 'lit' in ci ? () => ci.lit : this.runner( ci.e, scopeNames )
+        disposers.push( refTo( benv, el, () => run( benv ), effect ) )
+      }
+      else if( 'lit' in ci ) applyAttr( h, el, name, ci.lit )
       else {
         const run = this.runner( ci.e, scopeNames )
         disposers.push( effect( () => applyAttr( h, el, name, run( benv ) ) ).dispose )

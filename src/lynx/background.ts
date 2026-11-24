@@ -15,6 +15,14 @@
  * Markers, fragments and stray text never cross. Insert positions skip
  * them, so the main thread sees exactly the real children, in order.
  *
+ * An element node answers the DOM element's own methods (`focus`, `blur`,
+ * `scrollTo`, `scrollIntoView`, `animate`), so a `@ref` means the same on
+ * both: each is a UI method, run once the batch is flushed (lips#37).
+ *
+ * Nor do the parts of an `<svg>` (the elements the template pass stamped
+ * `lips-svg`): Lynx draws an svg as one view from a markup string, so its
+ * subtree is written into its `content`, once per flush when it changed.
+ *
  *   const lynxHost = createBackgroundHost( ops => send( ops ) )
  *   renderIR( ir, setup, { host: lynxHost.host } ).mount( lynxHost.root )
  */
@@ -25,8 +33,23 @@ import { treeHost, treeNode, link, unlink, type TreeNode } from '../ir/tree'
 import { A11Y, IMPLICIT, LIVE, WORDS, lynxA11y, roleOf, type Aria, type Words } from './a11y'
 import {
   CREATE, TEXT, INSERT, REMOVE, ATTR, SET_TEXT, STYLES, LISTEN, UNLISTEN, RELEASE, INVOKE,
-  PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, scopeClass, type WireEvent
+  PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, SVG_PART, scopeClass, type WireEvent
 } from './protocol'
+
+/** Markup text: what an attribute value or a text run may not hold as is */
+const esc = ( s: string ) => s.replace( /[&<>"]/g, c => `&#${c.charCodeAt( 0 )};` )
+
+/** Where `focus()` is input focus; anywhere else it is accessibility focus (RFC-006 §9.9) */
+const INPUTS = new Set([ 'input', 'textarea' ])
+
+/** `__ElementAnimate`'s operations, as Lynx's own `Animation` sends them */
+const START = 0, PLAY = 1, PAUSE = 2, CANCEL = 3, FINISH = 4
+
+/** A DOM `animate` option: its duration alone, or the options Lynx's `animate` reads as they are */
+type AnimateOptions = number | Record<string, unknown>
+
+/** An svg's own attributes that stay on its element rather than in its markup */
+const ON_SVG = new Set([ 'class', 'style', 'id' ])
 
 export interface LynxNode extends TreeNode {
   parent: LynxNode | null
@@ -52,6 +75,15 @@ export interface LynxNode extends TreeNode {
   idv?: string
   sent?: Record<string, unknown>
   said?: string
+  /** What a `@ref` calls, as on the DOM element (lips#37) */
+  focus(): void
+  blur(): void
+  scrollTo( x?: number | { top?: number, left?: number, behavior?: string }, y?: number ): void
+  scrollIntoView( arg?: boolean | { behavior?: string, block?: string, inline?: string } ): void
+  animate( keyframes: unknown, options?: AnimateOptions ): { id: string, play(): void, pause(): void, cancel(): void, finish(): void }
+  /** Part of an svg's markup: its SVG spelling. On an svg: the markup last sent */
+  part?: string
+  drawn?: string
 }
 
 export interface BackgroundOptions {
@@ -79,6 +111,12 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
   scheduled = false
 
   const handlers = new Map<number, Map<string, Set<( event: any ) => void>>>()
+  /** The real nodes by id, and the one the event being dispatched happened on */
+  const live = new Map<number, LynxNode>()
+  let target: LynxNode | undefined
+  /** The element last focused, as far as this thread can know: a ref's `focus()`, or a `focus` event a template listens for */
+  let focused: LynxNode | undefined
+  let animations = 0
   /** What each input last reported holding — the value it already shows */
   const typed = new Map<number, string>()
 
@@ -128,7 +166,39 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     schedule()
   }
 
+  /** The svgs whose markup may have changed since the last flush */
+  const drawn = new Set<LynxNode>()
+
+  /** The svg a node is drawn in: up through the parts, to the svg element */
+  const svgOf = ( n: LynxNode | null ) => {
+    while( n?.part ) n = n.parent
+    return n?.type === 'svg' ? n : undefined
+  }
+  const draw = ( n: LynxNode | null ) => {
+    const svg = svgOf( n )
+    if( !svg ) return
+    drawn.add( svg )
+    schedule()
+  }
+  const markup = ( n: LynxNode ): string => {
+    if( n.type === '#text' ) return esc( n.value )
+    let inner = ''
+    for( let c = n.first; c; c = c.next ) inner += markup( c )
+    if( n.type[ 0 ] === '#' ) return inner
+
+    const tag = n.part || n.type
+    let attrs = ''
+    for( const k in n.attrs ) k === SVG_PART || ( attrs += ` ${k}="${esc( n.attrs[ k ] )}"` )
+    return `<${tag}${attrs}>${inner}</${tag}>`
+  }
+
   const flush = () => {
+    for( const svg of drawn ){
+      const m = svg.real ? markup( svg ) : svg.drawn
+      m !== svg.drawn && emit( ATTR, svg.id, 'content', svg.drawn = m )
+    }
+    drawn.clear()
+
     const said = moved ? derive() : []
     scheduled = false
     rendered = true
@@ -150,20 +220,66 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     schedule()
   }
 
+  /** A UI method on a real element, run once the batch is flushed (`./main`) */
+  const invoke = ( n: LynxNode, method: string, params: unknown = {} ) => { n.real && emit( INVOKE, n.id, method, params ) }
+
+  /**
+   * The DOM element's methods, by its names and its arguments, as Lynx's
+   * UI methods take them (lynxjs.org: `<input>`, `<view>`, `<scroll-view>`,
+   * `animate`). A method a ref holds on the DOM holds the same here.
+   */
+  const UI = {
+    focus( this: LynxNode ){
+      focused = this
+      invoke( this, INPUTS.has( this.type ) ? 'focus' : 'requestAccessibilityFocus' )
+    },
+    blur( this: LynxNode ){
+      focused === this && ( focused = undefined )
+      invoke( this, 'blur' )
+    },
+    /** `( x, y )` or `{ top, left, behavior }`: a scroll-view scrolls along one axis, to one offset */
+    scrollTo( this: LynxNode, x?: number | { top?: number, left?: number, behavior?: string }, y?: number ){
+      const o = typeof x === 'object' ? x : { left: x, top: y }
+      invoke( this, 'scrollTo', { offset: o.top || o.left || 0, smooth: o.behavior === 'smooth' })
+    },
+    /** Lynx asks for every option explicitly: the DOM's defaults are written out */
+    scrollIntoView( this: LynxNode, arg?: boolean | { behavior?: string, block?: string, inline?: string } ){
+      const o = typeof arg === 'object' ? arg : { block: arg === false ? 'end' : 'start' }
+      invoke( this, 'scrollIntoView', { scrollIntoViewOptions: { behavior: o.behavior === 'smooth' ? 'smooth' : 'auto', block: o.block || 'start', inline: o.inline || 'start' } })
+    },
+    animate( this: LynxNode, keyframes: unknown, options: AnimateOptions = {} ){
+      const id = `lips-${this.id}-${++animations}`, to = ( op: number ) => () => invoke( this, 'animate', [ op, id ] )
+      invoke( this, 'animate', [ START, id, keyframes, typeof options === 'number' ? { duration: options } : options ] )
+      return { id, play: to( PLAY ), pause: to( PAUSE ), cancel: to( CANCEL ), finish: to( FINISH ) }
+    }
+  }
+
   const node = ( type: string, value = '', id = 0, real = false ): LynxNode =>
-    Object.assign( treeNode( type, value ), { id, real, at: null } ) as LynxNode
+    Object.assign( Object.create( UI ), treeNode( type, value ), { id, real, at: null } ) as LynxNode
 
   const classOf = ( n: LynxNode ) =>
     [ n.cls, n.scope && scopeClass( n.scope ) ].filter( Boolean ).join(' ')
 
+  /**
+   * An svg's `width` and `height` size its drawing AND its element, as on
+   * the DOM. Lynx sizes the element by its style alone (tier B: an svg
+   * with only the attributes lays out 0 high), so they go first in its
+   * inline style, and the template's own `style` overrides them.
+   */
+  const SIZE = [ 'width', 'height' ]
+  const sizeOf = ( n: LynxNode ) => n.type === 'svg'
+    ? SIZE.filter( k => n.attrs[ k ] ).map( k => `${k}: ${n.attrs[ k ]}${/^[\d.]+$/.test( n.attrs[ k ] ) ? 'px' : ''}` ).join('; ')
+    : ''
+
   const cssOf = ( n: LynxNode ) =>
-    [ n.css, ...Object.entries( n.vars ).map( ( [ k, v ] ) => `${k}: ${v}` ) ].filter( Boolean ).join('; ')
+    [ sizeOf( n ), n.css, ...Object.entries( n.vars ).map( ( [ k, v ] ) => `${k}: ${v}` ) ].filter( Boolean ).join('; ')
 
   /** Every real id in a subtree — what the main thread can forget */
   const release = ( n: LynxNode ) => {
     for( let c = n.first; c; c = c.next ) release( c )
     if( !n.real ) return
     handlers.delete( n.id )
+    live.delete( n.id )
     typed.delete( n.id )
     a11y.delete( n )
     n.idv && ids.get( n.idv ) === n && ids.delete( n.idv )
@@ -184,7 +300,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
         if( n === 0 ) return host.marker('$')
 
         const [ tag, attrs, children ] = n
-        const el = host.element( tag )
+        const el = attrs?.[ SVG_PART ] ? Object.assign( node( tag ), { part: attrs[ SVG_PART ] }) : host.element( tag )
         if( attrs ) for( const k in attrs ) host.attr( el, k, attrs[ k ] )
         children?.forEach( c => host.insert( el, build( c ), null ) )
         return el
@@ -197,6 +313,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     fragment: () => node('#fragment'),
     element( tag ){
       const el = node( LYNX_TAG[ tag ] || tag, '', ++seq, true )
+      live.set( el.id, el )
       emit( CREATE, el.id, el.type )
       el.batch = batch
       if( IMPLICIT[ tag ] ){
@@ -210,11 +327,13 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
 
     insert( parent, n, ref ){
       link( parent, n, ref )
+      draw( parent )
 
       // Text becomes real the first time it lands where Lynx renders text
       moved = true
-      if( n.type === '#text' && !n.real && parent.type === 'text' ){
+      if( n.type === '#text' && !n.real && parent.type === 'text' && !parent.part ){
         n.real = true
+        live.set( n.id, n )
         emit( TEXT, n.id, n.value )
         n.slot = ops.length - 1
         n.batch = batch
@@ -241,6 +360,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     },
     remove( n, gone ){
       moved = true
+      draw( n.parent )
       unlink( n )
       n.at && emit( REMOVE, n.at.id, n.id )
       n.at = null
@@ -255,7 +375,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     setText( n, value ){
       n.value = value
       moved = true
-      if( !n.real ) return
+      if( !n.real ) return draw( n.parent )
       n.batch === batch
         ? ops[ n.slot! ] = value
         : emit( SET_TEXT, n.id, value )
@@ -269,7 +389,13 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       host.insert( t, host.text( value ), null )
     },
     attr( el, name, value ){
-      if( name === 'class' ){
+      // In an svg's markup: kept for it, not sent (the svg's class, style, id, data-* and ARIA stay on its element)
+      if( el.part || el.type === 'svg' && !ON_SVG.has( name ) && !name.startsWith('data-') && !A11Y.has( name ) ){
+        value === null ? delete el.attrs[ name ] : el.attrs[ name ] = value
+        draw( el )
+        el.part || !SIZE.includes( name ) || emit( STYLES, el.id, cssOf( el ) )
+      }
+      else if( name === 'class' ){
         el.cls = value ?? undefined
         emit( ATTR, el.id, 'class', classOf( el ) )
       }
@@ -320,37 +446,68 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       el.scope = nsp
       emit( ATTR, el.id, 'class', classOf( el ) )
     },
+    /** The element last focused, focused again once a swap has moved it (`Host.keepFocus`) */
+    keepFocus(){
+      const f = focused
+      return () => { f?.real && f.at && ( f as any ).focus() }
+    },
+    /**
+     * Modifiers (lips#36, `Host.listen`) become how the main thread binds:
+     * `tap`, `tap.stop` (Lynx's catch), `tap.capture`, `tap.capture.stop`.
+     * `.outside` is a capture listener on the PAGE, which has the event
+     * before anything on the way can stop it, and runs the handler only
+     * when the event's target is not inside the element.
+     */
     listen( el, name, fn ){
-      const type = LYNX_EVENT[ name ] || name
-      let byName = handlers.get( el.id )
-      byName || handlers.set( el.id, byName = new Map() )
+      // An svg's parts are not elements: they have no events (LIPS-L108)
+      if( el.part ) return () => {}
+      const
+      [ ev, ...m ] = name.split('.'),
+      outside = m.includes('outside'),
+      on = outside ? root : el,
+      type = ( LYNX_EVENT[ ev ] || ev ) + ( outside || m.includes('capture') ? '.capture' : '' ) + ( !outside && m.includes('stop') ? '.stop' : '' ),
+      f = outside ? ( e: any ) => { within( target, el ) || fn( e ) } : fn
+
+      let byName = handlers.get( on.id )
+      byName || handlers.set( on.id, byName = new Map() )
 
       let set = byName.get( type )
       if( !set ){
         byName.set( type, set = new Set() )
-        emit( LISTEN, el.id, type )
+        emit( LISTEN, on.id, type )
       }
-      set.add( fn )
+      set.add( f )
 
       return () => {
-        if( !set!.delete( fn ) || set!.size || !el.real ) return
+        if( !set!.delete( f ) || set!.size || !on.real ) return
         byName!.delete( type )
-        emit( UNLISTEN, el.id, type )
+        emit( UNLISTEN, on.id, type )
       }
     }
   }
 
   const root = node( '#root', '', PAGE_ID, true )
 
+  const within = ( n: LynxNode | null | undefined, el: LynxNode ) => {
+    for( ; n; n = n.parent ) if( n === el ) return true
+    return false
+  }
+
   return {
     host, root, flush,
+    /**
+     * The event arrives DOM-shaped already (`e.key`, `e.touches[0].clientX`,
+     * `e.target.dataset`: `./main` picks it so). What an input reported
+     * joins its target, as `e.target.value` reads on the DOM.
+     */
     receive( wire ){
       const set = handlers.get( wire.id )?.get( wire.name ), event: any = wire.event, value = event.detail?.value
       if( typeof value === 'string' ){
         typed.set( wire.id, value )
-        // What a DOM handler reads
-        event.target = { value }
+        event.target = { ...event.target, value }
       }
+      target = live.get( wire.t! )
+      wire.name === 'focus' ? focused = live.get( wire.id ) : wire.name === 'blur' && focused?.id === wire.id && ( focused = undefined )
       if( set ) for( const fn of [ ...set ] ) fn( event )
     }
   }

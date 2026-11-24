@@ -84,6 +84,14 @@ import Lips from '@lipsjs/lips'
 <button on-click(select, item.id)>pick</button>
 <button on-click(() => state.count++)>+</button>
 
+<!-- event modifiers, the same on the DOM and on Lynx -->
+<div on-click(openRow)><button on-click.stop(remove)>×</button></div>  <!-- the row does not open -->
+<div on-keydown.capture(onKey)>…</div>                                  <!-- before its children -->
+<div class="menu" on-click.outside(dismiss)>…</div>                       <!-- a tap anywhere else -->
+
+<!-- element references: this.refs.search.focus(), .scrollIntoView(), .animate(…) -->
+<input @ref="search">
+
 <!-- conditionals -->
 <if(state.ready)>…</if>
 <else-if(state.loading)>…</else-if>

@@ -293,9 +293,21 @@ fn main() -> R<()> {
     format!("{after:?}"),
   );
 
+  // #34: an inline svg is ONE engine element, its subtree in `content`,
+  // sized by its width and height. The runner does not integrate the svg
+  // XElement, so what it draws is tier C
+  let dom = page.content()?;
+  let icon = dom.split("<svg id=\"icon\"").nth(1).unwrap_or("").to_string();
+  let b = page.locator("#icon")?.ok_or("no #icon")?.bounding_box()?;
+  check(
+    "an inline svg reaches the engine as one element: its markup in content, the bound fill after a state change, 24×24",
+    icon.contains("content=\"<svg viewBox=\"0 0 24 24\"") && icon.contains("fill=\"#2563eb\"></rect></svg>")
+      && !icon.starts_with("><rect") && b.width == 24.0 && b.height == 24.0,
+    format!("{} box {}×{}", &icon[..icon.len().min(160)], b.width, b.height),
+  );
+
   // RFC-006 L3: the vocabulary pass, inputs, the scroll view, the list
   let has = |page: &mut LynxPage, needle: String| wait_for(page, &needle.clone(), move |p| Ok(p.content()?.contains(&needle)));
-  let dom = page.content()?;
   check(
     "bare text in a button renders: wrapped in a text element at compile time",
     dom.contains(&format!("<text><raw-text {}>", text("fill"))),
@@ -314,9 +326,54 @@ fn main() -> R<()> {
   let typed = has(&mut page, text("Typed: hello"))?;
   check("an input's value goes in through setValue, and its input event comes back", typed, page.content()?);
 
+  // #35: a touch's points and its target's dataset reach the background
+  touch(&mut page, "#swatch")?;
+  let touched = wait_for(&mut page, "the touch", |p| Ok(p.content()?.contains(" on swatch\""))).unwrap_or(false);
+  let dom = page.content()?;
+  let x: f64 = dom.split("Touch: ").nth(1).and_then(|s| s.split(' ').next()).and_then(|n| n.parse().ok()).unwrap_or(-1.0);
+  check(
+    "a touch carries its points and its target's dataset to the background (e.touches[0].clientX, e.currentTarget.dataset)",
+    touched && x > 0.0 && x < 400.0,
+    format!("clientX {x}"),
+  );
+
+  // #36: .stop is Lynx's catch, .outside a capture listener on the page, both with real hit-tested touches
+  let taps = |p: &mut LynxPage| -> R<(u32, u32)> {
+    let dom = p.content()?;
+    let s = dom.split("text=\"Row: ").nth(1).unwrap_or("").split('"').next().unwrap_or("").to_string();
+    let mut n = s.split(" Outside: ").map(|x| x.parse::<u32>().unwrap_or(9999));
+    Ok((n.next().unwrap_or(9999), n.next().unwrap_or(9999)))
+  };
+  let (row0, out0) = taps(&mut page)?;
+  touch(&mut page, "#shuffle")?;
+  wait_for(&mut page, "the row's tap", |p| Ok(taps(p)?.0 == row0 + 1))?;
+  touch(&mut page, "#fill")?;
+  wait_for(&mut page, "fill's tap", |p| Ok(p.content()?.contains(&text("Typed: hello"))))?;
+  page.wait_for_timeout(Duration::from_millis(300));
+  let (row1, out1) = taps(&mut page)?;
+  check(
+    "on-click.stop keeps a tap from the row (Lynx's catch): shuffle reaches it, fill does not",
+    row1 == row0 + 1 && out1 == out0,
+    format!("row {row0} → {row1}, outside {out0} → {out1}"),
+  );
+  touch(&mut page, "#count")?;
+  let outside = wait_for(&mut page, "the outside tap", |p| Ok(taps(p)?.1 == out1 + 1))?;
+  check("on-click.outside runs for a tap elsewhere on the page, not for one inside", outside, format!("{:?}", taps(&mut page)?));
+  tap(&mut page, "#shuffle")?; // back to 1–40 for the list checks below
+  wait_for(&mut page, "the list back in order", |p| Ok(cells(&p.content()?).starts_with(&[1])))?;
+
+  // #37: element references. focus() reaches the native input, whose own focus event comes back
+  tap(&mut page, "#focus")?;
+  let focused = has(&mut page, text("Focused: 1"))?;
+  check("a ref's focus() focuses the native input (its focus event comes back)", focused, page.content()?);
+
   drag(&mut page, "#scroller", -150.0)?;
   let top = has(&mut page, text("Top: 150"))?;
   check("a bare scroll-y scrolls, and scroll events reach the background (Top: 150)", top, page.content()?);
+
+  tap(&mut page, "#jump")?;
+  let jumped = has(&mut page, text("Top: 60"))?;
+  check("a ref's scrollTo({ top: 60 }) scrolls the native scroll view", jumped, page.content()?);
 
   tap(&mut page, "#shuffle")?;
   let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37, 36])))?;

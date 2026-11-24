@@ -360,6 +360,27 @@ describe('serialization contract', () => {
   })
 })
 
+describe('event modifiers (#36)', () => {
+  const codes = ( src: string ) => compile( src ).diagnostics.map( d => [ d.code, d.severity ] )
+
+  it('.stop, .capture and .outside are quiet, alone or together', () => {
+    expect( codes(`<div on-click.stop( a ) on-keydown.capture( b ) on-click.capture.stop( c ) on-click.outside( d )></div>`) ).toEqual( [] )
+    expect( codes(`<{state.tag} on-click.stop( a )/>`) ).toEqual( [] )
+  })
+
+  it('an unknown modifier is an error: the host would drop it without a word', () => {
+    const { diagnostics } = compile(`<button on-click.stp( go )>x</button>`)
+    expect( diagnostics.map( d => [ d.code, d.severity, d.message ] ) ).toEqual([
+      [ 'LIPS-C022', 'error', 'Unknown event modifier .stp: use .stop, .capture or .outside' ]
+    ])
+  })
+
+  it("on a component it is a warning: a component's events do not propagate", () => {
+    expect( codes(`<mycomp on-pick.stop( go )/>`) ).toEqual([ [ 'LIPS-C022', 'warning' ] ])
+    expect( codes(`<mycomp on-pick.nope( go )/>`) ).toEqual([ [ 'LIPS-C022', 'error' ] ])
+  })
+})
+
 describe('quoted event attributes', () => {
   /**
    * Handlers are the instruction form `on-x( … )`. Quoted, the parser

@@ -18,10 +18,20 @@
  * below map the listeners onto the jsdom element's own, and record UI
  * method calls with the number of flushes before them. Real event binding
  * and UI methods are exercised by the Lynx for Web and native runs.
+ *
+ * A listener gets what the native engine hands a plain callback
+ * (`LepusClosureEventListener::ConvertEventToLepusValue`): the event's
+ * data — its own fields, `target` and `currentTarget` as `{ id, uid,
+ * dataset }` — and `ref`, the event itself. A test event carries its
+ * Lynx fields (`key`, `touches`, …) as own properties. Options are read
+ * as the native engine reads them (lips#36): for a main-thread closure
+ * (`closure_type` CORE), `bind_type` picks the phase and the catch; for a
+ * plain callback, only `capture` counts, and there is no catch.
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 import { LynxTestingEnv } from '@lynx-js/testing-environment'
 import { compileLynxTemplate } from '../src/lynx/template'
+import { compileTemplate } from '../src/ir/compiler'
 import { compileLynxStyle } from '../src/lynx/style'
 import { stylisPreprocessor } from '../src/stylis'
 import { renderIR, type RenderSetup, type RuntimeOptions } from '../src/ir/runtime'
@@ -45,10 +55,20 @@ beforeEach( () => {
   // Its Element PAPI looks itself up here, as its vitest preset would install it
   G.lynxTestingEnv = env
   G.lynxEnv = env.env
+  const wrapped = new WeakMap<any, any>()
+  const where = ( t: any ) => t && { id: t.id, uid: env.mainThread.globalThis.__GetElementUniqueID( t ), dataset: { ...t.dataset } }
+  /** How the native engine reads the options: `bind_type` for a main-thread closure (CORE), only `capture` for a plain one */
+  const core = ( o: any ) => o?.closure_type === 2
+  const phase = ( o: any ) => core( o ) ? o.bind_type === 2 || o.bind_type === 3 : !!o?.capture
+  const engine = ( fn: any, o?: any ) => wrapped.get( fn ) || wrapped.set( fn, ( e: any ) => {
+    fn({ ...e, type: e.type, detail: e.detail, target: where( e.target ), currentTarget: where( e.currentTarget ), ref: e })
+    core( o ) && ( o.bind_type === 3 || o.bind_type === 4 ) && e.stopPropagation()
+  }).get( fn )
   Object.assign( env.mainThread.globalThis, {
-    __AddEventListener: ( el: any, name: string, fn: any ) => el.addEventListener( name, fn ),
-    __RemoveEventListener: ( el: any, name: string, fn: any ) => el.removeEventListener( name, fn ),
+    __AddEventListener: ( el: any, name: string, fn: any, o: any ) => el.addEventListener( name, engine( fn, o ), phase( o ) ),
+    __RemoveEventListener: ( el: any, name: string, fn: any, o: any ) => el.removeEventListener( name, engine( fn ), phase( o ) ),
     __InvokeUIMethod: ( el: any, method: string, params: any ) => { invoked.push([ el, method, params, flushes ]) },
+    __ElementAnimate: ( el: any, args: any ) => { invoked.push([ el, '__ElementAnimate', args, flushes ]) },
     __FlushElementTree: () => { flushes++ }
   })
 })
@@ -59,6 +79,12 @@ const tree = ( src: string ) => {
   return ir
 }
 const tick = () => new Promise<void>( r => setTimeout( r, 0 ) )
+/** A flat batch as op tuples */
+const opsOf = ( ops: any[] ) => {
+  const out: any[][] = []
+  for( let i = 0; i < ops.length; i += OP.ARITY[ ops[ i ] ] + 1 ) out.push( ops.slice( i, i + OP.ARITY[ ops[ i ] ] + 1 ) )
+  return out
+}
 
 /**
  * The main thread's tree: tags and raw text, in order. A list's children
@@ -107,6 +133,16 @@ async function boot( src: string, setup: RenderSetup = {}, options: RuntimeOptio
       expect( el, sel ).not.toBeNull()
       env.switchToMainThread()
       el.dispatchEvent( new env.env.window.Event( name ) )
+      env.switchToBackgroundThread()
+      await tick()
+      check()
+    },
+    /** Dispatch an event `make` builds, from the main thread's window */
+    async dispatch( sel: string, make: ( w: any ) => Event ){
+      const el = page.querySelector( sel )
+      expect( el, sel ).not.toBeNull()
+      env.switchToMainThread()
+      el.dispatchEvent( make( env.env.window ) )
       env.switchToBackgroundThread()
       await tick()
       check()
@@ -439,6 +475,377 @@ describe('Lynx L3: inputs, lists, attributes', () => {
 })
 
 // ----------------------------------------------------- RFC-006 §4.8: a11y
+describe('Lynx events: what crosses is what a handler reads (#35)', () => {
+  /** A Lynx event: its fields are its own, as the engine hands them over */
+  const lynxEvent = ( w: any, type: string, fields: object, bubbles = false ) =>
+    Object.assign( new w.Event( type, { bubbles }), fields )
+
+  it('a key event carries its key and modifiers', async () => {
+    const seen: any[] = []
+    const app = await boot( `<input data-k="f" on-keydown( onKey )>`, { handlers: { onKey: ( e: any ) => seen.push( e ) } } )
+
+    await app.dispatch( 'input', w => lynxEvent( w, 'keydown', { key: 'ArrowDown', repeat: false, shiftKey: true, ctrlKey: false, altKey: false, metaKey: false }) )
+    expect( seen[ 0 ] ).toMatchObject({ type: 'keydown', key: 'ArrowDown', shiftKey: true, ctrlKey: false, repeat: false })
+
+    // Where a platform sends it as a custom event, the fields are in its detail
+    await app.dispatch( 'input', w => new w.CustomEvent( 'keydown', { detail: { key: 'Enter', metaKey: true } }) )
+    expect( seen[ 1 ] ).toMatchObject({ key: 'Enter', metaKey: true })
+  })
+
+  it('a touch event carries its points', async () => {
+    const seen: any[] = []
+    const app = await boot( `<div data-k="pad" on-touchmove( onMove )></div>`, { handlers: { onMove: ( e: any ) => seen.push( e ) } } )
+    const point = { identifier: 0, x: 1, y: 2, pageX: 3, pageY: 4, clientX: 12, clientY: 34 }
+
+    await app.dispatch( 'view', w => lynxEvent( w, 'touchmove', { touches: [ point, { ...point, identifier: 1 } ], changedTouches: [ point ], detail: { x: 1, y: 2 } }) )
+    expect( seen[ 0 ].touches ).toEqual([ point, { ...point, identifier: 1 } ])
+    expect( seen[ 0 ].touches[ 0 ].clientX ).toBe( 12 )
+    expect( seen[ 0 ].changedTouches ).toEqual([ point ])
+    expect( seen[ 0 ].detail ).toEqual({ x: 1, y: 2 })
+  })
+
+  it('every event carries its target and current target, with their datasets', async () => {
+    const seen: any[] = []
+    const app = await boot( `<div data-row="7" on-click( onRow )><p data-part="label">x</p></div>`, { handlers: { onRow: ( e: any ) => seen.push( e ) } } )
+
+    await app.dispatch( '[data-part]', w => lynxEvent( w, 'tap', {}, true ) )
+    expect( seen[ 0 ].target.dataset ).toEqual({ part: 'label' })
+    expect( seen[ 0 ].currentTarget.dataset ).toEqual({ row: '7' })
+  })
+
+  it("an input's value joins its target, beside its dataset", async () => {
+    const seen: any[] = []
+    const app = await boot( `<input data-k="f" on-input( onInput )>`, { handlers: { onInput: ( e: any ) => seen.push( e ) } } )
+    await app.dispatch( 'input', w => new w.CustomEvent( 'input', { detail: { value: 'hi' } }) )
+    expect( seen[ 0 ].target ).toMatchObject({ value: 'hi', dataset: { k: 'f' } })
+  })
+
+  it('what crosses is data: it clones, and holds no ref to the engine event', async () => {
+    const wires: any[] = []
+    env.switchToMainThread()
+    const page = G.__CreatePage( '0', 0 )
+    const apply = ( await import('../src/lynx/main') ).createApplier( page, w => wires.push( w ) )
+    apply([ OP.CREATE, 2, 'view', OP.INSERT, 1, 2, 0, OP.LISTEN, 2, 'touchstart' ])
+    page.firstChild.dispatchEvent( lynxEvent( env.env.window, 'touchstart', { touches: [ { identifier: 0, clientX: 1 } ] }) )
+    env.switchToBackgroundThread()
+
+    expect( wires ).toHaveLength( 1 )
+    expect( () => structuredClone( wires[ 0 ] ) ).not.toThrow()
+    expect( JSON.stringify( wires[ 0 ] ) ).not.toContain('ref')
+    expect( 'ref' in wires[ 0 ].event ).toBe( false )
+  })
+})
+
+/**
+ * lips#36: the same template means the same on both hosts. Every case
+ * runs on the DOM host (jsdom, `click`) and on Lynx (both threads, `tap`).
+ */
+describe('event modifiers: one template, one meaning on both hosts (#36)', () => {
+  type Mounted = { tap( k: string ): Promise<void>, done(): void }
+  const HOSTS: Record<string, ( src: string, setup: RenderSetup ) => Promise<Mounted>> = {
+    async dom( src, setup ){
+      const { ir, diagnostics } = compileTemplate( src )
+      expect( diagnostics ).toEqual( [] )
+      const box = document.createElement('div')
+      document.body.append( box )
+      renderIR( ir, setup ).mount( box )
+      return {
+        async tap( k ){ box.querySelector(`[data-k="${k}"]`)!.dispatchEvent( new Event( 'click', { bubbles: true }) ) },
+        done: () => box.remove()
+      }
+    },
+    async lynx( src, setup ){
+      const app = await boot( src, setup )
+      return { tap: k => app.dispatch( `[data-k="${k}"]`, w => new w.Event( 'tap', { bubbles: true }) ), done(){} }
+    }
+  }
+  const logging = ( log: string[], ...names: string[] ) =>
+    Object.fromEntries( names.map( n => [ n, function( this: any ){ log.push( n ); n === 'dismiss' && ( this.state.open = false ) } ]) )
+
+  it('Lynx: UNLISTEN unbinds each kind as it was bound, so nothing is forwarded after it', async () => {
+    const wires: any[] = []
+    env.switchToMainThread()
+    const page = G.__CreatePage( '0', 0 )
+    const apply = ( await import('../src/lynx/main') ).createApplier( page, w => wires.push( w ) )
+    // One element per kind: at its target, a catch would keep the event from the others
+    const kinds = [ 'tap', 'tap.stop', 'tap.capture', 'tap.capture.stop' ]
+    apply( kinds.flatMap( ( k, i ) => [ OP.CREATE, 2 + i, 'view', OP.INSERT, 1, 2 + i, 0, OP.LISTEN, 2 + i, k ] ) )
+    const tap = () => [ ...page.childNodes ].forEach( ( el: any ) => el.dispatchEvent( new env.env.window.Event( 'tap', { bubbles: true }) ) )
+    tap()
+    expect( wires.map( w => w.name ).sort() ).toEqual( [ ...kinds ].sort() )
+
+    apply( kinds.flatMap( ( k, i ) => [ OP.UNLISTEN, 2 + i, k ] ) )
+    wires.length = 0
+    tap()
+    env.switchToBackgroundThread()
+    expect( wires ).toEqual( [] )
+  })
+
+  it('Lynx: a tap on raw text inside the element is inside (Lynx for Web hit-tests to it)', async () => {
+    const log: string[] = []
+    const app = await boot( `<div><div data-k="pop" on-click.outside( dismiss )><p data-k="in">in</p></div><p data-k="away">away</p></div>`,
+                            { state: { open: true }, handlers: logging( log, 'dismiss' ) } )
+    // Dispatched from the raw text: the event's target is it
+    const raw = async ( k: string ) => {
+      env.switchToMainThread()
+      app.q(`[data-k="${k}"]`).firstChild.dispatchEvent( new env.env.window.Event( 'tap', { bubbles: true }) )
+      env.switchToBackgroundThread()
+      await tick()
+      app.check()
+    }
+    await raw('in')
+    expect( log ).toEqual( [] )
+    await raw('away')
+    expect( log ).toEqual([ 'dismiss' ])
+  })
+
+  for( const [ host, mount ] of Object.entries( HOSTS ) ) describe( host, () => {
+    it('.stop: an inner handler keeps the event from the outer one', async () => {
+      const log: string[] = []
+      const app = await mount( `<div data-k="row" on-click( row )><button data-k="btn" on-click.stop( btn )><span>x</span></button></div>`,
+                               { handlers: logging( log, 'row', 'btn' ) } )
+      await app.tap('btn')
+      expect( log ).toEqual([ 'btn' ])
+      await app.tap('row')
+      expect( log ).toEqual([ 'btn', 'row' ])
+      app.done()
+    })
+
+    it('.capture: an outer handler has the event before its target', async () => {
+      const log: string[] = []
+      const app = await mount( `<div data-k="outer" on-click.capture( outer )><button data-k="inner" on-click( inner )><span>x</span></button></div>`,
+                               { handlers: logging( log, 'outer', 'inner' ) } )
+      await app.tap('inner')
+      expect( log ).toEqual([ 'outer', 'inner' ])
+      app.done()
+    })
+
+    it('.capture.stop: and keeps it from the target', async () => {
+      const log: string[] = []
+      const app = await mount( `<div data-k="outer" on-click.capture.stop( outer )><button data-k="inner" on-click( inner )><span>x</span></button></div>`,
+                               { handlers: logging( log, 'outer', 'inner' ) } )
+      await app.tap('inner')
+      expect( log ).toEqual([ 'outer' ])
+      app.done()
+    })
+
+    it('.outside: a tap anywhere but in the element, even one a .stop hides; gone with the element', async () => {
+      const log: string[] = []
+      const app = await mount(
+        `<div><if( state.open )><div data-k="pop" on-click.outside( dismiss )><p data-k="in">in</p></div></if>`
+        + `<button data-k="away" on-click.stop( away )><span>away</span></button></div>`,
+        { state: { open: true }, handlers: logging( log, 'dismiss', 'away' ) } )
+
+      await app.tap('in')
+      await app.tap('pop')
+      expect( log ).toEqual( [] )
+      await app.tap('away')
+      expect( log ).toEqual([ 'dismiss', 'away' ])
+      // Closed: the element is gone, and so is its listener
+      await app.tap('away')
+      expect( log ).toEqual([ 'dismiss', 'away', 'away' ])
+      app.done()
+    })
+  })
+})
+
+describe('element references: @ref (#37)', () => {
+  /** What the main thread was asked to call: element, method, params, and how many flushes came first */
+  const calls = () => invoked.map( ( [ el, method, params, after ] ) => [ el.localName, method, params, after ] )
+
+  it('Lynx: focus() is input focus on an input, accessibility focus elsewhere, and runs after the flush', async () => {
+    await boot( `<input data-k="f" @ref="field"><div data-k="d" @ref="box"><p>x</p></div>`,
+                { handlers: { onAttach( this: any ){ this.refs.field.focus(); this.refs.box.focus() } } } )
+    // Called while the elements were being created: run only after the batch that creates them is flushed
+    expect( calls() ).toEqual([
+      [ 'input', 'focus', {}, 1 ],
+      [ 'view', 'requestAccessibilityFocus', {}, 1 ]
+    ])
+  })
+
+  it('Lynx: blur, scrollTo, scrollIntoView and animate, with the arguments the DOM takes', async () => {
+    const app = await boot( `<input @ref="field"><scroll-view scroll-y @ref="pane"><p @ref="row">r</p></scroll-view>` )
+    const refs = app.inst.self.refs
+    let anim: any
+    await app.act( () => {
+      refs.field.blur()
+      refs.pane.scrollTo({ top: 120, behavior: 'smooth' })
+      refs.pane.scrollTo( 0, 40 )
+      refs.pane.scrollTo( 30, 0 )
+      refs.row.scrollIntoView()
+      refs.row.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      anim = refs.row.animate( [ { opacity: 0 }, { opacity: 1 } ], 300 )
+      refs.row.animate( [ { opacity: 1 } ], { duration: 50, iterations: 2, easing: 'ease-in' })
+      anim.pause(); anim.play(); anim.cancel(); anim.finish()
+    })
+    const id = anim.id
+    expect( calls() ).toEqual([
+      [ 'input', 'blur', {}, 2 ],
+      [ 'scroll-view', 'scrollTo', { offset: 120, smooth: true }, 2 ],
+      [ 'scroll-view', 'scrollTo', { offset: 40, smooth: false }, 2 ],
+      [ 'scroll-view', 'scrollTo', { offset: 30, smooth: false }, 2 ],
+      [ 'text', 'scrollIntoView', { scrollIntoViewOptions: { behavior: 'auto', block: 'start', inline: 'start' } }, 2 ],
+      [ 'text', 'scrollIntoView', { scrollIntoViewOptions: { behavior: 'smooth', block: 'center', inline: 'start' } }, 2 ],
+      // Lynx's own Animation: START, its id, the keyframes, the options as the DOM writes them
+      [ 'text', '__ElementAnimate', [ 0, id, [ { opacity: 0 }, { opacity: 1 } ], { duration: 300 } ], 2 ],
+      [ 'text', '__ElementAnimate', [ 0, expect.any( String ), [ { opacity: 1 } ], { duration: 50, iterations: 2, easing: 'ease-in' } ], 2 ],
+      [ 'text', '__ElementAnimate', [ 2, id ], 2 ], [ 'text', '__ElementAnimate', [ 1, id ], 2 ], [ 'text', '__ElementAnimate', [ 3, id ], 2 ], [ 'text', '__ElementAnimate', [ 4, id ], 2 ]
+    ])
+  })
+
+  it('Lynx: keepFocus focuses again what was focused, by a ref or by a focus event a template listens for', async () => {
+    const app = await boot( `<input data-k="a" @ref="a"><input data-k="b" on-focus( noop ) on-blur( noop )>`, { handlers: { noop(){} } } )
+    const keep = () => app.act( () => app.bg.host.keepFocus!()() )
+
+    await app.act( () => app.inst.self.refs.a.focus() )
+    invoked = []
+    await keep()
+    expect( calls() ).toEqual([ [ 'input', 'focus', {}, expect.any( Number ) ] ])
+
+    await app.dispatch( '[data-k="b"]', w => new w.Event('focus') )
+    invoked = []
+    await keep()
+    expect( invoked.map( c => c[ 0 ].dataset.k ) ).toEqual([ 'b' ])
+
+    // Blurred: there is nothing to give focus back to
+    await app.dispatch( '[data-k="b"]', w => new w.Event('blur') )
+    invoked = []
+    await keep()
+    expect( invoked ).toEqual( [] )
+  })
+
+  /** One template, one meaning: the ref follows its element on both hosts */
+  const HOSTS: Record<string, ( src: string, setup: RenderSetup ) => Promise<{ inst: any, el( k: string ): any }>> = {
+    async dom( src, setup ){
+      const box = document.createElement('div')
+      document.body.append( box )
+      const inst = renderIR( compileTemplate( src ).ir, setup )
+      inst.mount( box )
+      return { inst, el: k => box.querySelector(`[data-k="${k}"]`) }
+    },
+    async lynx( src, setup ){
+      const app = await boot( src, setup )
+      return { inst: app.inst, el: () => undefined }
+    }
+  }
+  for( const [ host, mount ] of Object.entries( HOSTS ) ) it(`${host}: a ref is there while its element lives, under the name it has now`, async () => {
+    const { inst, el } = await mount( `<if( state.on )><input data-k="f" @ref=state.name></if>`, { state: { on: true, name: 'field' } } )
+    const refs = inst.self.refs
+    expect( refs.field ).toBeTruthy()
+    host === 'dom' && expect( refs.field ).toBe( el('f') )
+
+    inst.state.name = 'search'
+    await tick()
+    expect( Object.keys( refs ) ).toEqual([ 'search' ])
+
+    inst.state.on = false
+    await tick()
+    expect( refs ).toEqual( {} )
+  })
+
+  it('dom: the ref is the element, so its methods are the platform\'s', async () => {
+    const box = document.createElement('div')
+    document.body.append( box )
+    const inst = renderIR( compileTemplate(`<input class="f" @ref="field">`).ir, {} )
+    inst.mount( box )
+    inst.self.refs.field.focus()
+    expect( document.activeElement ).toBe( box.querySelector('.f') )
+    box.remove()
+  })
+})
+
+describe('Lynx svg: one element, its markup in content (#34)', () => {
+  const SRC = `<svg viewBox="0 0 24 24" class="icon"><path d=state.d fill=state.c/>`
+            + `<for [p] in=state.dots><circle cx=p r="1"/></for><text x="2">{state.t}</text></svg>`
+  const state = () => ({ d: 'M0 0', c: 'red', dots: [ 1, 2 ], t: 'a' })
+  const svgOf = ( d: string, c: string, dots: number[], t: string ) =>
+    `<svg viewBox="0 0 24 24"><path d="${d}" fill="${c}"></path>${dots.map( p => `<circle r="1" cx="${p}"></circle>` ).join('')}`
+    + `<text x="2">${t}</text></svg>`
+
+  it('reaches the main thread as ONE svg element, its subtree written into content', async () => {
+    const app = await boot( SRC, { state: state() } )
+    expect( app.html() ).toBe(`<svg class="icon" content="${svgOf( 'M0 0', 'red', [ 1, 2 ], 'a' ).replace( /"/g, '&quot;' )}"></svg>`)
+    expect( app.q('svg').getAttribute('content') ).toBe( svgOf( 'M0 0', 'red', [ 1, 2 ], 'a' ) )
+  })
+
+  it('a change inside it writes content again: bound attributes, control flow, text', async () => {
+    const app = await boot( SRC, { state: state() } )
+    const content = () => app.q('svg').getAttribute('content')
+
+    await app.act( () => { app.inst.state.d = 'M1 1'; app.inst.state.c = 'blue' })
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [ 1, 2 ], 'a' ) )
+    await app.act( () => app.inst.state.dots = [ 3 ] )
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [ 3 ], 'a' ) )
+    // Each on its own: a removal, a text
+    await app.act( () => app.inst.state.dots = [] )
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [], 'a' ) )
+    await app.act( () => app.inst.state.t = 'z' )
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [], 'z' ) )
+    // Markup text is escaped: a value cannot end its attribute or open a tag
+    await app.act( () => { app.inst.state.t = 'a<b & "c"'; app.inst.state.c = '"/><x y="' })
+    expect( content() ).toBe( svgOf( 'M1 1', '&#34;/&#62;&#60;x y=&#34;', [], 'a&#60;b &#38; &#34;c&#34;' ) )
+  })
+
+  it('one ATTR content per flush, whatever changed inside, and none when nothing did', async () => {
+    const batches: any[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const inst = renderIR<LynxNode>( tree( SRC ), { state: state() }, { host: bg.host })
+    inst.mount( bg.root )
+    await tick()
+    const contents = ( ops: any[] ) => opsOf( ops ).filter( o => o[ 0 ] === OP.ATTR && o[ 2 ] === 'content' ).map( o => o[ 3 ] )
+    const creates = ( ops: any[] ) => opsOf( ops ).filter( o => o[ 0 ] === OP.CREATE ).map( o => o[ 2 ] )
+
+    // The parts never cross, nor their text: the svg is the one element created
+    expect( creates( batches[ 0 ] ) ).toEqual([ 'svg' ])
+    expect( opsOf( batches[ 0 ] ).filter( o => o[ 0 ] === OP.TEXT ) ).toEqual( [] )
+    expect( contents( batches[ 0 ] ) ).toHaveLength( 1 )
+
+    inst.state.d = 'M5 5'; inst.state.t = 'b'; inst.state.dots = [ 9 ]
+    await tick()
+    expect( batches ).toHaveLength( 2 )
+    expect( contents( batches[ 1 ] ) ).toEqual([ svgOf( 'M5 5', 'red', [ 9 ], 'b' ) ])
+    expect( creates( batches[ 1 ] ) ).toEqual( [] )
+
+    // The same markup again sends nothing
+    inst.state.d = 'M6 6'; inst.state.d = 'M5 5'
+    await tick()
+    expect( batches ).toHaveLength( 2 )
+  })
+
+  /**
+   * Tier B: Lynx sizes an svg by its style alone — with only the
+   * attributes it laid out 368×0 and drew nothing — so `width` and
+   * `height` size the element too, as on the DOM, under its own style.
+   */
+  it('width and height size the element too, under its style; data-* stays on it', async () => {
+    const app = await boot( `<svg viewBox="0 0 8 8" width="24" height=state.h data-k="i" style="opacity: 0.5"><rect width="8" height="8"/></svg>`,
+                            { state: { h: '2em' } } )
+    const el = app.q('svg')
+    expect( el.getAttribute('style') ).toBe('width: 24px; height: 2em; opacity: 0.5')
+    expect( el.dataset.k ).toBe('i')
+    expect( el.getAttribute('content') ).toBe('<svg viewBox="0 0 8 8" width="24" height="2em"><rect width="8" height="8"></rect></svg>')
+
+    await app.act( () => app.inst.state.h = 30 )
+    expect( el.getAttribute('style') ).toBe('width: 24px; height: 30px; opacity: 0.5')
+  })
+
+  it('a part has no events: listening on one sends nothing (LIPS-L108 says so at compile time)', async () => {
+    const batches: any[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const { ir, diagnostics } = compileLynxTemplate(`<svg><circle r="1" on-click( go )/></svg>`)
+    expect( diagnostics.map( d => d.code ) ).toEqual([ 'LIPS-L108' ])
+    renderIR<LynxNode>( ir, { handlers: { go(){} } }, { host: bg.host }).mount( bg.root )
+    await tick()
+    expect( opsOf( batches[ 0 ] ).filter( o => o[ 0 ] === OP.LISTEN ) ).toEqual( [] )
+  })
+
+  it('a destroyed svg is released and not drawn again', async () => {
+    const app = await boot( `<if( state.on )>${SRC}</if>`, { state: { ...state(), on: true } } )
+    await app.act( () => { app.inst.state.d = 'M9 9'; app.inst.state.on = false })
+    expect( app.html() ).toBe('')
+  })
+})
+
 describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
   /** The Lynx accessibility attributes of an element on the main thread */
   const a11y = ( el: any ) => Object.fromEntries( [ ...el.attributes ]

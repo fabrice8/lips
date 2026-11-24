@@ -15,11 +15,13 @@
  *   ATTR       id, name, value      routed: class / id / data-* / attribute
  *   SET_TEXT   id, value            raw text's value
  *   STYLES     id, css              the whole inline style
- *   LISTEN     id, name             forward that event to the background
+ *   LISTEN     id, name             forward that event to the background;
+ *                                   `name.capture`, `name.stop` bind it so
  *   UNLISTEN   id, name             stop forwarding it
  *   RELEASE    id                   forget the id (the node is gone)
  *   INVOKE     id, method, params   a UI method (`setValue`, `scrollTo`, …),
- *                                   once the batch is flushed
+ *                                   once the batch is flushed; `animate`
+ *                                   is `__ElementAnimate( params )`
  *
  * A `list` is the exception to "INSERT inserts": Lynx asks for its cells
  * as they scroll into view. The applier keeps each list's order and
@@ -48,11 +50,48 @@ export const PAGE_ID = 1
 export const OPS_EVENT = 'lips:ops'
 export const DOM_EVENT = 'lips:event'
 
-/** An element event as it crosses to the background: data only, never a ref */
+/** Where an event happened, or who listens: an element's `id` and `dataset` */
+export interface WireTarget {
+  id?: string
+  dataset: Record<string, unknown>
+}
+
+/** A touch point, as Lynx reports it */
+export interface WirePoint {
+  identifier?: number
+  x?: number
+  y?: number
+  pageX?: number
+  pageY?: number
+  clientX?: number
+  clientY?: number
+}
+
+/**
+ * An element event as it crosses to the background: data only, never a
+ * ref. What each kind carries is picked on the main thread (`./main`).
+ */
 export interface WireEvent {
   id: number
   name: string
-  event: { type: string, detail?: unknown }
+  /** The Lips id of the element the event happened on, when it is one */
+  t?: number
+  event: {
+    type: string
+    detail?: unknown
+    target?: WireTarget
+    currentTarget?: WireTarget
+    /** Key events */
+    key?: string
+    repeat?: boolean
+    altKey?: boolean
+    ctrlKey?: boolean
+    metaKey?: boolean
+    shiftKey?: boolean
+    /** Touch events */
+    touches?: WirePoint[]
+    changedTouches?: WirePoint[]
+  }
 }
 
 /** A Lips template tag → the Lynx element it renders as (RFC-006 §4.3) */
@@ -78,6 +117,13 @@ export const LYNX_TAG: Record<string, string> = Object.fromEntries([
  * match on Lynx, so the DOM's `rel` cannot be used.
  */
 export const scopeClass = ( nsp: string ) => `lips-${nsp.replace( /[^\w-]/g, '-' )}`
+
+/**
+ * The attribute the template pass stamps on every element inside an
+ * `<svg>`, holding its SVG spelling: it is part of the svg's markup, and
+ * never an element of its own on the main thread.
+ */
+export const SVG_PART = 'lips-svg'
 
 /** Template event name → Lynx event name: DOM spellings keep working */
 export const LYNX_EVENT: Record<string, string> = { click: 'tap' }

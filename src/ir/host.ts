@@ -67,7 +67,15 @@ export interface Host<N = any> {
   styleVar( el: N, prop: string, value: string | null ): void
   /** Mark a component root with its stylesheet scope. An inner scope already set wins */
   scope( el: N, nsp: string ): void
-  /** Returns the unlisten function */
+  /**
+   * Returns the unlisten function. `name` may carry modifiers, as the
+   * template writes them (`on-click.stop( … )`), and the host gives them
+   * one meaning:
+   *  - `.stop`: the event goes no further up once this handler has it
+   *  - `.capture`: this handler has it on the way down, before its target
+   *  - `.outside`: the handler runs for the event anywhere EXCEPT in this
+   *    element, seen before anything on the way can stop it
+   */
   listen( el: N, name: string, fn: ( event: any ) => void ): () => void
   /** Capture focus before a swap moves nodes; the returned function restores it */
   keepFocus?(): () => void
@@ -146,9 +154,23 @@ export const domHost: Host<Node> = {
                                       ? ( el as HTMLElement ).style.removeProperty( prop )
                                       : ( el as HTMLElement ).style.setProperty( prop, value ),
   scope: ( el, nsp ) => { ( el as Element ).hasAttribute('rel') || ( el as Element ).setAttribute('rel', nsp ) },
+  /**
+   * `.outside` listens on the document, capturing: a `.stop` on the way
+   * cannot hide the event from it. The page's document, not the node's:
+   * a node cloned from a skeleton belongs to the `<template>`'s inert
+   * document until it is placed.
+   */
   listen( el, name, fn ){
-    el.addEventListener( name, fn )
-    return () => el.removeEventListener( name, fn )
+    const
+    type = name.split('.')[ 0 ],
+    outside = name.includes('.outside'),
+    at = outside ? document : el,
+    capture = outside || name.includes('.capture'),
+    stop = !outside && name.includes('.stop'),
+    on = ( e: Event ) => outside && el.contains( e.target as Node ) || ( stop && e.stopPropagation(), fn( e ) )
+
+    at.addEventListener( type, on, capture )
+    return () => at.removeEventListener( type, on, capture )
   },
   /**
    * Salvaged nodes are detached and re-inserted, which drops focus. The
