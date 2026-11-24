@@ -59,6 +59,12 @@ const tree = ( src: string ) => {
   return ir
 }
 const tick = () => new Promise<void>( r => setTimeout( r, 0 ) )
+/** A flat batch as op tuples */
+const opsOf = ( ops: any[] ) => {
+  const out: any[][] = []
+  for( let i = 0; i < ops.length; i += OP.ARITY[ ops[ i ] ] + 1 ) out.push( ops.slice( i, i + OP.ARITY[ ops[ i ] ] + 1 ) )
+  return out
+}
 
 /**
  * The main thread's tree: tags and raw text, in order. A list's children
@@ -439,6 +445,98 @@ describe('Lynx L3: inputs, lists, attributes', () => {
 })
 
 // ----------------------------------------------------- RFC-006 §4.8: a11y
+describe('Lynx svg: one element, its markup in content (#34)', () => {
+  const SRC = `<svg viewBox="0 0 24 24" class="icon"><path d=state.d fill=state.c/>`
+            + `<for [p] in=state.dots><circle cx=p r="1"/></for><text x="2">{state.t}</text></svg>`
+  const state = () => ({ d: 'M0 0', c: 'red', dots: [ 1, 2 ], t: 'a' })
+  const svgOf = ( d: string, c: string, dots: number[], t: string ) =>
+    `<svg viewBox="0 0 24 24"><path d="${d}" fill="${c}"></path>${dots.map( p => `<circle r="1" cx="${p}"></circle>` ).join('')}`
+    + `<text x="2">${t}</text></svg>`
+
+  it('reaches the main thread as ONE svg element, its subtree written into content', async () => {
+    const app = await boot( SRC, { state: state() } )
+    expect( app.html() ).toBe(`<svg class="icon" content="${svgOf( 'M0 0', 'red', [ 1, 2 ], 'a' ).replace( /"/g, '&quot;' )}"></svg>`)
+    expect( app.q('svg').getAttribute('content') ).toBe( svgOf( 'M0 0', 'red', [ 1, 2 ], 'a' ) )
+  })
+
+  it('a change inside it writes content again: bound attributes, control flow, text', async () => {
+    const app = await boot( SRC, { state: state() } )
+    const content = () => app.q('svg').getAttribute('content')
+
+    await app.act( () => { app.inst.state.d = 'M1 1'; app.inst.state.c = 'blue' })
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [ 1, 2 ], 'a' ) )
+    await app.act( () => app.inst.state.dots = [ 3 ] )
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [ 3 ], 'a' ) )
+    // Each on its own: a removal, a text
+    await app.act( () => app.inst.state.dots = [] )
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [], 'a' ) )
+    await app.act( () => app.inst.state.t = 'z' )
+    expect( content() ).toBe( svgOf( 'M1 1', 'blue', [], 'z' ) )
+    // Markup text is escaped: a value cannot end its attribute or open a tag
+    await app.act( () => { app.inst.state.t = 'a<b & "c"'; app.inst.state.c = '"/><x y="' })
+    expect( content() ).toBe( svgOf( 'M1 1', '&#34;/&#62;&#60;x y=&#34;', [], 'a&#60;b &#38; &#34;c&#34;' ) )
+  })
+
+  it('one ATTR content per flush, whatever changed inside, and none when nothing did', async () => {
+    const batches: any[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const inst = renderIR<LynxNode>( tree( SRC ), { state: state() }, { host: bg.host })
+    inst.mount( bg.root )
+    await tick()
+    const contents = ( ops: any[] ) => opsOf( ops ).filter( o => o[ 0 ] === OP.ATTR && o[ 2 ] === 'content' ).map( o => o[ 3 ] )
+    const creates = ( ops: any[] ) => opsOf( ops ).filter( o => o[ 0 ] === OP.CREATE ).map( o => o[ 2 ] )
+
+    // The parts never cross, nor their text: the svg is the one element created
+    expect( creates( batches[ 0 ] ) ).toEqual([ 'svg' ])
+    expect( opsOf( batches[ 0 ] ).filter( o => o[ 0 ] === OP.TEXT ) ).toEqual( [] )
+    expect( contents( batches[ 0 ] ) ).toHaveLength( 1 )
+
+    inst.state.d = 'M5 5'; inst.state.t = 'b'; inst.state.dots = [ 9 ]
+    await tick()
+    expect( batches ).toHaveLength( 2 )
+    expect( contents( batches[ 1 ] ) ).toEqual([ svgOf( 'M5 5', 'red', [ 9 ], 'b' ) ])
+    expect( creates( batches[ 1 ] ) ).toEqual( [] )
+
+    // The same markup again sends nothing
+    inst.state.d = 'M6 6'; inst.state.d = 'M5 5'
+    await tick()
+    expect( batches ).toHaveLength( 2 )
+  })
+
+  /**
+   * Tier B: Lynx sizes an svg by its style alone — with only the
+   * attributes it laid out 368×0 and drew nothing — so `width` and
+   * `height` size the element too, as on the DOM, under its own style.
+   */
+  it('width and height size the element too, under its style; data-* stays on it', async () => {
+    const app = await boot( `<svg viewBox="0 0 8 8" width="24" height=state.h data-k="i" style="opacity: 0.5"><rect width="8" height="8"/></svg>`,
+                            { state: { h: '2em' } } )
+    const el = app.q('svg')
+    expect( el.getAttribute('style') ).toBe('width: 24px; height: 2em; opacity: 0.5')
+    expect( el.dataset.k ).toBe('i')
+    expect( el.getAttribute('content') ).toBe('<svg viewBox="0 0 8 8" width="24" height="2em"><rect width="8" height="8"></rect></svg>')
+
+    await app.act( () => app.inst.state.h = 30 )
+    expect( el.getAttribute('style') ).toBe('width: 24px; height: 30px; opacity: 0.5')
+  })
+
+  it('a part has no events: listening on one sends nothing (LIPS-L108 says so at compile time)', async () => {
+    const batches: any[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const { ir, diagnostics } = compileLynxTemplate(`<svg><circle r="1" on-click( go )/></svg>`)
+    expect( diagnostics.map( d => d.code ) ).toEqual([ 'LIPS-L108' ])
+    renderIR<LynxNode>( ir, { handlers: { go(){} } }, { host: bg.host }).mount( bg.root )
+    await tick()
+    expect( opsOf( batches[ 0 ] ).filter( o => o[ 0 ] === OP.LISTEN ) ).toEqual( [] )
+  })
+
+  it('a destroyed svg is released and not drawn again', async () => {
+    const app = await boot( `<if( state.on )>${SRC}</if>`, { state: { ...state(), on: true } } )
+    await app.act( () => { app.inst.state.d = 'M9 9'; app.inst.state.on = false })
+    expect( app.html() ).toBe('')
+  })
+})
+
 describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
   /** The Lynx accessibility attributes of an element on the main thread */
   const a11y = ( el: any ) => Object.fromEntries( [ ...el.attributes ]

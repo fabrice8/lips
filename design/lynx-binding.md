@@ -400,6 +400,61 @@ element's content is all inline, and is a compile-time error otherwise
 (§9.2, decided). An HTML tag with no Lynx element (`table`, `select`, `br`,
 …) is an error. `compileLynxTemplate` does both (§4.5, "As built, L3").
 
+**As built, inline SVG (2026-11-24, lips#34).**
+
+- **What Lynx's `svg` is.** One native view, drawn from a markup string
+  (`content`) or a URL (`src`), not from child elements. It reads 17 tags
+  and about 40 attributes (lynxjs.org, `<svg>`). It is an XElement: the
+  host app must integrate XElement for it to draw, as for `blur-view`.
+- **The template pass** keeps an `<svg>` subtree whole. Every element
+  inside, through control flow, is stamped `lips-svg="<spelling>"`. The
+  parser lowercases tags, and Lynx needs `clipPath`, `linearGradient` and
+  `radialGradient`, so the stamp carries the SVG spelling. Stamping is
+  done at compile time because an `if` arm or a `for` row inside an svg is
+  built apart from it, and `text` and `image` are Lynx elements too.
+  `LIPS-L108` (warning) reports what Lynx's svg does not draw: a tag or
+  attribute outside its subset, an event, a component.
+- **The background host** makes stamped elements parts of the markup:
+  shadow nodes with no id, never created on the main thread. Their text
+  never becomes real either. An insert, removal, attribute or text change
+  under an svg marks it, and the flush writes each marked svg's subtree
+  into its `content`, escaped, as ONE `ATTR`, and only when the markup
+  changed. The svg's own `class`, `style`, `id`, `data-*` and ARIA stay on
+  its element; its other attributes go in the markup.
+- **Size.** Tier B found that Lynx sizes an svg by its style alone: with
+  only `width` and `height` attributes it laid out 368×0. So those two
+  also go first in the element's inline style, as on the DOM, where they
+  size the element. The template's own `style` overrides them; unlike the
+  DOM, a class rule does not, because inline style wins on Lynx.
+- **A colour from a theme.** A CSS variable does not reach inside the
+  markup, so `fill="var(--accent)"` does not follow a theme. Bind the
+  value itself (`fill=state.accent`), which rewrites the markup. The other
+  route the issue named, an icon drawn as `mask-image` over a
+  `background-color`, is not settled (below).
+- **Tests.**
+  - Tier A: `tests/lynx-template.spec.ts` gains 4 specs: stamping and
+    spelling through control flow, `LIPS-L108` at the source, the DOM
+    target untouched. `tests/lynx-binding.spec.ts` gains 6: one element
+    with its markup in `content`, rewritten for a bound attribute, a `for`
+    row, a removal and a text, escaping, one `ATTR` per flush and none for
+    the same markup, sizing, `data-*`, no events on parts, release. Twelve
+    deliberate breakages were each caught: markup sent once only, no
+    stamp, no escaping, the subtree walked as HTML, no `L108` on
+    attributes, text under an svg `text` made real, a removal or a text
+    change not redrawn, parts listening, no size, size not resent,
+    `data-*` in the markup.
+  - Tier B: one check. The demo's icon reaches the engine as one `svg`
+    with its markup in `content`, the bound `fill` follows a state
+    change, and it lays out 24×24.
+- **Not verified.**
+  - Drawing. The headless runner does not integrate the svg XElement: the
+    element and its `content` are there, and its pixels stay empty with
+    or without `xmlns`. What it draws is tier C.
+  - `mask-image` with an SVG. A `linear-gradient` mask is applied in the
+    real engine (checked by pixels). An SVG mask was not, but neither did
+    an `<img>` with the same data URI draw: the runner renders no
+    `url()` image. So it is undecided, and needs a device.
+
 ### 4.4 Style pipeline for the Lynx target
 
 1. Lips scanner (unchanged): interpolations lifted, at-rules hoisted.

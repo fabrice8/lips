@@ -5,6 +5,18 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — inline SVG on Lynx (lips#34)
+
+- An `<svg>` in a template renders on Lynx. Lynx draws an svg as one view
+  from a markup string, so the template pass keeps the subtree whole and
+  the background host writes it into the svg's `content`. A bound
+  attribute, control flow or text inside rewrites it, once per flush.
+  `width` and `height` size the element, as on the DOM.
+- `LIPS-L108` (warning): a tag, attribute, event or component inside an
+  svg that Lynx's svg does not draw.
+- `svg` is an XElement: the host app must integrate XElement for it to
+  draw.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

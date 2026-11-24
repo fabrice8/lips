@@ -79,5 +79,12 @@ export const LYNX_TAG: Record<string, string> = Object.fromEntries([
  */
 export const scopeClass = ( nsp: string ) => `lips-${nsp.replace( /[^\w-]/g, '-' )}`
 
+/**
+ * The attribute the template pass stamps on every element inside an
+ * `<svg>`, holding its SVG spelling: it is part of the svg's markup, and
+ * never an element of its own on the main thread.
+ */
+export const SVG_PART = 'lips-svg'
+
 /** Template event name → Lynx event name: DOM spellings keep working */
 export const LYNX_EVENT: Record<string, string> = { click: 'tap' }

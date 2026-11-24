@@ -19,6 +19,7 @@ export const TEMPLATE = `
     <button class="btn" id="theme" data-k="theme" on-click( theme )><span>theme</span></button>
   </div>
   <div class="swatch" id="swatch" data-k="swatch"></div>
+  <svg id="icon" data-k="icon" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill=state.accent/></svg>
   <for [row] in=state.rows by="id">
     <div class="item" data-id=row.id><span>{row.label}</span></div>
   </for>

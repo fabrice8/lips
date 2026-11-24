@@ -293,9 +293,21 @@ fn main() -> R<()> {
     format!("{after:?}"),
   );
 
+  // #34: an inline svg is ONE engine element, its subtree in `content`,
+  // sized by its width and height. The runner does not integrate the svg
+  // XElement, so what it draws is tier C
+  let dom = page.content()?;
+  let icon = dom.split("<svg id=\"icon\"").nth(1).unwrap_or("").to_string();
+  let b = page.locator("#icon")?.ok_or("no #icon")?.bounding_box()?;
+  check(
+    "an inline svg reaches the engine as one element: its markup in content, the bound fill after a state change, 24×24",
+    icon.contains("content=\"<svg viewBox=\"0 0 24 24\"") && icon.contains("fill=\"#2563eb\"></rect></svg>")
+      && !icon.starts_with("><rect") && b.width == 24.0 && b.height == 24.0,
+    format!("{} box {}×{}", &icon[..icon.len().min(160)], b.width, b.height),
+  );
+
   // RFC-006 L3: the vocabulary pass, inputs, the scroll view, the list
   let has = |page: &mut LynxPage, needle: String| wait_for(page, &needle.clone(), move |p| Ok(p.content()?.contains(&needle)));
-  let dom = page.content()?;
   check(
     "bare text in a button renders: wrapped in a text element at compile time",
     dom.contains(&format!("<text><raw-text {}>", text("fill"))),

@@ -187,6 +187,14 @@ const KB = 1024
  * templates to it. Build-time like `precompile`, and the same parser and
  * compiler plus the Lynx vocabulary and style rules (17.13 measured). No
  * other entry moves: it imports what they already hold.
+ *
+ * 2026-11-24: lynx 17.25→17.75 — inline SVG (lips#34). The template pass
+ * keeps an `<svg>` whole and holds it to what Lynx's svg draws: the 17
+ * tags and ~40 attributes Lynx publishes, and the `LIPS-L108` messages,
+ * +0.53 KB (17.12 → 17.65). The lists are the bulk and are Lynx's own;
+ * the messages were kept whole, since they are what a developer reads.
+ * The background host's half (writing the subtree into `content`) is in
+ * no entry: the hosts ship with the app's own bundles.
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.05,     // full: runtime + parser/compiler + style compiler + router
@@ -195,7 +203,7 @@ const BUDGETS = {
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 17.25      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 17.75      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
 }
 
 let failed = false
