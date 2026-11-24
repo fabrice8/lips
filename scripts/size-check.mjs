@@ -227,6 +227,18 @@ const KB = 1024
  * no code change. CI's bun read the branch above every local read: full
  * 34.36 (local 34.25), lynx 17.86 (17.79), runtime 15.31 (15.26). The
  * budgets are set from CI's reads, with the usual ~0.1 margin.
+ *
+ * 2026-11-24e: new `lynx-main` entry at 2.3 and `lynx-background` at
+ * 4.85 — the Lynx runtime, published (lips#38). They were in no entry:
+ * an app outside this repository could not render on Lynx. One entry per
+ * thread, because each thread loads its own bundle, and the main thread's
+ * is the one on the first frame: an entry holding both would make every
+ * app rely on its bundler shaking the other half out of a prebuilt file.
+ * Measured: the applier 2.21, the background host (ARIA, svg markup, UI
+ * methods) 4.74. Neither holds the IR runtime: the background imports
+ * `renderIR` from `./runtime`, so it is bundled once. No other entry
+ * moves. `lynx-plugin.mjs` has no budget: it runs in Node, in the build,
+ * and ships to no device (13.5 gz, Stylis and the style compiler inside).
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
@@ -235,7 +247,9 @@ const BUDGETS = {
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 17.95      // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 17.95,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx-main.min.js': 2.3,  // Lynx main thread: the applier over Element PAPI
+  'dist/lynx-background.min.js': 4.85 // Lynx background thread: the host the runtime renders into
 }
 
 let failed = false
@@ -260,7 +274,7 @@ for( const [ file, budget ] of Object.entries( BUDGETS ) ){
   ])
 }
 
-const w = arr => arr.map( ( s, i ) => String( s ).padEnd([ 20, 9, 9, 6 ][ i ]) ).join('')
+const w = arr => arr.map( ( s, i ) => String( s ).padEnd([ 24, 9, 9, 6 ][ i ]) ).join('')
 console.log( w([ 'entry', 'gz KB', 'budget', '' ]) )
 for( const r of rows ) console.log( w( r ) )
 

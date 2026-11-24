@@ -6,7 +6,8 @@
 #   demos/lynx/sim.sh android      the running emulator, or the first AVD
 #   demos/lynx/sim.sh ios --check  open it, then prove it rendered, and exit
 #
-# It starts `rspeedy dev` unless one already serves the bundle, installs
+# It starts `rspeedy dev`, on Lips packed as npm publishes it (pack.sh),
+# unless one already serves the bundle, installs
 # Lynx Explorer where it is missing (a pinned release, SHA-256 checked),
 # and opens the bundle in it: on iOS as the page Explorer launches with,
 # on Android through Explorer's `lynx://open?url=` link. The dev server
@@ -91,7 +92,7 @@ serve() {
     echo "Using the dev server already serving $BUNDLE"
     return
   fi
-  [ -d "$here/node_modules" ] || ( cd "$here" && npm ci --no-audit --no-fund )
+  "$here/pack.sh"
   echo "Starting the dev server…"
   # The binary itself, not npx: stopping it stops the server
   ( cd "$here" && exec node_modules/.bin/rspeedy dev ) &

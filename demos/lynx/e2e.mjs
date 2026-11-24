@@ -22,6 +22,8 @@ import { createRequire } from 'node:module'
 const here = dirname( fileURLToPath( import.meta.url ) )
 const require = createRequire( import.meta.url )
 
+// Lips as npm publishes it, then the demo against it
+execSync( './pack.sh', { cwd: here, stdio: 'inherit' })
 execSync( 'npx rspeedy build', { cwd: here, stdio: 'inherit' })
 
 const dist = join( here, 'dist' )

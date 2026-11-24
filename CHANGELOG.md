@@ -49,6 +49,24 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - Untrusted templates cannot read `self.refs` (`LIPS-U005`), as they cannot
   read `self.node`.
 
+### Added — the Lynx runtime, published (lips#38)
+
+- `@lipsjs/lips/lynx/main` (`connectMain`, the main-thread applier) and
+  `@lipsjs/lips/lynx/background` (`connectBackground`, the background
+  host): one entry per thread, each with its size budget (2.21 and 4.74 KB
+  gzipped). The background renders with `renderIR` from
+  `@lipsjs/lips/runtime`. Before, no app outside this repository could
+  render on Lynx.
+- `@lipsjs/lips/lynx-plugin` (`pluginLips`), the Rspeedy plugin: compiles
+  `*.lips.css` sheets (an error fails the build), sets the page config, and
+  adds Lips's files to what the app compiles, because Lynx's background
+  engine does not parse `||=`. It needs a Lynx build plugin before it and
+  imports none itself.
+- Packaging is decided as subpath entries of `@lipsjs/lips`, not a
+  separate package (RFC-006 §9.3).
+- The Lynx demo builds from the packed package only (`demos/lynx/pack.sh`),
+  and tier B runs against it.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

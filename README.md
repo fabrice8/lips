@@ -72,6 +72,9 @@ import Lips from '@lipsjs/lips'
 | `@lipsjs/lips/precompile` | build-time helpers + Vite/Rollup plugin | — |
 | `@lipsjs/lips/untrusted` | opt-in policy for templates you did not write ([RFC-007](design/untrusted-templates.md)) | ~9 KB |
 | `@lipsjs/lips/lynx` | build-time Lynx pass: a template and a stylesheet held to what Lynx draws (RFC-006) | — |
+| `@lipsjs/lips/lynx/main` | Lynx main thread: the applier over Element PAPI | ~2.2 KB |
+| `@lipsjs/lips/lynx/background` | Lynx background thread: the host Lips renders into | ~4.8 KB |
+| `@lipsjs/lips/lynx-plugin` | Rspeedy plugin: `*.lips.css` sheets and the page config Lips needs | — |
 | `@lipsjs/lips/dev` | unminified full build | — |
 
 ## 🧩 Template syntax
@@ -202,6 +205,52 @@ subtree through the template language — not the page, not the realm's prototyp
 not script. What it may not do is reported as a diagnostic with `line`/`col`/`code`/`hint`,
 and refused again at runtime. What Lips leaves to CSP and to the page is listed in
 [RFC-007](design/untrusted-templates.md).
+
+## 📱 Native, on Lynx
+
+The same templates render natively through [Lynx](https://lynxjs.org)
+(SDK 4.0 or later), on its two threads: Lips runs in the background and a
+small applier on the main thread is the only code that touches elements
+([RFC-006](design/lynx-binding.md)). With Rspeedy and
+`@lynx-js/vanilla-rsbuild-plugin`:
+
+```ts
+// lynx.config.ts
+import { defineConfig } from '@lynx-js/rspeedy'
+import { pluginVanillaLynx } from '@lynx-js/vanilla-rsbuild-plugin'
+import { pluginLips } from '@lipsjs/lips/lynx-plugin'
+
+export default defineConfig({
+  source: { entry: './src/main-thread.ts' },
+  plugins: [ pluginVanillaLynx(), pluginLips() ]
+})
+```
+
+```ts
+// src/main-thread.ts
+import { connectMain } from '@lipsjs/lips/lynx/main'
+import './app.lips.css'                      // a Lips sheet: its name is its scope
+
+connectMain( __CreatePage( '0', 0 ) )
+```
+
+```ts
+// src/background.ts
+import { compileLynxTemplate } from '@lipsjs/lips/lynx'
+import { renderIR } from '@lipsjs/lips/runtime'
+import { connectBackground } from '@lipsjs/lips/lynx/background'
+import sheet from './app.lips.css?raw'       // the sheet's binds: its CSS is in the bundle
+
+const { ir } = compileLynxTemplate( template )   // or precompile it at build time
+const bg = connectBackground()
+renderIR( ir, { state, handlers, stylesheet: JSON.parse( sheet ) }, { host: bg.host, mode: 'interpreted' }).mount( bg.root )
+```
+
+`pluginLips` compiles `*.lips.css` files (a lint error fails the build), sets
+the page config Lips relies on, and lowers Lips's own files to the app's target,
+since Lynx's engines parse less than browsers. Import a sheet from a script, not
+with `@import`. [`demos/lynx`](demos/lynx) is a complete app, run in the real
+engine on every change.
 
 ## 🔥 Hot-swap
 

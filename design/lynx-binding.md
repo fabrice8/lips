@@ -520,7 +520,8 @@ with `__LoadStyleSheet`, which is internal (§8).
   for 6 bytes. Compiling a 4,000-rule sheet is ~20% faster than before,
   with identical output.
 - **Build route: `demos/lynx/lips-styles.ts`.** This is the CSS half of
-  §4.7's plugin, kept with the demo until packaging is decided.
+  §4.7's plugin, kept with the demo until packaging is decided. *Now
+  published as `@lipsjs/lips/lynx-plugin` (§4.7, "As built, packaging").*
   - A `*.lips.css` file is compiled ahead of Lynx's CSS pipeline. Its file
     name is the scope.
   - A `?raw` import of it gives the background its IR.
@@ -827,6 +828,78 @@ the existing `mode: 'interpreted'`. Nothing depends on `eval`.
   SDK 4.0 floor, §9).
 - A runtime entry (`@lipsjs/lips/lynx`) holds the background host and the
   main-thread applier, with its own size budget in `scripts/size-check.mjs`.
+  *As built: one entry per thread, `./lynx/main` and `./lynx/background`;
+  `./lynx` was already the build-time pass (below).*
+
+**As built, packaging (2026-11-24, lips#38).**
+
+- **§9.3 decided: subpath entries of `@lipsjs/lips`.** Nothing forced a
+  second package. The background host is a `Host` for the core runtime
+  and the template pass is the core compiler with a transform, so a
+  separate `@lipsjs/lynx` would pin a matching core version in every app
+  and release in lockstep anyway. Entries keep one version, one
+  changelog and the size ratchet that already covers them.
+- **The entries.**
+
+  | Import | Holds | Runs | gz |
+  |---|---|---|---|
+  | `@lipsjs/lips/lynx` | `compileLynxTemplate`, `lynxVocabulary`, `compileLynxStyle`, `LYNX_PAGE_CONFIG` | build, or the background for templates as data | 17.79 |
+  | `@lipsjs/lips/lynx/main` | `connectMain`, `createApplier` | main thread | 2.21 |
+  | `@lipsjs/lips/lynx/background` | `connectBackground`, `createBackgroundHost`, `WORDS` | background thread | 4.74 |
+  | `@lipsjs/lips/lynx-plugin` | `pluginLips`, `buildSheet` | Node, in the build (`lynx-plugin.mjs`) | — |
+
+  The background renders with `renderIR` from `@lipsjs/lips/runtime`:
+  the host holds no IR runtime, so it is bundled once.
+- **One runtime entry per thread, not one for both.** Each thread loads
+  its own bundle, and the main thread's is on the first frame. An entry
+  holding both would make every app rely on its bundler shaking the
+  other half out of a prebuilt file.
+- **The plugin** is `demos/lynx/lips-styles.ts` moved into `src/lynx/plugin.ts`,
+  with two changes:
+  - **It imports no Lynx build package.** It finds the template plugin on
+    the compiler, where the Lynx build plugin registered it, and sets the
+    page config through that class's hooks. The hooks are kept per copy
+    of `@lynx-js/template-webpack-plugin`, so an import could bind a copy
+    the build never runs, and Lips would need a peer dependency. Without
+    a Lynx build plugin it throws, rather than building a bundle with no
+    page config.
+  - **It adds Lips's `dist/` to what the app compiles** (Rsbuild
+    `source.include`). Found at tier B: the published entries are built
+    for current engines, the background engine refuses `||=` (`SyntaxError:
+    unexpected token in expression: '='`), and an app's build leaves
+    `node_modules` as it is. When the demo imported `src/`, the app's own
+    target had lowered Lips with the demo's code. Now it lowers the
+    published files the same way.
+- **The demo imports only published names.** `demos/lynx/pack.sh` builds
+  the repository, packs it with `npm pack` (only `files`: `dist/`), and
+  installs the tarball without saving it. `run.sh`, `sim.sh` and `e2e.mjs`
+  run it first, so every tier builds what an app would install. CI's
+  three Lynx jobs install bun for it. `jiti` left the demo: Rspeedy loads
+  the plugin as plain JS.
+- **Found on the way: `run.sh` passed a bundle that never ran.** A script
+  that does not parse is logged as `evaluateJavaScript failed`, not as an
+  app error, so the first run printed "no JS errors". It exited non-zero,
+  since the first render timed out, but did not say why. It now counts
+  that line as an engine error and prints the harness's own error.
+- **Tests.**
+  - Tier A, `tests/lynx-package.spec.ts` (6 specs): the demo's imports are
+    published entries and nothing outside its folder; every export is a
+    file the build writes, declared from a source that exists; the
+    plugin's sheets, `?raw` IR, failing errors with their location, Lips
+    in `source.include` (POSIX and Windows paths), and the page config
+    through the registered template plugin, or a throw without one. Ten
+    deliberate breakages were each caught: the demo importing `src/` (two
+    ways), Lips left out of `source.include`, the page config not set, an
+    error not failing the build, no template plugin skipped silently,
+    sheets not flattened, an export the build does not write, declarations
+    from a source that does not exist, and `?raw` shipping the CSS.
+  - Tier B, the whole suite (27/27) on the packed entries, macOS arm64.
+    With Lips left out of `source.include`, the bundle does not load and
+    `run.sh` fails with the engine's SyntaxError.
+- **Not done.** The plugin compiles sheets only. Templates are compiled
+  at run time (templates as data, as the demo does) or ahead of time with
+  `precompile` from `@lipsjs/lips/precompile`; a loader for `.lips` files
+  waits for an app that needs one.
 
 ### 4.8 Accessibility
 
@@ -1025,8 +1098,16 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      the browser would lay it out.
    - Anything else is an error (LIPS-L102), because one text or several
      would lay out differently.
-3. **Packaging:** subpath entries of `@lipsjs/lips`, or a separate
-   `@lipsjs/lynx` package.
+3. ~~**Packaging:** subpath entries of `@lipsjs/lips`, or a separate
+   `@lipsjs/lynx` package.~~ **Decided 2026-11-24: subpath entries**
+   (lips#38, §4.7 "As built, packaging").
+   - Nothing forced a separate package: the hosts are hosts for the core
+     runtime, and the template pass is the core compiler, so a second
+     package would release in lockstep with a pinned core anyway.
+   - `./lynx` (build-time pass), `./lynx/main`, `./lynx/background` (one
+     runtime entry per thread, each with its budget) and `./lynx-plugin`.
+   - Cost: an app on Lynx installs the DOM entries too. They are files in
+     the package, not code in its bundles.
 4. **Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
    set `enableA11y: true`?
    - Without it, Android reads labels, hidden subtrees, values and headings,
