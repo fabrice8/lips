@@ -17,7 +17,7 @@ template string ──parse──▶ AST ──compile──▶ IR ──render�
 - **Zero build step** — import and go; templates render at runtime
 - **Fine-grained reactivity** — per-key signals; updates are O(bindings that changed)
 - **HTML-native syntax** — element-shaped control flow (`<if>`, `<for>`, `<switch>`, `<async>`), not an attribute DSL
-- **Tiny** — ~21 KB gzip full, ~12 KB gzip precompiled-only, one dependency
+- **Small** — ~36 KB gzip full (compiler, styles, router, MessageFormat 2), ~16 KB precompiled-only
 - **Serializable components** — a template is a plain object; the compiled IR is JSON
 - **Precompile + CSP mode** — build templates to IR; run with no `eval`/`Function` under a strict CSP
 - **Hot-swap** — `instance.swap(newIR)` re-renders only what changed, preserving state
@@ -67,13 +67,13 @@ import Lips from '@lipsjs/lips'
 
 | Import | Contents | gzip |
 |---|---|---|
-| `@lipsjs/lips` | full: runtime + parser/compiler + styles + router | ~21 KB |
-| `@lipsjs/lips/runtime` | precompiled-only: no parser/compiler (CSP-friendly) | ~12 KB |
+| `@lipsjs/lips` | full: runtime + parser/compiler + styles + router + i18n | ~36 KB |
+| `@lipsjs/lips/runtime` | precompiled-only: no parser/compiler (CSP-friendly) | ~16 KB |
 | `@lipsjs/lips/precompile` | build-time helpers + Vite/Rollup plugin | — |
 | `@lipsjs/lips/untrusted` | opt-in policy for templates you did not write ([RFC-007](design/untrusted-templates.md)) | ~9 KB |
 | `@lipsjs/lips/lynx` | build-time Lynx pass: a template and a stylesheet held to what Lynx draws (RFC-006) | — |
-| `@lipsjs/lips/lynx/main` | Lynx main thread: the applier over Element PAPI | ~2.2 KB |
-| `@lipsjs/lips/lynx/background` | Lynx background thread: the host Lips renders into | ~4.8 KB |
+| `@lipsjs/lips/lynx/main` | Lynx main thread: the applier over Element PAPI | ~2.8 KB |
+| `@lipsjs/lips/lynx/background` | Lynx background thread: the host Lips renders into | ~5 KB |
 | `@lipsjs/lips/lynx-plugin` | Rspeedy plugin: `*.lips.css` sheets and the page config Lips needs | — |
 | `@lipsjs/lips/dev` | unminified full build | — |
 
@@ -117,7 +117,9 @@ Components compose with **slots** (`<{input.renderer}/>`) and **events**
 are where it was written; its context is where it is placed. Full lifecycle:
 `onCreate · onInput · onMount · onRender · onUpdate · onAttach · onDetach · onContext ·
 onError · onDestroy`. `onInput` runs at creation and again each time an
-input changes.
+input changes; `onUpdate` and `onRender` after any change the template
+shows, a branch or a row as much as a text. Whatever a template evaluates,
+and whatever a handler throws, reaches `onError`, and the rest renders.
 
 A library of components installs as a plugin, with what it requires:
 
@@ -274,7 +276,10 @@ const { changes } = app.swap(newIR)   // patches only what differs
 
 ## 📖 Documentation
 
-[Full Lips documentation](https://lips-js.github.io)
+[**The reference**](docs/reference.md): every part of Lips, when to use it
+and when not, with an example that `tests/reference.spec.ts` runs. The
+design behind each part is in the RFCs under [`design/`](design).
+A guided tour is at [lips-js.github.io](https://lips-js.github.io).
 
 ## 🏗️ Building from source
 

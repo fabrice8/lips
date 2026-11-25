@@ -32,13 +32,17 @@ consumer writes `from '@lipsjs/lips'`.
 | `/compose` | macros, slot scope, `<const>`, spreads, inputs, scoped `<context>`, the root event bus |
 | `/styles` | reactive declarations inside `:hover`, `@keyframes`, `@media`; author-named custom properties |
 | `/i18n` | stable keys, source-text keys, `@format` plurals, `<i18n lang>` scoping, `self.lang` |
+| `/parts` | a menu installed with `lips.use()`, `@ref`, a field state resets, `.stop`, `onError` |
 | `/product/:id`, `/account` | route params and query |
 | anything else | the router's `not-found` |
 
 ## Four traps this demo is shaped around
 
 Each of these is silent — the app runs, and the feature just does not happen.
-`tests/demo-app.spec.ts` fails if any of them comes back.
+`tests/demo-app.spec.ts` fails if any of them comes back, and
+`tests/demo-render.spec.ts` renders the app (`client/boot.ts`, the same
+setup `index.ts` mounts) and clicks through every page: a panel that
+compiles and does nothing fails it.
 
 1. **`style=` takes CSS text.** `{…}` in an attribute value is an
    interpolation slot, so `style="{ margin: '3rem' }"` is dead code (now
@@ -46,9 +50,10 @@ Each of these is silent — the app runs, and the feature just does not happen.
 2. **A component may not be named after an HTML tag.** Known tags resolve as
    elements before the registry is consulted, so `register('footer', …)`
    renders an empty `<footer>`. See `client/registry.ts`.
-3. **A route page needs an exported `name`.** It is the page's style
-   namespace; two nameless pages share one injected `<style>` and the second
-   one's CSS never appears.
+3. **A route page's `name` is its scope.** Each page here exports one, so the
+   DOM reads `rel="page-styles"`. Without one, each page object gets a scope
+   of its own (they used to share `dynamic`, and the second page's CSS never
+   appeared).
 4. **A sheet cannot style its own root by class.** Rules are wrapped as
    `[rel="<name>"] { … }`, making every selector a descendant selector —
    the root is what carries `rel`. Root styling goes in top-level
