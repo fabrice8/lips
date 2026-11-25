@@ -383,6 +383,27 @@ API calls only on the main thread, serializable patches from the background.
   - Event payloads carry `type` and `detail` only (`value` for inputs is
     L3). *Done in L3: `e.target.value` beside `e.detail.value`.*
 
+**As built, equal writes (2026-11-25).**
+
+- **The cause.** The L4 emulator run (§7) found Lips sending 5.4× more
+  per state change than ReactLynx. A replaced `<for>` array re-runs every
+  kept row's binds: `set` for a new object, `touch()` for the same one,
+  which deep-reactive mode needs. Nothing between the bind and the wire
+  dropped a value equal to the last, so 100 rows' text crossed where 11
+  changed.
+- **As built.** The background host drops an equal write, the one place
+  that sees them all: `setText` against the node's text, `attr` against
+  a mirror of what it last wrote per element, `styleVar` against the
+  element's custom properties. On a 20-row screen with bound text,
+  `data-*`, `class` and a custom property per row, a step sends the 3
+  texts that changed instead of every row's, and re-assigning the same
+  array sends nothing (it sent 200 ops at 100 rows). The DOM host is
+  unchanged: its cost was not measured.
+- **Tests.** Tier A, 2 specs: a replaced and a re-assigned array, and a
+  changed value, a removal and a custom property each sent once. Six
+  deliberate breakages were each caught (each check removed, the mirror
+  not kept, a removal sent twice, a changed attribute dropped).
+
 ### 4.3 Vocabulary
 
 Templates stay HTML-shaped and map onto Lynx elements:

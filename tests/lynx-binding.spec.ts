@@ -1169,3 +1169,64 @@ describe('Lynx bundles', () => {
     expect( Object.keys( sources ).filter( f => sources[ f ].includes('\0') ) ).toEqual([])
   })
 })
+
+// ------------------------------------------------------------ equal writes
+describe('background host: an equal write is not sent (#39, L4)', () => {
+  const rows = ( step: number ) => Array.from({ length: 20 }, ( _, i ) => ({ id: i, label: i % 10 ? `row ${i}` : `row ${i} · ${step}` }) )
+  const ops = ( batches: unknown[][] ) => batches.flatMap( b => opsOf( b as any[] ) )
+
+  it('a replaced array sends the rows that changed, and the same array sends nothing', async () => {
+    const batches: unknown[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const inst = renderIR<LynxNode>( tree(`<p>Count: {state.n}</p><for [row] in=state.rows by="id"><div data-k={row.id} class={row.id % 2 ? 'odd' : 'even'} style="--w:{row.id}px"><p>{row.label}</p></div></for>`),
+      { state: { n: 0, rows: rows( 0 ) } }, { host: bg.host })
+    inst.mount( bg.root )
+    await tick()
+
+    batches.length = 0
+    inst.state.n = 1
+    inst.state.rows = rows( 1 )
+    await tick()
+    // The count and rows 0 and 10: nothing else differs
+    expect( ops( batches ).map( o => [ o[ 0 ], o[ 2 ] ] ) ).toEqual([ [ OP.SET_TEXT, 'Count: 1' ], [ OP.SET_TEXT, 'row 0 · 1' ], [ OP.SET_TEXT, 'row 10 · 1' ] ])
+
+    batches.length = 0
+    inst.state.rows = [ ...inst.state.rows ]
+    await tick()
+    expect( ops( batches ) ).toEqual( [] )
+  })
+
+  it('a changed value is still sent, and a removal once', async () => {
+    const batches: unknown[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const inst = renderIR<LynxNode>( tree(`<div data-k={state.k} title={state.t} style="--w:{state.w}"><p>{state.k}</p></div>`),
+      { state: { k: 'a', t: 'x', w: '1px' } }, { host: bg.host })
+    inst.mount( bg.root )
+    await tick()
+    batches.length = 0
+
+    inst.state.k = 'b'
+    inst.state.t = null
+    inst.state.w = '2px'
+    await tick()
+    const sent = ops( batches ).map( o => o.slice( 0, 1 ).concat( o.slice( 2 ) ) )
+    expect( sent ).toContainEqual([ OP.ATTR, 'data-k', 'b' ])
+    expect( sent ).toContainEqual([ OP.ATTR, 'title', null ])
+    expect( sent ).toContainEqual([ OP.SET_TEXT, 'b' ])
+    expect( sent.filter( o => o[ 0 ] === OP.STYLES ) ).toEqual([ [ OP.STYLES, '--w:2px' ] ])
+
+    batches.length = 0
+    inst.state.t = undefined
+    await tick()
+    expect( ops( batches ) ).toEqual( [] )
+
+    // A bound custom property (a reactive declaration): sent when it changes, and once when it goes
+    const box = bg.host.element('div')
+    bg.host.insert( bg.root, box, null )
+    await tick()
+    batches.length = 0
+    for( const v of [ '1px', '1px', '2px', null, null ] ) bg.host.styleVar!( box, '--h', v )
+    await tick()
+    expect( ops( batches ).map( o => o[ 2 ] ) ).toEqual([ '--h: 1px', '--h: 2px', '' ])
+  })
+})

@@ -75,6 +75,8 @@ export interface LynxNode extends TreeNode {
   idv?: string
   sent?: Record<string, unknown>
   said?: string
+  /** Each attribute as last written: an equal write is not sent again */
+  wrote?: Record<string, string | null>
   /** What a `@ref` calls, as on the DOM element (lips#37) */
   focus(): void
   blur(): void
@@ -370,9 +372,11 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     /**
      * A text bind creates its node empty and fills it in the same pass.
      * While the TEXT op is still unsent, the value goes into it — one op
-     * per text instead of two, which on a 1k-row list is 2k fewer.
+     * per text instead of two, which on a 1k-row list is 2k fewer. Text
+     * equal to what the node holds is not sent at all.
      */
     setText( n, value ){
+      if( n.value === value ) return
       n.value = value
       moved = true
       if( !n.real ) return draw( n.parent )
@@ -388,7 +392,16 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       t === el || host.insert( el, t, null )
       host.insert( t, host.text( value ), null )
     },
+    /**
+     * An equal write is dropped here, the one place that sees them all. A
+     * replaced `<for>` array re-runs every kept row's binds (`touch()` on
+     * the same object, `set` on a new one), and without this each one
+     * crossed again: 100 rows' text where 11 changed (lips#39, L4).
+     */
     attr( el, name, value ){
+      const w = el.wrote ||= {}
+      if( name in w && w[ name ] === value ) return
+      w[ name ] = value
       // In an svg's markup: kept for it, not sent (the svg's class, style, id, data-* and ARIA stay on its element)
       if( el.part || el.type === 'svg' && !ON_SVG.has( name ) && !name.startsWith('data-') && !A11Y.has( name ) ){
         value === null ? delete el.attrs[ name ] : el.attrs[ name ] = value
@@ -443,6 +456,7 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       }
     },
     styleVar( el, prop, value ){
+      if( value === null ? !( prop in el.vars ) : el.vars[ prop ] === value ) return
       value === null ? delete el.vars[ prop ] : el.vars[ prop ] = value
       emit( STYLES, el.id, cssOf( el ) )
     },
