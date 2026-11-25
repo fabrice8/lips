@@ -111,6 +111,33 @@ describe('event modifiers on the DOM', () => {
   })
 })
 
+describe('a named handler', () => {
+  it('is the component\'s, even named like a global, in both modes', () => {
+    for( const mode of [ 'compiled', 'interpreted' ] as const ){
+      document.body.innerHTML = '<div id="app"></div>'
+      const open = vi.fn(), print = vi.fn()
+      const wopen = vi.spyOn( window, 'open' ).mockImplementation( () => null )
+
+      new Lips({ mode }).render('api-named', { handler: { open, print }, default: '<button on-click(open, 2)>o</button><i on-click(print)>p</i>' }).appendTo('#app')
+      q('button').click()
+      q('i').click()
+
+      expect( open.mock.calls[ 0 ]?.[ 0 ], mode ).toBe( 2 )
+      expect( print, mode ).toHaveBeenCalledTimes( 1 )
+      expect( wopen, mode ).not.toHaveBeenCalled()
+      wopen.mockRestore()
+    }
+  })
+
+  it('a scope variable of the same name is that variable', () => {
+    const handler = vi.fn(), fromRow = vi.fn()
+    lips.render('api-scoped', { state: { rows: [ fromRow ] }, handler: { pick: handler }, default: '<for [pick] in=state.rows><b on-click(pick, 1)>x</b></for>' }).appendTo('#app')
+    q('b').click()
+    expect( fromRow ).toHaveBeenCalledTimes( 1 )
+    expect( handler ).not.toHaveBeenCalled()
+  })
+})
+
 describe('@ref', () => {
   it('names the element on this.refs while it lives, under the name it has now', async () => {
     let self: any

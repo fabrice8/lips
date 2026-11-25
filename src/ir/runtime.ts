@@ -1841,16 +1841,24 @@ class IRRenderer {
    * Scope getters read live values at dispatch — no stale memos.
    */
   private eventDispatcher( instruction: string, scopeNames: string[], benv: RunEnv ){
-    const segs = splitTopLevel( instruction )
+    const
+    segs = splitTopLevel( instruction ),
+    /**
+     * A bare name that no scope variable holds is the component's handler
+     * before it is an expression. Read as an expression first, `open`,
+     * `close`, `print` or `focus` was the window's own function in
+     * compiled mode, called instead of the handler (interpreted mode, with
+     * no such globals, called the handler: the modes disagreed).
+     */
+    named = /^[A-Za-z_$][\w$]*$/.test( segs[ 0 ] || '' ) && !scopeNames.includes( segs[ 0 ] )
 
     return ( ...params: any[] ) => untrack( () => {
       const resolveFn = ( src: string ) => {
-        let v: any
-        try { v = this.srcRunner( src, scopeNames )( benv ) }
-        catch( e ){ v = undefined }
-        if( typeof v !== 'function' && benv.self && !this.options.guard?.self( src ) && typeof benv.self[ src ] === 'function' )
-          v = benv.self[ src ]
-        return v
+        if( named && benv.self && !this.options.guard?.self( src ) && typeof benv.self[ src ] === 'function' )
+          return benv.self[ src ]
+
+        try { return this.srcRunner( src, scopeNames )( benv ) }
+        catch( e ){ return undefined }
       }
 
       if( !segs.length ) return
