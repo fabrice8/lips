@@ -319,6 +319,11 @@ const KB = 1024
  * before raising: the decoded named references are HTML's five and
  * `&nbsp;` only (LIPS-P013 names the rest), and the interpreted chain lets
  * JS throw its own TypeError instead of building one.
+ * 2026-11-25g: parts 2.0→3.45 (RFC-008) — the layer taken out of the
+ * popover, the dialog, toasts, icons and the blurred backdrop: 1.89→3.33
+ * on the pinned bun. Each alone, gzipped: the layer and the blurred
+ * backdrop 0.62, toasts 0.60, icons 0.37, the dialog with the popover and
+ * layer it stands on 1.98. Room as the others have.
  */
 const BUDGETS = {
   'dist/lips.min.js': 36.15,     // full: runtime + parser/compiler + style compiler + router
@@ -330,7 +335,7 @@ const BUDGETS = {
   'dist/lynx.min.js': 18.5,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 5.1, // Lynx background thread: the host the runtime renders into
-  'dist/parts.min.js': 2.0       // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
+  'dist/parts.min.js': 3.45      // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
 }
 
 let failed = false
