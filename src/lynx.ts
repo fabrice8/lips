@@ -21,3 +21,4 @@
 
 export { compileLynxTemplate, lynxVocabulary } from './lynx/template'
 export { compileLynxStyle, LYNX_PAGE_CONFIG, type LynxStyleOptions } from './lynx/style'
+export { lynxComponents, type LynxComponents } from './lynx/components'

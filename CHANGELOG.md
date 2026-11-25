@@ -36,6 +36,40 @@ the DOM and Lynx:
   markup. Hidden from a screen reader unless labelled; labelled, it names
   the button it is in, on both hosts. One set per Lips.
 
+### Added — virtual list and grid, and date picker (RFC-008)
+
+- **`virtualList`**: `virtual-list`, a long list of rows of one size, of
+  which only what is in view and an overscan is drawn on the web, each
+  row placed where it falls; `columns` puts that many items in a row. As
+  a `grid` or `table` of one column, it says how many rows it has and
+  each row which it is. On Lynx it is Lynx's own `list`, which recycles
+  its cells, `size` the estimate and `columns` the `span-count`.
+- **`datePicker`**: `date-grid`, a month as a grid of ISO days, and
+  `popover-date`, the grid in a popover's layer. The grid keeps focus and
+  names the active day; arrows, Home and End, Page Up and Down (with
+  Shift, a year) and Enter as WAI-ARIA's date picker. `min`, `max` and a
+  `disabled` policy refuse days. Names of months and days, the title, a
+  day's full name and the week's first day come from `Intl` in the
+  reader's language where it formats dates, else from the app's `words`,
+  else English. On Lynx each day is a button.
+
+### Added — a component's markup for Lynx, and plugins compiled for Lynx
+
+- A component may carry `lynx` source beside `default`, for a part whose
+  markup differs by host (the virtual list is Lynx's `list` there). Left
+  out, `default` serves both.
+- `lynxComponents( plugins )` (`./lynx`) compiles plugins for Lynx, and
+  what they require, as `lips.use()` installs them on the web, choosing
+  `lynx` source where there is one; for `renderIR`'s `components`. It
+  refuses what `use()` refuses, and what Lynx cannot take: `install()`,
+  a `stylesheet`, precompiled `ir`.
+
+### Fixed — `this.refs` is there from the start
+
+A component whose template named no `@ref` had no `refs`, so a handler
+reading `this.refs.x`, as the types promise it can, threw. Every
+component has `refs` now.
+
 ### Added — combobox, and a region that reveals and folds (RFC-008)
 
 - **`combobox`**: `popover-combobox`, a text field that is a popover's

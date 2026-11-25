@@ -328,6 +328,13 @@ const KB = 1024
  * 3.33→4.02 on the pinned bun, +0.69. Each alone, with what it stands on:
  * the combobox with the popover, layer and menu's `move` 2.30, the region
  * with the popover and layer 1.53. The Lynx `setValue` fix is size-neutral.
+ * 2026-11-25i: parts 4.15→6.75, lynx 18.5→18.9 — the virtual list and
+ * grid, the date picker, and `lynxComponents()`: parts 4.02→6.62, lynx
+ * 18.38→18.79, on the pinned bun. Alone: the virtual list 0.95; the date
+ * picker with the popover and layer 3.67, of which its own two templates
+ * (the grid on the web, buttons on Lynx) and English words. `lynx` is a
+ * build-time entry: `lynxComponents` is `use()`'s counterpart for Lynx,
+ * with its refusals spelled out. `this.refs` there from the start: 0.
  */
 const BUDGETS = {
   'dist/lips.min.js': 36.15,     // full: runtime + parser/compiler + style compiler + router
@@ -336,10 +343,10 @@ const BUDGETS = {
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.5,  // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 18.5,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/lynx.min.js': 18.9,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 5.1, // Lynx background thread: the host the runtime renders into
-  'dist/parts.min.js': 4.15      // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
+  'dist/parts.min.js': 6.75      // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
 }
 
 let failed = false
