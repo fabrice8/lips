@@ -44,11 +44,18 @@ export interface LynxStyleOptions {
  *  - `enableCSSInheritance`: `color`, `font-size` and the other text
  *    properties inherit, as on the web. Templates are HTML-shaped and
  *    sheets are written for the web's cascade.
+ *  - `enableA11y` (lips#44): Android's helper accessibility path, the only
+ *    one that reads `accessibility-traits` and role descriptions. Without
+ *    it TalkBack gets a button as `LynxFlattenUI`, with no role; with it,
+ *    as `android.widget.Button` (Android emulator, RFC-006 §9.4). It is
+ *    page-wide: an app that wants the default path sets `enableA11y:
+ *    false` in its own page config, which `pluginLips` keeps.
  */
 export const LYNX_PAGE_CONFIG = {
   enableCSSInlineVariables: true,
   enableCSSRule: true,
-  enableCSSInheritance: true
+  enableCSSInheritance: true,
+  enableA11y: true
 }
 
 export function compileLynxStyle( source: string, options: LynxStyleOptions ): StyleCompileResult {

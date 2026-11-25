@@ -1196,6 +1196,50 @@ list takes its first token, as ARIA does with the first role it knows.
     handler and for the page-level `.outside` one alike.
 - **Not verified.** What a screen reader says for it is tier C.
 
+**As built, Android's accessibility path (2026-11-25, lips#44).**
+
+- **`LYNX_PAGE_CONFIG` sets `enableA11y: true`**, so `pluginLips` encodes
+  it into every bundle (§9.4 decided). An app whose own page config sets
+  `enableA11y` keeps its value: the plugin writes the CSS flags over the
+  app's, since the pipeline needs them, but not this one.
+- **Device check** (Android emulator, API 36.1 arm64, Lynx Explorer
+  4.1.0, TalkBack 16.0; kept apart from tier B). The demo built twice
+  from one source, with the flag forced on and off, each loaded from a
+  local server; TalkBack on, then `uiautomator dump` (without a running
+  accessibility service the dump has none of Lynx's virtual nodes):
+
+  | | Flag off (default path) | Flag on (helper path) |
+  |---|---|---|
+  | A `<button>` (`#inc`, `#off`, …) | `com.lynx.tasm.behavior.ui.LynxFlattenUI` | `android.widget.Button` |
+  | Its label's `text` | `com.lynx.tasm.behavior.ui.text.FlattenUIText` | `android.view.View` |
+  | A `p` | `…text.FlattenUIText` | `android.view.View` |
+  | Name (`content-desc`) | `+1`, `off`, … | the same |
+  | The input | `android.widget.EditText` | the same |
+
+  TalkBack takes the spoken role from the class: `android.widget.Button`
+  is read with "button", and Lynx's own classes with none. So the flag is
+  what makes a button a button on Android.
+- **Not verified on the device.**
+  - The spoken words themselves: the image's Google TTS engine crashes
+    (native fault in `libgoogle_speech_sbg_tts_jni.so`), and without root
+    TalkBack's focus cannot be moved by injected input, which activates
+    instead of exploring. The class is the input TalkBack speaks from.
+  - Role descriptions (`accessibility-role-description`) and the
+    `disabled` value: `uiautomator` does not show them, and the demo has
+    no checkbox or switch.
+  - Both paths expose a button and its label's text as two nodes, so
+    TalkBack stops twice per button. Lips could hide the label from the
+    tree under a named button; not done here.
+- **Tests.**
+  - Tier A: `tests/lynx-style.spec.ts` (the config) and
+    `tests/lynx-package.spec.ts` (the plugin writes it into the encoded
+    config, and keeps an app's own value but not an app's CSS flags).
+    Five deliberate breakages were each caught: the flag `false`, the
+    flag left out, the plugin dropping it, the app's value overwritten,
+    and every app value kept.
+  - Tier B: `run.sh` reads the encoded bundle and finds
+    `"enableA11y":true` in it (the off build has none).
+
 ## 5. Engine APIs: allowed and refused
 
 **Allowed** (public types and official guidance): page/view/text/raw-text/
@@ -1299,14 +1343,14 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      runtime entry per thread, each with its budget) and `./lynx-plugin`.
    - Cost: an app on Lynx installs the DOM entries too. They are files in
      the package, not code in its bundles.
-4. **Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
-   set `enableA11y: true`?
+4. ~~**Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
+   set `enableA11y: true`?~~ **Decided 2026-11-25: set it** (lips#44, §4.8
+   "As built, Android's accessibility path").
    - Without it, Android reads labels, hidden subtrees, values and headings,
      but no traits or role descriptions: a button is not called a button.
-   - With it, Android switches to the helper path for the whole page, which
-     the host app may not expect.
-   - Recommended: set it. Not set yet, because it changes the host app's
-     Android behaviour and only tier C can check it.
+   - With it, Android switches to the helper path for the whole page. An
+     app that wants the default path sets `enableA11y: false` in its own
+     page config.
 5. **States: words, or iOS's own traits.**
    - As built: words in `accessibility-value`, the same on every
      platform, translated through `connectBackground( words )`.

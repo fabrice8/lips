@@ -210,7 +210,9 @@ describe('Lynx page config', () => {
     expect( LYNX_PAGE_CONFIG ).toEqual({
       enableCSSInlineVariables: true,
       enableCSSRule: true,
-      enableCSSInheritance: true
+      enableCSSInheritance: true,
+      // Android reads traits and role descriptions only on this path (lips#44)
+      enableA11y: true
     })
   })
 })
