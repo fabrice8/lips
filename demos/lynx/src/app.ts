@@ -38,7 +38,7 @@ export const TEMPLATE = `
     <button class="btn" id="focus" data-k="focus" on-click( focusField )>focus</button>
     <button class="btn" id="jump" data-k="jump" on-click( jump )>jump</button>
     <button class="btn" id="measure" data-k="measure" on-click( measure )>measure</button>
-    <div style="width: 120px; height: 30px" @ref="probe"></div>
+    <div style="width: 120px; height: 30px; flex-shrink: 0" @ref="probe"></div>
   </div>
   <p class="echo" id="focused" data-k="focused">Focused: {state.focusN}</p>
   <p class="echo" id="rect" data-k="rect">Rect: {state.rect}</p>
