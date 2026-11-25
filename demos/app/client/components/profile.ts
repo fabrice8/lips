@@ -6,30 +6,33 @@
  * through `<loading>` and into `<then>`/`<catch>` again. That is the whole
  * retry mechanism — no imperative refetch call anywhere.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export type Input = {
   name?: string
 }
+type State = {
+  nonce: number
+  fail: boolean
+}
 
-export default component<{ input: Input }>()({
-  state: {
-    nonce: 0,
-    fail: false
+export const state: State = {
+  nonce: 0,
+  fail: false
+}
+
+export const handler: Handlers<Shape<{ input: Input, state: State }>> = {
+  reload(){
+    this.state.fail = false
+    this.state.nonce++
   },
+  breakIt(){
+    this.state.fail = true
+    this.state.nonce++
+  }
+}
 
-  handler: {
-    reload(){
-      this.state.fail = false
-      this.state.nonce++
-    },
-    breakIt(){
-      this.state.fail = true
-      this.state.nonce++
-    }
-  },
-
-  stylesheet: `
+export const stylesheet = `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: grid;
   gap: .8rem;
@@ -108,9 +111,9 @@ export default component<{ input: Input }>()({
     from { background-position: 200% 0 }
     to { background-position: -200% 0 }
   }
-`,
+`
 
-  default: `
+export default `
   <div class="card">
     <async await( context.getUser( input.name || 'Ada Lovelace', state.fail, state.nonce ) )>
       <loading>
@@ -139,4 +142,3 @@ export default component<{ input: Input }>()({
     </div>
   </div>
 `
-})

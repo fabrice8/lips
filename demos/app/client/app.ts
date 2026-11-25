@@ -9,24 +9,24 @@
  * look. Only `html`/`body` and the design tokens stay in index.html,
  * because no scoped sheet can reach them.
  */
-import { component, type Component } from '../../../src/lips'
+import type { Handlers, Shape } from '../../../src/types'
 import type { Link } from './components/nav-bar'
 
-import home from './pages/home'
-import reactivity from './pages/reactivity'
-import controlFlow from './pages/control-flow'
-import asyncPage from './pages/async'
-import i18nPage from './pages/i18n'
-import stylesPage from './pages/styles'
-import compose from './pages/compose'
-import account from './pages/account'
-import product from './pages/product'
-import parts from './pages/parts'
+import * as Home from './pages/home'
+import * as Reactivity from './pages/reactivity'
+import * as ControlFlow from './pages/control-flow'
+import * as AsyncPage from './pages/async'
+import * as I18nPage from './pages/i18n'
+import * as StylesPage from './pages/styles'
+import * as Compose from './pages/compose'
+import * as Account from './pages/account'
+import * as Product from './pages/product'
+import * as Parts from './pages/parts'
 
 type Toast = { id: number, text: string, tone: string }
 
 type Static = {
-  routes: { path: string, template: Component, default?: boolean }[]
+  routes: { path: string, template: any, default?: boolean }[]
   links: Link[]
 }
 type State = {
@@ -36,71 +36,70 @@ type State = {
   missing: string | null
 }
 
+export const _static: Static = {
+  routes: [
+    { path: '/', template: Home, default: true },
+    { path: '/reactivity', template: Reactivity },
+    { path: '/control-flow', template: ControlFlow },
+    { path: '/async', template: AsyncPage },
+    { path: '/i18n', template: I18nPage },
+    { path: '/styles', template: StylesPage },
+    { path: '/compose', template: Compose },
+    { path: '/parts', template: Parts },
+    { path: '/account', template: Account },
+    { path: '/product/:id', template: Product }
+  ],
+  links: [
+    { path: '/', label: 'Overview', icon: '◆' },
+    { path: '/reactivity', label: 'Reactivity', icon: '⚡' },
+    { path: '/control-flow', label: 'Control flow', icon: '⌥' },
+    { path: '/async', label: 'Async', icon: '⏳' },
+    { path: '/compose', label: 'Composition', icon: '⬡' },
+    { path: '/parts', label: 'Parts', icon: '▤' },
+    { path: '/styles', label: 'Styles', icon: '🎨' },
+    { path: '/i18n', label: 'i18n', icon: '🌍' }
+  ]
+}
+
+export const state: State = {
+  path: '/',
+  toasts: [],
+  missing: null
+}
+
 let seq = 0
 
-export default component<{ state: State, static: Static }>()({
-  static: {
-    routes: [
-      { path: '/', template: home, default: true },
-      { path: '/reactivity', template: reactivity },
-      { path: '/control-flow', template: controlFlow },
-      { path: '/async', template: asyncPage },
-      { path: '/i18n', template: i18nPage },
-      { path: '/styles', template: stylesPage },
-      { path: '/compose', template: compose },
-      { path: '/parts', template: parts },
-      { path: '/account', template: account },
-      { path: '/product/:id', template: product }
-    ],
-    links: [
-      { path: '/', label: 'Overview', icon: '◆' },
-      { path: '/reactivity', label: 'Reactivity', icon: '⚡' },
-      { path: '/control-flow', label: 'Control flow', icon: '⌥' },
-      { path: '/async', label: 'Async', icon: '⏳' },
-      { path: '/compose', label: 'Composition', icon: '⬡' },
-      { path: '/parts', label: 'Parts', icon: '▤' },
-      { path: '/styles', label: 'Styles', icon: '🎨' },
-      { path: '/i18n', label: 'i18n', icon: '🌍' }
-    ]
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
+  /**
+   * The component bus runs both ways: `index.ts` holds the root handle and
+   * calls `app.emit('toast', …)`, which reaches THIS listener. Inbound
+   * events never invoke handler methods by name, so what the shell accepts
+   * stays an explicit contract.
+   */
+  onCreate(){
+    this.on('toast', ( text: string, tone = 'info' ) => this.toast( text, tone ) )
   },
 
-  state: {
-    path: '/',
-    toasts: [],
-    missing: null
+  toast( text: string, tone = 'info' ){
+    const id = ++seq
+    this.state.toasts = [ ...this.state.toasts, { id, text, tone } ]
+    setTimeout( () => this.dismiss( id ), 3200 )
+  },
+  dismiss( id: number ){
+    this.state.toasts = this.state.toasts.filter( t => t.id !== id )
   },
 
-  handler: {
-    /**
-     * The component bus runs both ways: `index.ts` holds the root handle and
-     * calls `app.emit('toast', …)`, which reaches THIS listener. Inbound
-     * events never invoke handler methods by name, so what the shell accepts
-     * stays an explicit contract.
-     */
-    onCreate(){
-      this.on('toast', ( text: string, tone = 'info' ) => this.toast( text, tone ) )
-    },
-
-    toast( text: string, tone = 'info' ){
-      const id = ++seq
-      this.state.toasts = [ ...this.state.toasts, { id, text, tone } ]
-      setTimeout( () => this.dismiss( id ), 3200 )
-    },
-    dismiss( id: number ){
-      this.state.toasts = this.state.toasts.filter( t => t.id !== id )
-    },
-
-    onRouteAfter( payload: { toState: { path: string } } ){
-      this.state.path = payload?.toState?.path || '/'
-      this.state.missing = null
-    },
-    onPageNotFound( path: string ){
-      this.state.missing = path
-      this.toast(`No route for ${path}`, 'warn')
-    }
+  onRouteAfter( payload: { toState: { path: string } } ){
+    this.state.path = payload?.toState?.path || '/'
+    this.state.missing = null
   },
+  onPageNotFound( path: string ){
+    this.state.missing = path
+    this.toast(`No route for ${path}`, 'warn')
+  }
+}
 
-  stylesheet: `
+export const stylesheet = `
   /* ---------------------------------------------------------- shell */
   display: block;
   max-width: 62rem;
@@ -327,9 +326,9 @@ export default component<{ state: State, static: Static }>()({
     .top { padding: .7rem 0 }
     h1 { font-size: 1.45rem }
   }
-`,
+`
 
-  default: `
+export default `
   <main>
     <header class="top">
       <span class="brand" on-click(() => context.navigate('/') )>
@@ -365,4 +364,3 @@ export default component<{ state: State, static: Static }>()({
     </ul>
   </main>
 `
-})

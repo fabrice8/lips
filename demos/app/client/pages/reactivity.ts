@@ -2,7 +2,9 @@
  * Reactivity page — signals, keyed lists, component events, `<let>`,
  * and proof that a nested write does not wake the list.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
+
+export const name = 'page-reactivity'
 
 type Todo = { id: number, text: string, done: boolean }
 
@@ -14,66 +16,63 @@ type State = {
   renders: number
 }
 
+export const state: State = {
+  seed: 3,
+  lastEmit: null,
+  draft: '',
+  todos: [
+    { id: 1, text: 'Read the IR compiler', done: true },
+    { id: 2, text: 'Write a keyed <for>', done: false },
+    { id: 3, text: 'Ship something small', done: false }
+  ],
+  renders: 0
+}
+
 let nextId = 4
 
-export default component<{ state: State }>()({
-  name: 'page-reactivity',
-
-  state: {
-    seed: 3,
-    lastEmit: null,
-    draft: '',
-    todos: [
-      { id: 1, text: 'Read the IR compiler', done: true },
-      { id: 2, text: 'Write a keyed <for>', done: false },
-      { id: 3, text: 'Ship something small', done: false }
-    ],
-    renders: 0
+export const handler: Handlers<Shape<{ state: State }>> = {
+  /** `on-update(onCount)` on <counter> — the child's `this.emit('update', n)` */
+  onCount( value: number ){
+    this.state.lastEmit = value
   },
 
-  handler: {
-    /** `on-update(onCount)` on <counter> — the child's `this.emit('update', n)` */
-    onCount( value: number ){
-      this.state.lastEmit = value
-    },
+  add(){
+    const text = this.state.draft.trim()
+    if( !text ) return this.context.toast?.('Type something first', 'warn')
 
-    add(){
-      const text = this.state.draft.trim()
-      if( !text ) return this.context.toast?.('Type something first', 'warn')
-
-      this.state.todos = [ ...this.state.todos, { id: nextId++, text, done: false } ]
-      this.state.draft = ''
-    },
-    /** A NESTED write: only the bindings that read this row's `done` re-run */
-    toggle( todo: Todo ){
-      todo.done = !todo.done
-    },
-    remove( id: number ){
-      this.state.todos = this.state.todos.filter( t => t.id !== id )
-    },
-    shuffle(){
-      const rows = [ ...this.state.todos ]
-      for( let i = rows.length - 1; i > 0; i-- ){
-        const j = Math.floor( Math.random() * ( i + 1 ) )
-        ;[ rows[ i ], rows[ j ] ] = [ rows[ j ], rows[ i ] ]
-      }
-      this.state.todos = rows
-      this.context.toast?.('Reordered — DOM nodes were moved, not rebuilt', 'ok')
-    },
-
-    onDraft( e: any ){
-      this.state.draft = e.target.value
-    },
-    onDraftKey( e: any ){
-      e.key === 'Enter' && this.add()
-    },
-
-    goOffline(){
-      this.setContext('online', !this.context.online )
+    this.state.todos = [ ...this.state.todos, { id: nextId++, text, done: false } ]
+    this.state.draft = ''
+  },
+  /** A NESTED write: only the bindings that read this row's `done` re-run */
+  toggle( todo: Todo ){
+    todo.done = !todo.done
+  },
+  remove( id: number ){
+    this.state.todos = this.state.todos.filter( t => t.id !== id )
+  },
+  shuffle(){
+    const rows = [ ...this.state.todos ]
+    for( let i = rows.length - 1; i > 0; i-- ){
+      const j = Math.floor( Math.random() * ( i + 1 ) )
+      ;[ rows[ i ], rows[ j ] ] = [ rows[ j ], rows[ i ] ]
     }
+    this.state.todos = rows
+    this.context.toast?.('Reordered — DOM nodes were moved, not rebuilt', 'ok')
   },
 
-  stylesheet: `
+  onDraft( e: any ){
+    this.state.draft = e.target.value
+  },
+  onDraftKey( e: any ){
+    e.key === 'Enter' && this.add()
+  },
+
+  goOffline(){
+    this.setContext('online', !this.context.online )
+  }
+}
+
+export const stylesheet = `
   ul {
     margin: 0;
     padding: 0;
@@ -108,9 +107,9 @@ export default component<{ state: State }>()({
     color: var(--text-dim);
   }
   .counters { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)) }
-`,
+`
 
-  default: `
+export default `
   <div>
     <h1>Reactivity</h1>
     <p class="lede">
@@ -195,4 +194,3 @@ export default component<{ state: State }>()({
     </section>
   </div>
 `
-})

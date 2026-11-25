@@ -8,7 +8,6 @@
  * value is one expression binds the AUTHOR's name, so it stays readable
  * in devtools and inheritable by children.
  */
-import { component } from '../../../../src/lips'
 export type Input = {
   label: string
   value: number
@@ -17,8 +16,7 @@ export type Input = {
   tone?: 'accent' | 'ok' | 'warn'
 }
 
-export default component<{ input: Input }>()({
-  stylesheet: `
+export const stylesheet = `
   --tile-ratio: {Math.min( 1, ( input.value || 0 ) / ( input.max || 1 ) )};
 
   /* Root-level: the element carrying rel= is not a descendant of itself */
@@ -61,13 +59,12 @@ export default component<{ input: Input }>()({
     width: calc(var(--tile-ratio) * 100%);
     transition: width .3s ease;
   }
-`,
+`
 
-  default: `
+export default `
   <div class="tile">
     <span class="label" @text=input.label></span>
     <span class="value">{input.value}<span class="unit" @text=input.unit></span></span>
     <span class="meter"><i></i></span>
   </div>
 `
-})

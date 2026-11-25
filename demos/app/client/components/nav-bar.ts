@@ -8,7 +8,7 @@
  * at the component registry — so a component registered under an HTML
  * tag name silently never renders.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export type Link = { path: string, label: string, icon: string }
 
@@ -18,14 +18,13 @@ export type Input = {
   current: string
 }
 
-export default component<{ input: Input }>()({
-  handler: {
-    go( path: string ){
-      this.context.navigate?.( path )
-    }
-  },
+export const handler: Handlers<Shape<{ input: Input }>> = {
+  go( path: string ){
+    this.context.navigate?.( path )
+  }
+}
 
-  stylesheet: `
+export const stylesheet = `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: flex;
   gap: .1rem;
@@ -66,9 +65,9 @@ export default component<{ input: Input }>()({
     .label { display: none }
     button { padding: .3rem .55rem }
   }
-`,
+`
 
-  default: `
+export default `
   <div class="nav">
     <for [link] in=input.links by="path">
       <button class="{input.current === link.path ? 'active' : ''}"
@@ -80,4 +79,3 @@ export default component<{ input: Input }>()({
     </for>
   </div>
 `
-})

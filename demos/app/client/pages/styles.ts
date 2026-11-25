@@ -12,10 +12,19 @@
  * `calc(var(…))` still changes discretely in Chrome. Treat the
  * `transition` declarations here as smoothing, not as interpolation.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
 
-/** Apart, so a handler can name its keys: `keyof typeof state` */
-const state = {
+export const name = 'page-styles'
+
+type State = {
+  hue: number
+  size: number
+  gap: number
+  glow: number
+  cols: number
+}
+
+export const state: State = {
   hue: 330,
   size: 64,
   gap: 12,
@@ -23,17 +32,13 @@ const state = {
   cols: 3
 }
 
-export default component({
-  name: 'page-styles',
-  state,
+export const handler: Handlers<Shape<{ state: State }>> = {
+  set( key: keyof State, e: any ){
+    this.state[ key ] = Number( e.target.value )
+  }
+}
 
-  handler: {
-    set( key: keyof typeof state, e: any ){
-      this.state[ key ] = Number( e.target.value )
-    }
-  },
-
-  stylesheet: `
+export const stylesheet = `
   /* A bare custom property binds the AUTHOR's name — readable in devtools,
      and inherited by children (RFC-004 §7.4) */
   --accent-live: {'hsl(' + state.hue + ' 85% 60%)'};
@@ -113,9 +118,9 @@ export default component({
     li { margin: .2rem 0 }
     code { font-size: .82em }
   }
-`,
+`
 
-  default: `
+export default `
   <div>
     <h1>Reactive stylesheets</h1>
     <p class="lede">
@@ -175,4 +180,3 @@ export default component({
     </section>
   </div>
 `
-})

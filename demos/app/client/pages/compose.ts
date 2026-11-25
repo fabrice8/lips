@@ -7,7 +7,9 @@
  * own. That also means macro markup lands inside THIS component's scope,
  * which is why the macro classes are styled by this page's sheet.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
+
+export const name = 'page-compose'
 
 type Row = { id: string, label: string, kind: string, count: number }
 
@@ -15,32 +17,32 @@ type State = {
   rows: Row[]
   extra: Record<string, string>
 }
+type Static = {
+  tiles: { label: string, value: number, max: number, unit: string, tone: string }[]
+}
 
-export default component<{ state: State }>()({
-  name: 'page-compose',
+export const _static: Static = {
+  tiles: [
+    { label: 'bundle', value: 21, max: 40, unit: ' KB', tone: 'accent' },
+    { label: 'runtime only', value: 12, max: 40, unit: ' KB', tone: 'ok' },
+    { label: 'deps', value: 1, max: 10, unit: '', tone: 'ok' }
+  ]
+}
 
-  static: {
-    tiles: [
-      { label: 'bundle', value: 21, max: 40, unit: ' KB', tone: 'accent' },
-      { label: 'runtime only', value: 12, max: 40, unit: ' KB', tone: 'ok' },
-      { label: 'deps', value: 1, max: 10, unit: '', tone: 'ok' }
-    ]
-  },
+export const state: State = {
+  rows: [
+    { id: 'a', label: 'signal', kind: 'core', count: 4 },
+    { id: 'b', label: 'effect', kind: 'core', count: 2 },
+    { id: 'c', label: 'router', kind: 'built-in', count: 1 }
+  ],
+  extra: { 'data-source': 'spread', 'aria-label': 'spread onto the element' }
+}
 
-  state: {
-    rows: [
-      { id: 'a', label: 'signal', kind: 'core', count: 4 },
-      { id: 'b', label: 'effect', kind: 'core', count: 2 },
-      { id: 'c', label: 'router', kind: 'built-in', count: 1 }
-    ],
-    extra: { 'data-source': 'spread', 'aria-label': 'spread onto the element' }
-  },
-
-  /**
-   * `<macro [argv] name="X">` — argv become block-scoped reactive vars at the
-   * call site. Reference one macro from another and it inlines recursively.
-   */
-  macros: `
+/**
+ * `<macro [argv] name="X">` — argv become block-scoped reactive vars at the
+ * call site. Reference one macro from another and it inlines recursively.
+ */
+export const macros = `
   <macro [label] name="chip">
     <em class="chip">{label}</em>
   </macro>
@@ -52,19 +54,19 @@ export default component<{ state: State }>()({
       <span class="count" @text=row.count></span>
     </li>
   </macro>
-`,
+`
 
-  handler: {
-    bump( id: string ){
-      const row = this.state.rows.find( r => r.id === id )
-      row && row.count++
-    },
-    ping(){
-      this.context.toast?.('Raised through context.toast → root bus', 'ok')
-    }
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
+  bump( id: string ){
+    const row = this.state.rows.find( r => r.id === id )
+    row && row.count++
   },
+  ping(){
+    this.context.toast?.('Raised through context.toast → root bus', 'ok')
+  }
+}
 
-  stylesheet: `
+export const stylesheet = `
   ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .4rem }
 
   .rowline {
@@ -110,9 +112,9 @@ export default component<{ state: State }>()({
     border: 1px solid var(--border);
     background: var(--panel-2);
   }
-`,
+`
 
-  default: `
+export default `
   <div>
     <h1>Composition</h1>
     <p class="lede">
@@ -205,4 +207,3 @@ export default component<{ state: State }>()({
     </section>
   </div>
 `
-})

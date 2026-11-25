@@ -21,10 +21,11 @@ Imports resolve to `../../src`, not to `dist/`, so the demo typechecks and
 runs straight from source with no build of the library first. A published
 consumer writes `from '@lipsjs/lips'`.
 
-Every component and page is one `export default component({ … })`: its
-state, static and handlers are inferred, and only what no value shows is
-named (`component<{ input: Input }>()`). The app's context is typed once,
-in `client/context.ts`. `npm run typecheck` at the repo root checks it all.
+Every component and page is a module of plain exports — `state`,
+`_static`, `handler`, `stylesheet` and the markup as `default` — its
+handler typed by the parts it reads (`Handlers<Shape<{ input: Input }>>`).
+The app's context is typed once, in `client/context.ts`. `npm run
+typecheck` at the repo root checks it all.
 
 ## What each route exercises
 
@@ -55,7 +56,7 @@ compiles and does nothing fails it.
 2. **A component may not be named after an HTML tag.** Known tags resolve as
    elements before the registry is consulted, so `register('footer', …)`
    renders an empty `<footer>`. See `client/registry.ts`.
-3. **A route page's `name` is its scope.** Each page here has one, so the
+3. **A route page's `name` is its scope.** Each page here exports one, so the
    DOM reads `rel="page-styles"`. Without one, each page object gets a scope
    of its own (they used to share `dynamic`, and the second page's CSS never
    appeared).

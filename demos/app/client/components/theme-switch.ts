@@ -7,10 +7,14 @@
  * READ the theme reactively (see the `styles` page, which colours a
  * declaration off `context.theme`).
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
 
 type State = {
   mode: 'system' | 'light' | 'dark'
+}
+
+export const state: State = {
+  mode: 'system'
 }
 
 const resolve = ( mode: State['mode'] ) =>
@@ -18,32 +22,27 @@ const resolve = ( mode: State['mode'] ) =>
     ? mode
     : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 
-export default component<{ state: State }>()({
-  state: {
-    mode: 'system'
+export const handler: Handlers<Shape<{ state: State }>> = {
+  onMount(){ this.apply( this.state.mode ) },
+
+  apply( mode: State['mode'] ){
+    this.state.mode = mode
+
+    mode === 'system'
+      ? delete document.documentElement.dataset.theme
+      : document.documentElement.dataset.theme = mode
+
+    // Publish the RESOLVED theme so stylesheets can branch on it
+    this.setContext('theme', resolve( mode ) )
   },
 
-  handler: {
-    onMount(){ this.apply( this.state.mode ) },
+  cycle(){
+    const order: State['mode'][] = [ 'system', 'light', 'dark' ]
+    this.apply( order[ ( order.indexOf( this.state.mode ) + 1 ) % order.length ] )
+  }
+}
 
-    apply( mode: State['mode'] ){
-      this.state.mode = mode
-
-      mode === 'system'
-        ? delete document.documentElement.dataset.theme
-        : document.documentElement.dataset.theme = mode
-
-      // Publish the RESOLVED theme so stylesheets can branch on it
-      this.setContext('theme', resolve( mode ) )
-    },
-
-    cycle(){
-      const order: State['mode'][] = [ 'system', 'light', 'dark' ]
-      this.apply( order[ ( order.indexOf( this.state.mode ) + 1 ) % order.length ] )
-    }
-  },
-
-  stylesheet: `
+export const stylesheet = `
   /* This component's root IS the <button>, so its own styling is
      root-level — a \`button { … }\` rule would look for a descendant one */
   display: inline-flex;
@@ -63,9 +62,9 @@ export default component<{ state: State }>()({
   &:hover { color: var(--text); border-color: var(--accent) }
 
   .glyph { font-size: .95rem; line-height: 1 }
-`,
+`
 
-  default: `
+export default `
   <button title="Theme" on-click(cycle)>
     <span class="glyph">
       <switch( state.mode )>
@@ -77,4 +76,3 @@ export default component<{ state: State }>()({
     <span @text=state.mode></span>
   </button>
 `
-})

@@ -5,10 +5,7 @@
  * half of RFC-005 §2 a same-template `<i18n>` block cannot show, because
  * `self` is one object per component.
  */
-import { component } from '../../../../src/lips'
-
-export default component({
-  stylesheet: `
+export const stylesheet = `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: inline-block;
   font-family: var(--mono);
@@ -18,7 +15,6 @@ export default component({
   border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 999px;
   padding: .05rem .45rem;
-`,
+`
 
-  default: `<span>self.lang = <span @text=self.lang></span></span>`
-})
+export default `<span>self.lang = <span @text=self.lang></span></span>`

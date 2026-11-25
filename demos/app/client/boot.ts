@@ -13,7 +13,7 @@ import english from './languages/en.json'
 import french from './languages/fr.json'
 
 import registry from './registry'
-import shell from './app'
+import * as App from './app'
 
 const ROLES = [ 'Engineer', 'Mathematician', 'Rear Admiral', 'Analyst' ]
 
@@ -55,7 +55,7 @@ export function boot( target: string, { delay = 900 } = {} ){
 
   registry( lips )
 
-  const app = lips.root( shell, target )
+  const app = lips.root( App, target )
 
   /**
    * The component bus runs both ways, so the holder of the root handle can

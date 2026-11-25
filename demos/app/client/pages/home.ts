@@ -8,37 +8,40 @@
  * sheet already in `<head>` rather than injecting a second one — so the
  * second page's CSS would silently never appear. Every page here is named.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
 
-export default component({
-  name: 'page-home',
+export const name = 'page-home'
 
-  static: {
-    features: [
-      { icon: '⚡', title: 'Fine-grained reactivity', path: '/reactivity',
-        body: 'Per-key signals. A write notifies only the bindings that read that key — no virtual DOM, no diffing.' },
-      { icon: '⌥', title: 'Element-shaped control flow', path: '/control-flow',
-        body: '<if>, <for>, <switch>, <async> are tags, not an attribute DSL. Keyed lists keep node identity.' },
-      { icon: '⏳', title: 'Async as markup', path: '/async',
-        body: 'One block holds loading, resolved and failed. The await expression is an effect, so retry is a state write.' },
-      { icon: '⬡', title: 'Composition', path: '/compose',
-        body: 'Slots, macros, spreads, dynamic tags, and a component bus that runs both ways.' },
-      { icon: '🎨', title: 'Reactive stylesheets', path: '/styles',
-        body: 'Scoped CSS where any declaration value can be an expression — including inside :hover, @media and @keyframes.' },
-      { icon: '🌍', title: 'i18n by stable key', path: '/i18n',
-        body: 'Reword the source text and the translation holds. @format carries params for plurals.' },
-      { icon: '▤', title: 'Parts & the DOM', path: '/parts',
-        body: 'A menu installed with lips.use(), @ref, event modifiers, fields state resets, and onError.' }
-    ]
-  },
+type Static = {
+  features: { icon: string, title: string, body: string, path: string }[]
+}
 
-  handler: {
-    open( path: string ){
-      this.context.navigate?.( path )
-    }
-  },
+export const _static: Static = {
+  features: [
+    { icon: '⚡', title: 'Fine-grained reactivity', path: '/reactivity',
+      body: 'Per-key signals. A write notifies only the bindings that read that key — no virtual DOM, no diffing.' },
+    { icon: '⌥', title: 'Element-shaped control flow', path: '/control-flow',
+      body: '<if>, <for>, <switch>, <async> are tags, not an attribute DSL. Keyed lists keep node identity.' },
+    { icon: '⏳', title: 'Async as markup', path: '/async',
+      body: 'One block holds loading, resolved and failed. The await expression is an effect, so retry is a state write.' },
+    { icon: '⬡', title: 'Composition', path: '/compose',
+      body: 'Slots, macros, spreads, dynamic tags, and a component bus that runs both ways.' },
+    { icon: '🎨', title: 'Reactive stylesheets', path: '/styles',
+      body: 'Scoped CSS where any declaration value can be an expression — including inside :hover, @media and @keyframes.' },
+    { icon: '🌍', title: 'i18n by stable key', path: '/i18n',
+      body: 'Reword the source text and the translation holds. @format carries params for plurals.' },
+    { icon: '▤', title: 'Parts & the DOM', path: '/parts',
+      body: 'A menu installed with lips.use(), @ref, event modifiers, fields state resets, and onError.' }
+  ]
+}
 
-  stylesheet: `
+export const handler: Handlers<Shape<{ static: Static }>> = {
+  open( path: string ){
+    this.context.navigate?.( path )
+  }
+}
+
+export const stylesheet = `
   .hero {
     padding: 1.5rem 0 2rem;
     border-bottom: 1px solid var(--border);
@@ -83,9 +86,9 @@ export default component({
   .card p { font-size: .86rem; color: var(--text-dim); margin: 0 }
 
   .status { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-top: 1rem }
-`,
+`
 
-  default: `
+export default `
   <div>
     <div class="hero">
       <h1>A UI framework that updates <span class="mark">exactly what changed</span></h1>
@@ -118,4 +121,3 @@ export default component({
     </div>
   </div>
 `
-})

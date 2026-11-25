@@ -1,37 +1,47 @@
 /**
  * Control flow — every branching tag Lips ships, plus dynamic tags.
  */
-import { component } from '../../../../src/lips'
+import type { Handlers, Shape } from '../../../../src/types'
 
-export default component({
-  name: 'page-control-flow',
+export const name = 'page-control-flow'
 
-  static: {
-    tabs: [
-      { id: 'draft', label: 'Draft' },
-      { id: 'review', label: 'In review' },
-      { id: 'live', label: 'Live' },
-      { id: 'archived', label: 'Archived' }
-    ],
-    tags: [ 'b', 'i', 'mark', 'code', 'small' ]
-  },
+type State = {
+  level: number
+  tab: string
+  rows: number
+  tag: string
+}
+type Static = {
+  tabs: { id: string, label: string }[]
+  tags: string[]
+}
 
-  state: {
-    level: 42,
-    tab: 'review',
-    rows: 4,
-    tag: 'mark'
-  },
+export const _static: Static = {
+  tabs: [
+    { id: 'draft', label: 'Draft' },
+    { id: 'review', label: 'In review' },
+    { id: 'live', label: 'Live' },
+    { id: 'archived', label: 'Archived' }
+  ],
+  tags: [ 'b', 'i', 'mark', 'code', 'small' ]
+}
 
-  handler: {
-    pick( id: string ){ this.state.tab = id },
-    nextTag(){
-      const list = this.static.tags
-      this.state.tag = list[ ( list.indexOf( this.state.tag ) + 1 ) % list.length ]
-    }
-  },
+export const state: State = {
+  level: 42,
+  tab: 'review',
+  rows: 4,
+  tag: 'mark'
+}
 
-  stylesheet: `
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
+  pick( id: string ){ this.state.tab = id },
+  nextTag(){
+    const list = this.static.tags
+    this.state.tag = list[ ( list.indexOf( this.state.tag ) + 1 ) % list.length ]
+  }
+}
+
+export const stylesheet = `
   input[type="range"] { accent-color: var(--accent); width: 100%; max-width: 22rem }
 
   .verdict {
@@ -85,9 +95,9 @@ export default component({
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
-`,
+`
 
-  default: `
+export default `
   <div>
     <h1>Control flow</h1>
     <p class="lede">
@@ -187,4 +197,3 @@ export default component({
     </section>
   </div>
 `
-})
