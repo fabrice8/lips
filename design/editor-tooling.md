@@ -86,7 +86,12 @@ A TextMate grammar, `source.lips`: HTML, plus what Lips adds to it —
 stylesheet grammar: CSS plus `{…}` values. Both are injected into
 TypeScript and JavaScript at the markers of D2.
 
-Shipped as a VS Code extension, the first piece usable on its own. GitHub
+Shipped as a VS Code extension, the first piece usable on its own. It
+starts from what exists: `lips-js/syntax-highlighter` (2025) is a VS Code
+grammar, `source.lips`, already injected into TypeScript and JavaScript at
+`default:` and `export default` — D2's choice, made then. Phase 1 adds the
+`stylesheet` and `macros` fields, the `.lips` file, `/* lips */`, the
+constructs RFC-001 added since, and the scope tests of §9. GitHub
 colours a language once Linguist lists it, which wants a number of public
 repositories using it: later, not a dependency.
 
@@ -190,6 +195,9 @@ packages) is the owner's step at the end of phase 1.
    of their own**, as Vue's tools live apart from Vue. The library's tests,
    size budgets and releases stay what they are; the tools depend on a
    published `@lipsjs/lips` (its parser and compiler) like any consumer.
+   `lips-js/syntax-highlighter` is that repository's start: renamed (to
+   `lips-js/language-tools`, as Vue's is `vuejs/language-tools`) and grown
+   into the packages of §7, its grammar becoming phase 1's.
 2. **Templates inside `.ts` files.** Volar's plugin is made for files that
    are a language of their own (`.lips`). Checking a template inside a
    `.ts` file is what lit-analyzer does, from a TypeScript server plugin
