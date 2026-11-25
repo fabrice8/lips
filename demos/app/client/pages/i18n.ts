@@ -1,25 +1,21 @@
 /**
  * i18n page — stable keys, `@format` params, and `<i18n lang=…>` scoping.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
-export const name = 'page-i18n'
+export default component({
+  name: 'page-i18n',
 
-type State = {
-  items: number
-  preview: string
-}
+  state: {
+    items: 3,
+    preview: 'fr-FR'
+  },
 
-export const state: State = {
-  items: 3,
-  preview: 'fr-FR'
-}
+  handler: {
+    onItems( e: any ){ this.state.items = Number( e.target.value ) }
+  },
 
-export const handler: Handler<Metavars<{}, State>> = {
-  onItems( e: any ){ this.state.items = Number( e.target.value ) }
-}
-
-export const stylesheet = `
+  stylesheet: `
   .pair { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)) }
   .box {
     padding: .8rem .9rem;
@@ -39,9 +35,9 @@ export const stylesheet = `
     border-radius: var(--radius-sm);
     padding: .3rem .5rem;
   }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Internationalisation</h1>
     <p class="lede">
@@ -128,3 +124,4 @@ export default `
     </section>
   </div>
 `
+})

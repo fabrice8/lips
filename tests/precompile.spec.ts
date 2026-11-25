@@ -224,6 +224,11 @@ describe('bundler plugin: what a .lips frontscript declares', () => {
     const out = await plugin.transform('const watchContext = [ "theme" ]\n\n<div/>', '/src/w.lips')
     expect( out.code ).toMatch( /^\s*watchContext,$/m )
   })
+
+  it('exports no `context`: the old name is not a component field', async () => {
+    const out = await plugin.transform('const context = [ "theme" ]\n\n<div/>', '/src/c.lips')
+    expect( out.code ).not.toMatch( /^\s*context,$/m )
+  })
 })
 
 describe('runtime-only entry (@lipsjs/lips/runtime)', () => {

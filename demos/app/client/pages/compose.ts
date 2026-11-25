@@ -7,9 +7,7 @@
  * own. That also means macro markup lands inside THIS component's scope,
  * which is why the macro classes are styled by this page's sheet.
  */
-import type { Handler, Metavars } from '../../../../src/types'
-
-export const name = 'page-compose'
+import { component } from '../../../../src/lips'
 
 type Row = { id: string, label: string, kind: string, count: number }
 
@@ -17,36 +15,32 @@ type State = {
   rows: Row[]
   extra: Record<string, string>
 }
-type Static = {
-  tiles: { label: string, value: number, max: number, unit: string, tone: string }[]
-}
-type Context = {
-  toast: ( text: string, tone?: string ) => void
-}
 
-export const _static: Static = {
-  tiles: [
-    { label: 'bundle', value: 21, max: 40, unit: ' KB', tone: 'accent' },
-    { label: 'runtime only', value: 12, max: 40, unit: ' KB', tone: 'ok' },
-    { label: 'deps', value: 1, max: 10, unit: '', tone: 'ok' }
-  ]
-}
+export default component<{ state: State }>()({
+  name: 'page-compose',
 
-export const state: State = {
-  rows: [
-    { id: 'a', label: 'signal', kind: 'core', count: 4 },
-    { id: 'b', label: 'effect', kind: 'core', count: 2 },
-    { id: 'c', label: 'router', kind: 'built-in', count: 1 }
-  ],
-  extra: { 'data-source': 'spread', 'aria-label': 'spread onto the element' }
-}
+  static: {
+    tiles: [
+      { label: 'bundle', value: 21, max: 40, unit: ' KB', tone: 'accent' },
+      { label: 'runtime only', value: 12, max: 40, unit: ' KB', tone: 'ok' },
+      { label: 'deps', value: 1, max: 10, unit: '', tone: 'ok' }
+    ]
+  },
 
+  state: {
+    rows: [
+      { id: 'a', label: 'signal', kind: 'core', count: 4 },
+      { id: 'b', label: 'effect', kind: 'core', count: 2 },
+      { id: 'c', label: 'router', kind: 'built-in', count: 1 }
+    ],
+    extra: { 'data-source': 'spread', 'aria-label': 'spread onto the element' }
+  },
 
-/**
- * `<macro [argv] name="X">` — argv become block-scoped reactive vars at the
- * call site. Reference one macro from another and it inlines recursively.
- */
-export const macros = `
+  /**
+   * `<macro [argv] name="X">` — argv become block-scoped reactive vars at the
+   * call site. Reference one macro from another and it inlines recursively.
+   */
+  macros: `
   <macro [label] name="chip">
     <em class="chip">{label}</em>
   </macro>
@@ -58,19 +52,19 @@ export const macros = `
       <span class="count" @text=row.count></span>
     </li>
   </macro>
-`
+`,
 
-export const handler: Handler<Metavars<{}, State, Static, Context>> = {
-  bump( id: string ){
-    const row = this.state.rows.find( r => r.id === id )
-    row && row.count++
+  handler: {
+    bump( id: string ){
+      const row = this.state.rows.find( r => r.id === id )
+      row && row.count++
+    },
+    ping(){
+      this.context.toast?.('Raised through context.toast → root bus', 'ok')
+    }
   },
-  ping(){
-    this.context.toast?.('Raised through context.toast → root bus', 'ok')
-  }
-}
 
-export const stylesheet = `
+  stylesheet: `
   ul { margin: 0; padding: 0; list-style: none; display: grid; gap: .4rem }
 
   .rowline {
@@ -116,9 +110,9 @@ export const stylesheet = `
     border: 1px solid var(--border);
     background: var(--panel-2);
   }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Composition</h1>
     <p class="lede">
@@ -211,3 +205,4 @@ export default `
     </section>
   </div>
 `
+})

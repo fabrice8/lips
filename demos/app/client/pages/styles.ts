@@ -12,22 +12,10 @@
  * `calc(var(…))` still changes discretely in Chrome. Treat the
  * `transition` declarations here as smoothing, not as interpolation.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
-export const name = 'page-styles'
-
-type State = {
-  hue: number
-  size: number
-  gap: number
-  glow: number
-  cols: number
-}
-type Context = {
-  theme: string
-}
-
-export const state: State = {
+/** Apart, so a handler can name its keys: `keyof typeof state` */
+const state = {
   hue: 330,
   size: 64,
   gap: 12,
@@ -35,14 +23,17 @@ export const state: State = {
   cols: 3
 }
 
+export default component({
+  name: 'page-styles',
+  state,
 
-export const handler: Handler<Metavars<{}, State, {}, Context>> = {
-  set( key: keyof State, e: any ){
-    this.state[ key ] = Number( e.target.value )
-  }
-}
+  handler: {
+    set( key: keyof typeof state, e: any ){
+      this.state[ key ] = Number( e.target.value )
+    }
+  },
 
-export const stylesheet = `
+  stylesheet: `
   /* A bare custom property binds the AUTHOR's name — readable in devtools,
      and inherited by children (RFC-004 §7.4) */
   --accent-live: {'hsl(' + state.hue + ' 85% 60%)'};
@@ -122,9 +113,9 @@ export const stylesheet = `
     li { margin: .2rem 0 }
     code { font-size: .82em }
   }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Reactive stylesheets</h1>
     <p class="lede">
@@ -184,3 +175,4 @@ export default `
     </section>
   </div>
 `
+})

@@ -393,18 +393,31 @@ describe('onContext under a layer', () => {
     expect( seen ).toEqual( [] )
   })
 
-  it('accepts the deprecated `context` spelling', async () => {
+  it('reads no `context` field: watchContext is the one name', async () => {
     const seen: string[] = []
     lips.register('obs4', {
       context: ['user'],
-      handler: { onContext( this: any ){ seen.push( this.context.user ) } },
+      handler: { onContext( this: any ){ seen.push('fired') } },
       default: `<i class="o4">{context.user}</i>`
-    })
+    } as any )
 
     lips.render('t-onctx4', { default: `<obs4/>` }).appendTo('#app')
     await settle( () => txt('.o4') === 'ada' )
 
     lips.setContext('user', 'grace')
-    await settle( () => seen.includes('grace') )
+    await settle( () => txt('.o4') === 'grace' )
+    expect( seen ).toEqual( [] )
+
+    // …nor does a component rendered on its own, which the facade watches
+    lips.render('t-onctx5', {
+      context: ['user'],
+      handler: { onContext( this: any ){ seen.push('fired') } },
+      default: `<i class="o5">{context.user}</i>`
+    } as any ).appendTo('#app')
+    await settle( () => txt('.o5') === 'grace' )
+
+    lips.setContext('user', 'ada')
+    await settle( () => txt('.o5') === 'ada' )
+    expect( seen ).toEqual( [] )
   })
 })

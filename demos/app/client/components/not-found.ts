@@ -2,21 +2,18 @@
  * Rendered by the shell when `<router>` emits `not-found`. A component,
  * not a route: there is no route to match, which is the whole point.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
 export type Input = {
   path: string
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
+export default component<{ input: Input }>()({
+  handler: {
+    go( path: string ){ this.context.navigate?.( path ) }
+  },
 
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
-  go( path: string ){ this.context.navigate?.( path ) }
-}
-
-export const stylesheet = `
+  stylesheet: `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: grid;
   gap: .6rem;
@@ -41,9 +38,9 @@ export const stylesheet = `
     border-radius: var(--radius-sm);
     padding: .2rem .5rem;
   }
-`
+`,
 
-export default `
+  default: `
   <div class="miss">
     <span class="code">404</span>
     <p style="margin: 0">No route matched — the router emitted <code>not-found</code>.</p>
@@ -51,3 +48,4 @@ export default `
     <button class="act" on-click(go, '/')>Back to overview</button>
   </div>
 `
+})

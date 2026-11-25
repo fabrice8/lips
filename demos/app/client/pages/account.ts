@@ -1,33 +1,30 @@
 /**
  * Route page — query string only, no path params.
  */
-import type { Handler, Metavars } from '../../../../src/types'
-
-export const name = 'page-account'
+import { component } from '../../../../src/lips'
 
 export type Input = {
   params: Record<string, string>
   query: { userid?: string }
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
+export default component<{ input: Input }>()({
+  name: 'page-account',
 
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
-  go( path: string ){ this.context.navigate?.( path ) }
-}
+  handler: {
+    go( path: string ){ this.context.navigate?.( path ) }
+  },
 
-export const stylesheet = `
+  stylesheet: `
   .id {
     font-family: var(--mono);
     font-size: 1.6rem;
     color: var(--accent);
   }
   .missing { color: var(--warn) }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Account</h1>
     <p class="lede">Query parameters are decoded by <code>URLSearchParams</code>, so <code>+</code>,
@@ -56,3 +53,4 @@ export default `
     <button class="act" on-click(go, '/')>Back to overview</button>
   </div>
 `
+})

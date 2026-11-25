@@ -11,6 +11,7 @@
 import { IRLips } from './ir/facade'
 
 export * from './types'
+export { component } from './component'
 export { renderIR } from './ir/runtime'
 export { signal, effect, untrack, reactive } from './ir/signal'
 export type { TemplateIR, IRInstance, RuntimeOptions, RenderSetup, SwapReport, Host } from './ir'

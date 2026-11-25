@@ -6,37 +6,30 @@
  * through `<loading>` and into `<then>`/`<catch>` again. That is the whole
  * retry mechanism — no imperative refetch call anywhere.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
 export type Input = {
   name?: string
 }
-type State = {
-  nonce: number
-  fail: boolean
-}
-type Context = {
-  getUser: ( name: string, fail?: boolean ) => Promise<{ name: string, email: string, role: string }>
-}
 
-
-export const state: State = {
-  nonce: 0,
-  fail: false
-}
-
-export const handler: Handler<Metavars<Input, State, {}, Context>> = {
-  reload(){
-    this.state.fail = false
-    this.state.nonce++
+export default component<{ input: Input }>()({
+  state: {
+    nonce: 0,
+    fail: false
   },
-  breakIt(){
-    this.state.fail = true
-    this.state.nonce++
-  }
-}
 
-export const stylesheet = `
+  handler: {
+    reload(){
+      this.state.fail = false
+      this.state.nonce++
+    },
+    breakIt(){
+      this.state.fail = true
+      this.state.nonce++
+    }
+  },
+
+  stylesheet: `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: grid;
   gap: .8rem;
@@ -115,9 +108,9 @@ export const stylesheet = `
     from { background-position: 200% 0 }
     to { background-position: -200% 0 }
   }
-`
+`,
 
-export default `
+  default: `
   <div class="card">
     <async await( context.getUser( input.name || 'Ada Lovelace', state.fail, state.nonce ) )>
       <loading>
@@ -146,3 +139,4 @@ export default `
     </div>
   </div>
 `
+})

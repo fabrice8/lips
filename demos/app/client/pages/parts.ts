@@ -6,10 +6,8 @@
  * text-and-list basics, and each used to be a guess: is `value=` live after
  * the reader types? Does a throw in a branch take the page down?
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 import type { MenuItem } from '../../../../src/parts'
-
-export const name = 'page-parts'
 
 type Row = { id: number, label: string, pinned?: boolean }
 
@@ -26,58 +24,59 @@ type Static = {
   actions: MenuItem[]
 }
 
-export const state: State = {
-  open: false,
-  picked: null,
-  query: 'lips',
-  rows: [
-    { id: 1, label: 'Inbox' },
-    { id: 2, label: 'Drafts' },
-    { id: 3, label: 'Archive' }
-  ],
-  opened: null,
-  broken: false,
-  failure: null
-}
+export default component<{ state: State, static: Static }>()({
+  name: 'page-parts',
 
-export const _static: Static = {
-  actions: [
-    { id: 'copy', label: 'Copy' },
-    { id: 'rename', label: 'Rename' },
-    { id: 'share', label: 'Share', disabled: true },
-    { id: 'delete', label: 'Delete' }
-  ]
-}
-
-type MT = Metavars<{}, State, Static>
-
-export const handler: Handler<MT> = {
-  /** `<popover>` emits `change` with the open state it wants */
-  setOpen( open: boolean ){ this.state.open = open },
-  /** `<popover-menu>` emits `select` with the item, and closes itself */
-  run( item: MenuItem ){ this.state.picked = item.label },
-
-  onQuery( e: any ){ this.state.query = e.target.value },
-  /** `value=` writes the input's property: a reset shows, after typing too */
-  clear(){
-    this.state.query = ''
-    this.refs.search?.focus()
+  state: {
+    open: false,
+    picked: null,
+    query: 'lips',
+    rows: [
+      { id: 1, label: 'Inbox' },
+      { id: 2, label: 'Drafts' },
+      { id: 3, label: 'Archive' }
+    ],
+    opened: null,
+    broken: false,
+    failure: null
   },
 
-  open( id: number ){ this.state.opened = id },
-  pin( row: Row ){ row.pinned = !row.pinned },
-  remove( id: number ){ this.state.rows = this.state.rows.filter( r => r.id !== id ) },
-
-  breakIt(){ this.state.broken = true },
-  mend(){
-    this.state.broken = false
-    this.state.failure = null
+  static: {
+    actions: [
+      { id: 'copy', label: 'Copy' },
+      { id: 'rename', label: 'Rename' },
+      { id: 'share', label: 'Share', disabled: true },
+      { id: 'delete', label: 'Delete' }
+    ]
   },
-  /** What a bind, a branch, a list or a handler of this page throws lands here */
-  onError( error: Error ){ this.state.failure = error.message }
-}
 
-export const stylesheet = `
+  handler: {
+    /** `<popover>` emits `change` with the open state it wants */
+    setOpen( open: boolean ){ this.state.open = open },
+    /** `<popover-menu>` emits `select` with the item, and closes itself */
+    run( item: MenuItem ){ this.state.picked = item.label },
+
+    onQuery( e: any ){ this.state.query = e.target.value },
+    /** `value=` writes the input's property: a reset shows, after typing too */
+    clear(){
+      this.state.query = ''
+      this.refs.search?.focus()
+    },
+
+    open( id: number ){ this.state.opened = id },
+    pin( row: Row ){ row.pinned = !row.pinned },
+    remove( id: number ){ this.state.rows = this.state.rows.filter( r => r.id !== id ) },
+
+    breakIt(){ this.state.broken = true },
+    mend(){
+      this.state.broken = false
+      this.state.failure = null
+    },
+    /** What a bind, a branch, a list or a handler of this page throws lands here */
+    onError( error: Error ){ this.state.failure = error.message }
+  },
+
+  stylesheet: `
   .menu {
     margin: .3rem 0 0;
     padding: .3rem;
@@ -107,9 +106,9 @@ export const stylesheet = `
   ul.rows span { flex: 1 }
 
   .error { color: var(--danger); font-family: var(--mono); font-size: .8rem }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Parts &amp; the DOM</h1>
     <p class="lede">
@@ -184,3 +183,4 @@ export default `
     </section>
   </div>
 `
+})

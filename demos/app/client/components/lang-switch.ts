@@ -3,27 +3,24 @@
  * active language and `self.lang` is the reactive reader. Nothing is
  * mirrored into state or context, so the two can never drift.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
-type Static = {
-  langs: { code: string, flag: string, label: string }[]
-}
+export default component({
+  static: {
+    langs: [
+      { code: 'en-US', flag: '🇺🇸', label: 'English' },
+      { code: 'fr-FR', flag: '🇫🇷', label: 'Français' }
+    ]
+  },
 
-export const _static: Static = {
-  langs: [
-    { code: 'en-US', flag: '🇺🇸', label: 'English' },
-    { code: 'fr-FR', flag: '🇫🇷', label: 'Français' }
-  ]
-}
+  handler: {
+    pick( code: string ){
+      this.setLanguage( code )
+      this.emit('language', code )
+    }
+  },
 
-export const handler: Handler<Metavars<{}, {}, Static>> = {
-  pick( code: string ){
-    this.setLanguage( code )
-    this.emit('language', code )
-  }
-}
-
-export const stylesheet = `
+  stylesheet: `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: inline-flex;
   background: var(--panel);
@@ -49,9 +46,9 @@ export const stylesheet = `
     color: var(--accent-ink);
     background: var(--accent);
   }
-`
+`,
 
-export default `
+  default: `
   <div class="group">
     <for [lang] in=static.langs by="code">
       <button class="{self.lang === lang.code ? 'on' : ''}"
@@ -60,3 +57,4 @@ export default `
     </for>
   </div>
 `
+})

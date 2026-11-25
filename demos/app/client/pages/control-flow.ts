@@ -1,47 +1,37 @@
 /**
  * Control flow — every branching tag Lips ships, plus dynamic tags.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
-export const name = 'page-control-flow'
+export default component({
+  name: 'page-control-flow',
 
-type State = {
-  level: number
-  tab: string
-  rows: number
-  tag: string
-}
-type Static = {
-  tabs: { id: string, label: string }[]
-  tags: string[]
-}
+  static: {
+    tabs: [
+      { id: 'draft', label: 'Draft' },
+      { id: 'review', label: 'In review' },
+      { id: 'live', label: 'Live' },
+      { id: 'archived', label: 'Archived' }
+    ],
+    tags: [ 'b', 'i', 'mark', 'code', 'small' ]
+  },
 
-export const _static: Static = {
-  tabs: [
-    { id: 'draft', label: 'Draft' },
-    { id: 'review', label: 'In review' },
-    { id: 'live', label: 'Live' },
-    { id: 'archived', label: 'Archived' }
-  ],
-  tags: [ 'b', 'i', 'mark', 'code', 'small' ]
-}
+  state: {
+    level: 42,
+    tab: 'review',
+    rows: 4,
+    tag: 'mark'
+  },
 
-export const state: State = {
-  level: 42,
-  tab: 'review',
-  rows: 4,
-  tag: 'mark'
-}
+  handler: {
+    pick( id: string ){ this.state.tab = id },
+    nextTag(){
+      const list = this.static.tags
+      this.state.tag = list[ ( list.indexOf( this.state.tag ) + 1 ) % list.length ]
+    }
+  },
 
-export const handler: Handler<Metavars<{}, State, Static>> = {
-  pick( id: string ){ this.state.tab = id },
-  nextTag(){
-    const list = this.static.tags
-    this.state.tag = list[ ( list.indexOf( this.state.tag ) + 1 ) % list.length ]
-  }
-}
-
-export const stylesheet = `
+  stylesheet: `
   input[type="range"] { accent-color: var(--accent); width: 100%; max-width: 22rem }
 
   .verdict {
@@ -95,9 +85,9 @@ export const stylesheet = `
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Control flow</h1>
     <p class="lede">
@@ -197,3 +187,4 @@ export default `
     </section>
   </div>
 `
+})

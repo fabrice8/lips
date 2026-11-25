@@ -2,31 +2,23 @@
  * Async page — `<async>` with all three arms, and the router's own
  * params/query pages linked from here.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
-export const name = 'page-async'
+export default component({
+  name: 'page-async',
 
-type State = {
-  who: string
-  nonce: number
-}
-type Context = {
-  navigate: ( path: string ) => void
-}
+  state: {
+    who: 'Ada Lovelace',
+    nonce: 0
+  },
 
-export const state: State = {
-  who: 'Ada Lovelace',
-  nonce: 0
-}
+  handler: {
+    onWho( e: any ){ this.state.who = e.target.value },
+    refetch(){ this.state.nonce++ },
+    go( path: string ){ this.context.navigate?.( path ) }
+  },
 
-
-export const handler: Handler<Metavars<{}, State, {}, Context>> = {
-  onWho( e: any ){ this.state.who = e.target.value },
-  refetch(){ this.state.nonce++ },
-  go( path: string ){ this.context.navigate?.( path ) }
-}
-
-export const stylesheet = `
+  stylesheet: `
   .side-by-side { display: grid; gap: .9rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)) }
   .note {
     font-size: .86rem;
@@ -35,9 +27,9 @@ export const stylesheet = `
     padding-left: .7rem;
     margin: .6rem 0 0;
   }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Async</h1>
     <p class="lede">
@@ -88,3 +80,4 @@ export default `
     </section>
   </div>
 `
+})

@@ -2,24 +2,21 @@
  * Route page — path params. `<router>` places the matched template through
  * a dynamic tag and hands the match down as inputs.
  */
-import type { Handler, Metavars } from '../../../../src/types'
-
-export const name = 'page-product'
+import { component } from '../../../../src/lips'
 
 export type Input = {
   params: { id: string }
   query: Record<string, string>
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
+export default component<{ input: Input }>()({
+  name: 'page-product',
 
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
-  go( path: string ){ this.context.navigate?.( path ) }
-}
+  handler: {
+    go( path: string ){ this.context.navigate?.( path ) }
+  },
 
-export const stylesheet = `
+  stylesheet: `
   dl {
     display: grid;
     grid-template-columns: max-content 1fr;
@@ -30,9 +27,9 @@ export const stylesheet = `
   dt { font-size: .78rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint) }
   dd { margin: 0; font-family: var(--mono) }
   dd.empty { color: var(--text-faint); font-family: var(--sans); font-style: italic }
-`
+`,
 
-export default `
+  default: `
   <div>
     <h1>Product</h1>
     <p class="lede">The URL is the state — reload this page and the same values come back.</p>
@@ -63,3 +60,4 @@ export default `
     </div>
   </div>
 `
+})

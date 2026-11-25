@@ -9,29 +9,29 @@
  * which is why this map is exported: `tests/demo-app.spec.ts` asserts that
  * every key really does compile to a component.
  */
-import type Lips from '../../../src/lips'
+import type { default as Lips, Component } from '../../../src/lips'
 import { menu } from '../../../src/parts'
 
-import * as Counter from './components/counter'
-import * as Profile from './components/profile'
-import * as NavBar from './components/nav-bar'
-import * as LangSwitch from './components/lang-switch'
-import * as LangTag from './components/lang-tag'
-import * as ThemeSwitch from './components/theme-switch'
-import * as StatTile from './components/stat-tile'
-import * as SiteFooter from './components/site-footer'
-import * as NotFound from './components/not-found'
+import counter from './components/counter'
+import profile from './components/profile'
+import navBar from './components/nav-bar'
+import langSwitch from './components/lang-switch'
+import langTag from './components/lang-tag'
+import themeSwitch from './components/theme-switch'
+import statTile from './components/stat-tile'
+import siteFooter from './components/site-footer'
+import notFound from './components/not-found'
 
-export const COMPONENTS: Record<string, any> = {
-  'counter': Counter,
-  'profile': Profile,
-  'nav-bar': NavBar,
-  'lang-switch': LangSwitch,
-  'lang-tag': LangTag,
-  'theme-switch': ThemeSwitch,
-  'stat-tile': StatTile,
-  'site-footer': SiteFooter,
-  'not-found': NotFound
+export const COMPONENTS: Record<string, Component> = {
+  'counter': counter,
+  'profile': profile,
+  'nav-bar': navBar,
+  'lang-switch': langSwitch,
+  'lang-tag': langTag,
+  'theme-switch': themeSwitch,
+  'stat-tile': statTile,
+  'site-footer': siteFooter,
+  'not-found': notFound
 }
 
 export default ( lips: Lips ) => {

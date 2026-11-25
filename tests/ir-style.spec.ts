@@ -379,7 +379,7 @@ describe('runtime: reactive declarations', () => {
     const lips = new Lips({ context: { theme: 'dark' } })
     const c = lips.render('chip', {
       _static: { pad: '4px' },
-      context: [ 'theme' ],
+      watchContext: [ 'theme' ],
       default: `<span class="chip">x</span>`,
       stylesheet: `.chip {
         color: {input.accent};

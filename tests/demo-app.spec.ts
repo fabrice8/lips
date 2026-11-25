@@ -18,29 +18,25 @@ import '../src/lips'
 import { compileTemplate } from '../src/ir/compiler'
 import { compileStyle } from '../src/ir/style'
 import type { TemplateDiagnostic } from '../src/ir/parser'
+import type { Component } from '../src/types'
 
 import { COMPONENTS } from '../demos/app/client/registry'
-import * as App from '../demos/app/client/app'
+import App from '../demos/app/client/app'
 
-import * as Home from '../demos/app/client/pages/home'
-import * as Reactivity from '../demos/app/client/pages/reactivity'
-import * as ControlFlow from '../demos/app/client/pages/control-flow'
-import * as AsyncPage from '../demos/app/client/pages/async'
-import * as I18nPage from '../demos/app/client/pages/i18n'
-import * as StylesPage from '../demos/app/client/pages/styles'
-import * as Compose from '../demos/app/client/pages/compose'
-import * as Account from '../demos/app/client/pages/account'
-import * as Product from '../demos/app/client/pages/product'
-import * as Parts from '../demos/app/client/pages/parts'
+import Home from '../demos/app/client/pages/home'
+import Reactivity from '../demos/app/client/pages/reactivity'
+import ControlFlow from '../demos/app/client/pages/control-flow'
+import AsyncPage from '../demos/app/client/pages/async'
+import I18nPage from '../demos/app/client/pages/i18n'
+import StylesPage from '../demos/app/client/pages/styles'
+import Compose from '../demos/app/client/pages/compose'
+import Account from '../demos/app/client/pages/account'
+import Product from '../demos/app/client/pages/product'
+import Parts from '../demos/app/client/pages/parts'
 
 import { stylisPreprocessor } from '../src/stylis'
 
-type Source = {
-  default?: string
-  stylesheet?: string
-  macros?: string
-  name?: string
-}
+type Source = Component
 
 const PAGES: Record<string, Source> = {
   home: Home,
@@ -63,7 +59,7 @@ const show = ( ds: TemplateDiagnostic[] ) =>
 describe('demos/app templates compile clean', () => {
   for( const [ id, mod ] of Object.entries( ALL ) )
     it(`${id}`, () => {
-      expect( typeof mod.default, `${id} exports no template` ).toBe('string')
+      expect( typeof mod.default, `${id} has no template` ).toBe('string')
 
       const { diagnostics } = compileTemplate( mod.default!, { macros: mod.macros })
       expect( show( diagnostics ), `template diagnostics in ${id}` ).toBe('')
@@ -95,7 +91,7 @@ describe('demos/app wiring invariants', () => {
     const named = Object.entries( PAGES ).filter( ( [ , p ] ) => p.stylesheet )
 
     for( const [ id, page ] of named )
-      expect( page.name, `page "${id}" needs an exported name` ).toBeTruthy()
+      expect( page.name, `page "${id}" needs a name` ).toBeTruthy()
 
     const names = named.map( ( [ , p ] ) => p.name )
     expect( new Set( names ).size, `duplicate page names: ${names}` ).toBe( names.length )
@@ -133,7 +129,7 @@ describe('demos/app wiring invariants', () => {
 
     for( const name of rootStyled ){
       // Flattened, so a bare `[rel="x"]{…}` rule exists only for root declarations
-      const { ir } = compileStyle( ( COMPONENTS[ name ] as Source ).stylesheet!, { nsp: name, preprocess: stylisPreprocessor })
+      const { ir } = compileStyle( COMPONENTS[ name ].stylesheet!, { nsp: name, preprocess: stylisPreprocessor })
       expect( ir.css, `<${name}> root declarations` ).toMatch(
         new RegExp(`\\[rel="${name}"\\]\\{[^}]`) )
     }

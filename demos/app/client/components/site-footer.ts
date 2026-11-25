@@ -7,12 +7,15 @@
  * the component would never run. The same trap waits for `header`,
  * `main`, `nav`, `section`, `dialog`, `menu` and `slot`.
  */
-export const _static = {
-  repo: 'github.com/fabrice8/lips',
-  docs: 'lips-js.github.io'
-}
+import { component } from '../../../../src/lips'
 
-export const stylesheet = `
+export default component({
+  static: {
+    repo: 'github.com/fabrice8/lips',
+    docs: 'lips-js.github.io'
+  },
+
+  stylesheet: `
   /* Root-level: the element carrying rel= is not a descendant of itself */
   display: flex;
   align-items: center;
@@ -33,9 +36,9 @@ export const stylesheet = `
   }
   code { font-family: var(--mono) }
   .dot { opacity: .45; padding: 0 .35rem }
-`
+`,
 
-export default `
+  default: `
   <div class="foot">
     <span>
       Built with <a href="https://lips-js.github.io" target="_blank" rel="noreferrer">Lips</a>
@@ -47,3 +50,4 @@ export default `
     </span>
   </div>
 `
+})

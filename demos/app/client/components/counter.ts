@@ -1,7 +1,8 @@
 /**
  * Counter — the smallest component that still touches most of Lips.
  *
- * Shows: typed `Input`/`State`/`Static`, `onInput` re-seeding from a
+ * Shows: `component()` inferring `state` and `static` with `Input` named,
+ * `onInput` re-seeding from a
  * changed input, handler methods with arguments, `this.emit()` out to the
  * parent, a slot (`<{input.renderer}/>`), i18n by stable key, `@format`
  * pluralisation, `self.lang`, and a stylesheet whose progress bar width
@@ -10,7 +11,7 @@
  * Demo type imports come from `src/` because the demo lives in the repo;
  * a published consumer writes `from '@lipsjs/lips'`.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import { component } from '../../../../src/lips'
 
 export type Input = {
   initial?: number
@@ -18,75 +19,66 @@ export type Input = {
   /** Slot body, handed over by the parent — placed with <{input.renderer}/> */
   renderer?: any
 }
-type State = {
-  count: number
-  /** Set for one tick when a click is refused, to fire the shake keyframe */
-  refused: boolean
-}
-type Static = {
-  fallbackLimit: number
-}
 
-export const _static: Static = {
-  fallbackLimit: 12
-}
-
-export const state: State = {
-  count: 0,
-  refused: false
-}
-
-type MT = Metavars<Input, State, Static>
-
-export const handler: Handler<MT> = {
-  /**
-   * `onInput` runs on mount AND on every input change, so the counter
-   * re-seeds when the parent hands it a new `initial`. `onCreate` would
-   * only ever see the first value.
-   */
-  onInput(){
-    this.state.count = Number( this.input.initial ?? 0 )
+export default component<{ input: Input }>()({
+  static: {
+    fallbackLimit: 12
   },
 
-  limit(){
-    return Number( this.input.limit ?? this.static.fallbackLimit )
+  state: {
+    count: 0,
+    refused: false
   },
 
-  /** `on-click(step, 1)` / `on-click(step, -1)` — one handler, an argument */
-  step( by: number ){
-    const next = this.state.count + by
+  handler: {
+    /**
+     * `onInput` runs on mount AND on every input change, so the counter
+     * re-seeds when the parent hands it a new `initial`. `onCreate` would
+     * only ever see the first value.
+     */
+    onInput(){
+      this.state.count = Number( this.input.initial ?? 0 )
+    },
 
-    if( next < 0 || next > this.limit() ){
-      this.state.refused = true
-      setTimeout( () => this.state.refused = false, 320 )
-      return
+    limit(){
+      return Number( this.input.limit ?? this.static.fallbackLimit )
+    },
+
+    /** `on-click(step, 1)` / `on-click(step, -1)` — one handler, an argument */
+    step( by: number ){
+      const next = this.state.count + by
+
+      if( next < 0 || next > this.limit() ){
+        this.state.refused = true
+        setTimeout( () => this.state.refused = false, 320 )
+        return
+      }
+
+      this.state.count = next
+      this.emit('update', this.state.count )
+    },
+
+    reset(){
+      this.state.count = Number( this.input.initial ?? 0 )
+      this.emit('update', this.state.count )
     }
-
-    this.state.count = next
-    this.emit('update', this.state.count )
   },
 
-  reset(){
-    this.state.count = Number( this.input.initial ?? 0 )
-    this.emit('update', this.state.count )
-  }
-}
-
-/**
- * RFC-004 in one sheet: nesting, a pseudo-class, a keyframe, and three
- * reactive declarations. `{…}%` is unit-suffixed, so it compiles to
- * `calc(var(--counter-N) * 1%)` and `--counter-N` is registered as
- * `<number>` — a TYPED custom property rather than an opaque token.
- *
- * NB the `transition` below smooths the bar, but a length driven through
- * `calc(var(…))` does not interpolate continuously in Chrome today — the
- * change lands at the midpoint of the duration. Transitioning the
- * variable itself is the shape that would interpolate, and that needs an
- * author-NAMED property, which only the bare `--x: {expr}` form produces
- * (and that form is not registered). Worth knowing before promising
- * animation to a designer.
- */
-export const stylesheet = `
+  /**
+   * RFC-004 in one sheet: nesting, a pseudo-class, a keyframe, and three
+   * reactive declarations. `{…}%` is unit-suffixed, so it compiles to
+   * `calc(var(--counter-N) * 1%)` and `--counter-N` is registered as
+   * `<number>` — a TYPED custom property rather than an opaque token.
+   *
+   * NB the `transition` below smooths the bar, but a length driven through
+   * `calc(var(…))` does not interpolate continuously in Chrome today — the
+   * change lands at the midpoint of the duration. Transitioning the
+   * variable itself is the shape that would interpolate, and that needs an
+   * author-NAMED property, which only the bare `--x: {expr}` form produces
+   * (and that form is not registered). Worth knowing before promising
+   * animation to a designer.
+   */
+  stylesheet: `
   /**
    * ROOT-LEVEL declarations, deliberately unselected.
    *
@@ -174,9 +166,9 @@ export const stylesheet = `
     75% { transform: translateX(4px) }
   }
   .refused { animation: refuse .3s ease }
-`
+`,
 
-export default `
+  default: `
   <div class="counter">
     <div class="head">
       <span class="label">
@@ -207,3 +199,4 @@ export default `
     <small class="hint" @format="counter.hint, { count: state.count, limit: input.limit || static.fallbackLimit }"></small>
   </div>
 `
+})

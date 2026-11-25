@@ -340,7 +340,7 @@ describe('reactive context', () => {
     lips.setContext({ theme: 'dark', lang: 'en', unrelated: 1 })
 
     lips.register('ctx', {
-      context: [ 'theme' ],
+      watchContext: [ 'theme' ],
       handler: {
         onContext( this: any ){ hits.push( this.context.theme ) }
       },

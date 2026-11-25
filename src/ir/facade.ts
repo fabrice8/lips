@@ -67,15 +67,15 @@ import { initial } from './initial'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import type { StyleIR, StyleCompileResult, StyleCompileOptions } from './style'
-import type { Template, Metavars, LipsConfig, Handler, MessageFormatEngine, Plugin } from '../types'
+import type { Component, Shape, LipsConfig, Handlers, MessageFormatEngine, Plugin } from '../types'
 import I18N from '../i18n'
 
 /**
- * The authoring shape IS the public `Template<MT>` — one type, not a
+ * The authoring shape IS the public `Component<S>` — one type, not a
  * parallel internal one. `FacadeTemplate` remains as the erased form
- * used where the metavars are not known (caches, dynamic resolution).
+ * used where the shape is not known (caches, dynamic resolution).
  */
-type FacadeTemplate = Template<any>
+type FacadeTemplate = Component<any>
 type FacadeConfig<Context extends Object = Record<string, any>> =
   LipsConfig<Context> & { mode?: 'compiled' | 'interpreted' }
 
@@ -83,13 +83,14 @@ type FacadeConfig<Context extends Object = Record<string, any>> =
  * Names template handlers must not override on the component
  * self — mirrors the old engine's reserved-member guard.
  */
-const RESERVED_MEMBERS = new Set([
+export const RESERVED = [
   'state', 'input', 'static', 'context', 'emit', 'on', 'once', 'off',
   'node', 'lang', 'setContext', 'setLanguage',
   'destroy', 'appendTo', 'prependTo', 'replaceWith', 'render', 'swap'
-])
+] as const
+const RESERVED_MEMBERS = new Set<string>( RESERVED )
 
-function guardHandlers( handler?: Handler<any> ){
+function guardHandlers( handler?: Handlers<any> ){
   if( !handler ) return undefined
 
   for( const name of Object.keys( handler ) )
@@ -100,8 +101,8 @@ function guardHandlers( handler?: Handler<any> ){
 }
 
 // --------------------------------------------------------------- component
-export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
-  readonly state: MT['State']
+export class IRFacadeComponent<S extends Shape = Shape> extends Events {
+  readonly state: S['state']
   private instance: IRInstance
   private contextWatcher?: () => void
   private destroyed = false
@@ -109,8 +110,8 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
   constructor(
     private lips: IRLips<any>,
     name: string,
-    private template: Template<MT>,
-    input: MT['Input'] | undefined,
+    private template: Component<S>,
+    input: S['input'] | undefined,
     ir: TemplateIR,
     options: RuntimeOptions
   ){
@@ -159,10 +160,10 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
     }, options )
 
     /**
-     * Context subscription: components declaring `context: [...]`
+     * Context subscription: components declaring `watchContext: [...]`
      * get onContext whenever a declared field changes.
      */
-    const watched = template.watchContext ?? template.context
+    const watched = template.watchContext
     if( watched?.length && typeof handlers?.onContext === 'function' )
       this.contextWatcher = lips.watchContext( watched, () => {
         try { handlers.onContext!.call( this.instance.self ) }
@@ -220,7 +221,8 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
 }
 
 // -------------------------------------------------------------------- lips
-export class IRLips<Context extends Object = Record<string, any>> {
+/** `Context` left out is the app's `SharedContext`: the context of a shape that names none */
+export class IRLips<Context extends Object = Shape<{}>['context']> {
   public debug: boolean
   private store = new Map<string, FacadeTemplate>()
   /** Installed plugins, by name (`use`) */
@@ -298,7 +300,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
    * looks here, so the component would never render, and what fails
    * instead is whatever its markup reads (`./tags`).
    */
-  register<MT extends Metavars = Metavars>( name: string, template: Template<MT> ){
+  register<S extends Shape = Shape>( name: string, template: Component<S> ){
     const is = TAKEN?.( name )
     if( is ) throw new Error(`[lips] <${name}> is ${is}: the compiler reads the tag as one, so a component of that name never renders. Register it under another name`)
     // A handler named after a member of the component is refused here, not at its first render
@@ -412,7 +414,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
         ir: this.compile( template ),
         state: template.state,
         statics: template.static ?? template._static,
-        context: template.watchContext ?? template.context,
+        context: template.watchContext,
         stylesheet: this.styleFor( name, template ),
         nsp: name,
         handlers: guardHandlers( template.handler ),
@@ -424,7 +426,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
   }
 
   // ---- rendering
-  render<MT extends Metavars = Metavars>( name: string, template: Template<MT>, input?: MT['Input'] ){
+  render<S extends Shape = Shape>( name: string, template: Component<S>, input?: S['input'] ){
     const options: RuntimeOptions = {
       mode: this.config?.mode,
       components: this.componentsProxy,
@@ -483,10 +485,11 @@ export class IRLips<Context extends Object = Record<string, any>> {
 
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), this.u ? this.u.runtime( options ) : options )
   }
-  root<MT extends Metavars = Metavars>( template: Template<MT>, selector: string ){
-    this.__root = this.render<MT>( '__ROOT__', template )
-    this.__root.appendTo( selector )
-    return this.__root
+  root<S extends Shape = Shape>( template: Component<S>, selector: string ){
+    const root = this.render<S>( '__ROOT__', template )
+    this.__root = root
+    root.appendTo( selector )
+    return root
   }
 
   // ---- i18n
@@ -524,7 +527,10 @@ export class IRLips<Context extends Object = Record<string, any>> {
   private get ctx(){ return this.context as Record<string, any> }
 
   getContext(): Context { return this.context }
-  setContext( arg: ( keyof Context & string ) | Partial<Context>, value?: any ){
+  /** One field, its value of its type; or several at once */
+  setContext<K extends keyof Context & string>( key: K, value: Context[ K ] ): void
+  setContext( fields: Partial<Context> ): void
+  setContext( arg: string | Partial<Context>, value?: any ){
     typeof arg === 'string'
       ? this.ctx[ arg ] = value
       : Object.entries( arg as object ).forEach( ( [ k, v ] ) => this.ctx[ k ] = v )

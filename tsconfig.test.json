@@ -11,5 +11,5 @@
     "types": [ "vitest/globals" ]
   },
   "include": [ "./src/**/*", "./tests/**/*" ],
-  "exclude": [ "./dist" ]
+  "exclude": [ "./dist", "./tests/types" ]
 }
