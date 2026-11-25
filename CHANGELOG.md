@@ -36,6 +36,28 @@ the DOM and Lynx:
   markup. Hidden from a screen reader unless labelled; labelled, it names
   the button it is in, on both hosts. One set per Lips.
 
+### Added — combobox, and a region that reveals and folds (RFC-008)
+
+- **`combobox`**: `popover-combobox`, a text field that is a popover's
+  trigger, over options as data `{ id, label, disabled? }`. What is typed
+  is its own: it finds the options that `match` (`contains` by default)
+  and says `query`, for an app that finds them itself; `value` is the
+  app's, and a choice comes back as `change`. Focus stays in the field,
+  which names the active option (`aria-activedescendant`); arrows open
+  and move past disabled options, Enter chooses, Escape and Tab close.
+  On Lynx the person types and taps, and each option is a button.
+- **`reveal`**: `reveal-region`, the content a popover's trigger shows in
+  the page's flow, not in a layer. Folded, it renders nothing, or with
+  `keep` stays rendered and hidden, so what was typed in it stays.
+
+### Fixed — Lynx: setting an input's value misread the rest of its batch
+
+An input's value set after its first render is sent as `setValue`, a UI
+method, and was sent one value short of what an invoke is. Every op after
+it in the same batch was read one place off: a branch closed beside it
+removed the wrong elements, or none. It goes through the same path as
+every other UI method now.
+
 ### Fixed — a Lynx spec answered a UI method by the next spec's rule
 
 The Lynx specs' engine stand-in read the answer to a UI method when it

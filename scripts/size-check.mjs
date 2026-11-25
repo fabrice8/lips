@@ -324,6 +324,10 @@ const KB = 1024
  * on the pinned bun. Each alone, gzipped: the layer and the blurred
  * backdrop 0.62, toasts 0.60, icons 0.37, the dialog with the popover and
  * layer it stands on 1.98. Room as the others have.
+ * 2026-11-25h: parts 3.45→4.15 — combobox and a region that folds:
+ * 3.33→4.02 on the pinned bun, +0.69. Each alone, with what it stands on:
+ * the combobox with the popover, layer and menu's `move` 2.30, the region
+ * with the popover and layer 1.53. The Lynx `setValue` fix is size-neutral.
  */
 const BUDGETS = {
   'dist/lips.min.js': 36.15,     // full: runtime + parser/compiler + style compiler + router
@@ -335,7 +339,7 @@ const BUDGETS = {
   'dist/lynx.min.js': 18.5,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 5.1, // Lynx background thread: the host the runtime renders into
-  'dist/parts.min.js': 3.45      // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
+  'dist/parts.min.js': 4.15      // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
 }
 
 let failed = false
