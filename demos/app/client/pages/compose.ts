@@ -41,7 +41,6 @@ export const state: State = {
   extra: { 'data-source': 'spread', 'aria-label': 'spread onto the element' }
 }
 
-export const context = ['toast']
 
 /**
  * `<macro [argv] name="X">` — argv become block-scoped reactive vars at the

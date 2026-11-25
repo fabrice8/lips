@@ -31,6 +31,7 @@ import * as StylesPage from '../demos/app/client/pages/styles'
 import * as Compose from '../demos/app/client/pages/compose'
 import * as Account from '../demos/app/client/pages/account'
 import * as Product from '../demos/app/client/pages/product'
+import * as Parts from '../demos/app/client/pages/parts'
 
 import { stylisPreprocessor } from '../src/stylis'
 
@@ -50,7 +51,8 @@ const PAGES: Record<string, Source> = {
   styles: StylesPage,
   compose: Compose,
   account: Account,
-  product: Product
+  product: Product,
+  parts: Parts
 }
 
 const ALL: Record<string, Source> = { app: App, ...PAGES, ...COMPONENTS }

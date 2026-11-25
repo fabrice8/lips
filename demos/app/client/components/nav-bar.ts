@@ -21,7 +21,6 @@ type Context = {
   navigate: ( path: string ) => void
 }
 
-export const context = ['navigate']
 
 export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
   go( path: string ){

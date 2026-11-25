@@ -20,7 +20,6 @@ export const state: State = {
   mode: 'system'
 }
 
-export const context = ['theme']
 
 const resolve = ( mode: State['mode'] ) =>
   mode !== 'system'

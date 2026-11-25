@@ -19,7 +19,6 @@ export const state: State = {
   nonce: 0
 }
 
-export const context = ['navigate']
 
 export const handler: Handler<Metavars<{}, State, {}, Context>> = {
   onWho( e: any ){ this.state.who = e.target.value },

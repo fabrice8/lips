@@ -33,11 +33,12 @@ export const _static: Static = {
     { icon: '🎨', title: 'Reactive stylesheets', path: '/styles',
       body: 'Scoped CSS where any declaration value can be an expression — including inside :hover, @media and @keyframes.' },
     { icon: '🌍', title: 'i18n by stable key', path: '/i18n',
-      body: 'Reword the source text and the translation holds. @format carries params for plurals.' }
+      body: 'Reword the source text and the translation holds. @format carries params for plurals.' },
+    { icon: '▤', title: 'Parts & the DOM', path: '/parts',
+      body: 'A menu installed with lips.use(), @ref, event modifiers, fields state resets, and onError.' }
   ]
 }
 
-export const context = [ 'online', 'navigate' ]
 
 export const handler: Handler<Metavars<{}, {}, Static, Context>> = {
   open( path: string ){

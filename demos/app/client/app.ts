@@ -21,6 +21,7 @@ import * as StylesPage from './pages/styles'
 import * as Compose from './pages/compose'
 import * as Account from './pages/account'
 import * as Product from './pages/product'
+import * as Parts from './pages/parts'
 
 type Toast = { id: number, text: string, tone: string }
 
@@ -47,6 +48,7 @@ export const _static: Static = {
     { path: '/i18n', template: I18nPage },
     { path: '/styles', template: StylesPage },
     { path: '/compose', template: Compose },
+    { path: '/parts', template: Parts },
     { path: '/account', template: Account },
     { path: '/product/:id', template: Product }
   ],
@@ -56,6 +58,7 @@ export const _static: Static = {
     { path: '/control-flow', label: 'Control flow', icon: '⌥' },
     { path: '/async', label: 'Async', icon: '⏳' },
     { path: '/compose', label: 'Composition', icon: '⬡' },
+    { path: '/parts', label: 'Parts', icon: '▤' },
     { path: '/styles', label: 'Styles', icon: '🎨' },
     { path: '/i18n', label: 'i18n', icon: '🌍' }
   ]
@@ -67,7 +70,6 @@ export const state: State = {
   missing: null
 }
 
-export const context = ['online']
 
 type MT = Metavars<{}, State, Static, Context>
 

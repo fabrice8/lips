@@ -19,7 +19,6 @@ type Context = {
   getUser: ( name: string, fail?: boolean ) => Promise<{ name: string, email: string, role: string }>
 }
 
-export const context = ['getUser']
 
 export const state: State = {
   nonce: 0,
