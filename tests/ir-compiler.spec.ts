@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { compileTemplate, type ChildIR, type BindIR } from '../src/ir/compiler'
+import Lips from '../src/lips'
 
 const compile = ( src: string ) => compileTemplate( src )
 const clean = ( src: string ) => {
@@ -405,5 +406,37 @@ describe('quoted event attributes', () => {
   it('leaves the instruction form alone', () => {
     const { diagnostics } = compile(`<button on-click( () => state.n++ )>x</button>`)
     expect( diagnostics ).toEqual( [] )
+  })
+})
+
+/**
+ * `<for>` takes values. A quoted `in` was read as text and dropped, and the
+ * loop fell through to a numeric range of one: a single row reading `0`.
+ */
+describe('<for> attributes are values', () => {
+  const rowsOf = ( src: string, state: any ) => {
+    document.body.innerHTML = '<div id="app"></div>'
+    const lips = new Lips()
+    lips.render('for-forms', { state, default: `<ul>${src}</ul>` }).appendTo('#app')
+    return [ ...document.querySelectorAll('li') ].map( li => li.textContent )
+  }
+
+  it('in=, in={ … } and a lone in="{…}" are the same', () => {
+    const state = { items: [ 'a', 'b' ] }
+    for( const head of [ 'in=state.items', 'in={ state.items }', 'in="{state.items}"' ] )
+      expect( rowsOf(`<for [x] ${head}><li>{x}</li></for>`, state ), head ).toEqual([ 'a', 'b' ])
+  })
+
+  it('from= and to= take numbers, expressions and lone slots', () => {
+    const state = { n: 3 }
+    for( const head of [ 'from=1 to=3', 'from="1" to="3"', 'from=1 to=state.n', 'from="{1}" to="{state.n}"' ] )
+      expect( rowsOf(`<for [x] ${head}><li>{x}</li></for>`, state ), head ).toEqual([ '1', '2', '3' ])
+  })
+
+  it('anything else is an error, not a range of one', () => {
+    for( const head of [ 'in="state.items"', 'in="items: {state.items}"', 'in', 'from="a {1}"', 'by="{a} b"' ] ){
+      const { diagnostics } = compileTemplate(`<for [x] ${head}><li>{x}</li></for>`)
+      expect( diagnostics.map( d => d.code ), head ).toContain('LIPS-C004')
+    }
   })
 })

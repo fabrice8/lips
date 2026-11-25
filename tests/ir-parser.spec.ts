@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { compileTemplate } from '../src/ir/compiler'
 import {
   parseTemplate,
   parseSFC,
@@ -79,6 +80,29 @@ describe('elements & structure', () => {
     const root = clean(`<span title="A &amp; B">x &lt; y</span>`)
     expect( attr( root.children[0], 'title' ).value ).toBe('A & B')
     expect( el( root.children[0] ).children[0] ).toMatchObject({ t: 'text', value: 'x < y' })
+  })
+
+  /**
+   * Before, only these six decoded, and the rest reached the page as text:
+   * `&copy;` rendered as the six characters `&copy;`, `&#169;` too.
+   */
+  it('decodes every numeric reference, and the named ones in its table', () => {
+    const root = clean(`<p title="&#169; &#xA9; &apos;">&#8212; &#x1F600; &nbsp;|</p>`)
+    expect( attr( root.children[0], 'title' ).value ).toBe(`© © '`)
+    expect( el( root.children[0] ).children[0] ).toMatchObject({ t: 'text', value: '— 😀 \u00a0|' })
+  })
+
+  it('reports a named reference it does not decode, and leaves it as written', () => {
+    const { root, diagnostics } = parseTemplate(`<p>a &hearts; b</p>`)
+    expect( el( root.children[0] ).children[0] ).toMatchObject({ t: 'text', value: 'a &hearts; b' })
+    expect( compileTemplate(`<p>&copy;</p>`).diagnostics.map( d => d.code ) ).toEqual([ 'LIPS-P013' ])
+    expect( diagnostics ).toMatchObject([{ code: 'LIPS-P013', severity: 'warning', loc: { offset: 5, length: 8 } }])
+  })
+
+  it('leaves an ampersand that starts no reference alone', () => {
+    const { root, diagnostics } = parseTemplate(`<p>Q&A &amp &#xZZ;</p>`)
+    expect( el( root.children[0] ).children[0] ).toMatchObject({ value: 'Q&A &amp &#xZZ;' })
+    expect( diagnostics ).toEqual( [] )
   })
 
   it('parses comments', () => {

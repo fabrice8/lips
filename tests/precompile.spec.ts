@@ -194,6 +194,38 @@ const handler = {
   })
 })
 
+describe('bundler plugin: what a .lips frontscript declares', () => {
+  const plugin: any = lipsPlugin()
+  const irOf = ( code: string ) => JSON.parse( code.match( /const __lips_ir__ = (.*);/ )![1] )
+
+  /**
+   * The IR is all that ships, so a macro the build does not inline never
+   * expands: before, `const macros` was ignored and `<chip>` compiled as a
+   * component candidate, rendering an empty element.
+   */
+  it('inlines const macros, as precompile() inlines a template\'s macros', async () => {
+    const sfc = 'const macros = `<macro [label] name="chip"><b class="chip">{label}</b></macro>`\n\n<div><chip label="hi"/></div>'
+    const out = await plugin.transform( sfc, '/src/chips.lips')
+    const ir = irOf( out.code )
+
+    expect( ir.root.blocks[ 0 ].t ).toBe('macro')
+
+    const c = lips.render('chips', { ir } as any ).appendTo('#app')
+    expect( q('.chip')?.textContent ).toBe('hi')
+    c.destroy()
+  })
+
+  it('refuses const macros it cannot read at build time', async () => {
+    const sfc = 'const tag = "b"\nconst macros = `<macro name="x"><${tag}/></macro>`\n\n<div/>'
+    await expect( plugin.transform( sfc, '/src/x.lips') ).rejects.toThrow( /plain template literal/ )
+  })
+
+  it('exports const watchContext, the spelling RFC-005 renamed context to', async () => {
+    const out = await plugin.transform('const watchContext = [ "theme" ]\n\n<div/>', '/src/w.lips')
+    expect( out.code ).toMatch( /^\s*watchContext,$/m )
+  })
+})
+
 describe('runtime-only entry (@lipsjs/lips/runtime)', () => {
   it('renders precompiled templates without the compiler', async () => {
     const { default: RuntimeLips } = await import('../src/runtime')
