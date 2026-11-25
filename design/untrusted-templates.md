@@ -22,8 +22,8 @@ This RFC says what a template you did not write may touch, closes every route
 Lips can close itself, names the ones it leaves to the page, and makes each
 mode claim only what it guarantees.
 
-Cosense is not a consumer: it decided that what a module, partner or tenant
-supplies is never a Lips template. The fix is for Lips's own promise.
+The fix is for Lips's own promise, whoever runs a template they did not
+write.
 
 ---
 

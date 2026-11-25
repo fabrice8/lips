@@ -152,7 +152,7 @@ const KB = 1024
  * 7.6, and needs a parser-free build of `messageformat` upstream.
  *
  * Why the library and not our own smaller formatter: the platform that
- * serves dictionaries (Cosense) parses and checks every message with the
+ * serves an app's dictionaries can parse and check every message with the
  * same library, so a message cannot mean one thing there and another
  * here. A second implementation would be a second meaning.
  *
