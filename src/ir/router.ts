@@ -75,19 +75,33 @@ export const routerTemplate = {
 
     onAttach( this: any ){
       if( this.input?.global ){
-        window.navigate = this.navigate.bind( this )
-        window.addEventListener('popstate', ( e: PopStateEvent ) =>
-          e.state && this.navigate( e.state.path, true ) )
+        window.navigate = this.__navigate = this.navigate.bind( this )
+        this.__popstate = ( e: PopStateEvent ) => e.state && this.navigate( e.state.path, true )
+        window.addEventListener('popstate', this.__popstate )
       }
 
       // Contextual navigation for every component
       typeof this.setContext === 'function' && this.setContext('navigate', this.navigate.bind( this ) )
 
+      /**
+       * The first navigation REPLACES the entry the page loaded on: the
+       * URL is already where the reader is (or redirects to the default
+       * route), so pushing it made Back stay on the same page, and the
+       * entry it left behind carried no state for `popstate` to route by.
+       */
+      this.__initial = true
       this.__defaultPath && this.navigate( this.__defaultPath )
+      this.__initial = false
+    },
+
+    /** A router that is gone stops answering the browser */
+    onDestroy( this: any ){
+      this.__popstate && window.removeEventListener('popstate', this.__popstate )
+      this.__navigate && window.navigate === this.__navigate && delete ( window as any ).navigate
     },
 
     navigate( this: any, path: string, back?: boolean ){
-      !back && this.__global && history.pushState({ path }, '', path )
+      !back && this.__global && history[ this.__initial ? 'replaceState' : 'pushState' ]({ path }, '', path )
 
       const parts = String( path ).split('?')
       path = parts[0]

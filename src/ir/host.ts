@@ -84,6 +84,11 @@ export interface Host<N = any> {
 // ---------------------------------------------------------------- DOM host
 const SKELETONS = new WeakMap<BlockIR, HTMLTemplateElement>()
 
+/** The attributes whose element property is what shows, and that property's value */
+type Live = ( value: string | null ) => unknown
+const present: Live = v => v !== null
+const LIVE: Record<string, Live> = { __proto__: null, value: ( v: string | null ) => v ?? '', checked: present, selected: present } as any
+
 /**
  * Today's behaviour, unchanged: skeletons parsed once per block into a
  * `<template>` and cloned per instance, scope stamped as `rel`.
@@ -143,9 +148,20 @@ export const domHost: Host<Node> = {
    */
   precedes: ( a, b ) => !!( a.compareDocumentPosition( b ) & 4 /* FOLLOWING */ ),
 
-  attr: ( el, name, value ) => value === null
-                                  ? ( el as Element ).removeAttribute( name )
-                                  : ( el as Element ).setAttribute( name, value ),
+  attr( el, name, value ){
+    value === null
+      ? ( el as Element ).removeAttribute( name )
+      : ( el as Element ).setAttribute( name, value )
+
+    /**
+     * A form control shows its PROPERTY: the attribute is only where it
+     * starts. Once the reader has typed, or ticked, `value=state.query`
+     * written as an attribute changed nothing on screen, and `<select>`
+     * and `<textarea>` have no such attribute at all.
+     */
+    const live = LIVE[ name ]
+    live && name in el && ( ( el as any )[ name ] = live( value ) )
+  },
   /** `.data`: the direct write, as before the seam — no node-type dispatch */
   setText: ( node, value ) => { ( node as Text ).data = value },
   content: ( el, value ) => { el.textContent = value },

@@ -418,6 +418,13 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
   if( ( obj as any )[ IS_REACTIVE ] ) return obj
 
   const sigs = new Map<PropertyKey, [ () => any, ( v: any ) => void, () => void ]>()
+  /**
+   * Which keys there are, as a nested object has it (`KEYS`): read by
+   * `Object.keys( store )`, notified when a key is added or deleted. What
+   * reads the key set of an `input` (`onInput` again on a new input) saw
+   * only the keys there were when it last ran.
+   */
+  const [ keys, , touchKeys ] = signal( 0 )
 
   const sigFor = ( key: PropertyKey, initial: any ) => {
     let s = sigs.get( key )
@@ -438,10 +445,11 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
       return target[ key ]
     },
     set( target: any, key, value ){
-      const prev = target[ key ]
+      const had = key in target, prev = target[ key ]
       target[ key ] = value
 
       if( typeof key !== 'string' ) return true
+      had || touchKeys()
 
       const sig = sigFor( key, value )
       /**
@@ -457,9 +465,15 @@ export function reactive<T extends object>( obj: T, deep = false ): T {
       return true
     },
     has( target, key ){ return key in target },
+    ownKeys( target ){
+      keys()
+      return Reflect.ownKeys( target )
+    },
     deleteProperty( target: any, key ){
+      const had = key in target
       delete target[ key ]
       typeof key === 'string' && sigs.get( key )?.[1]( undefined )
+      had && touchKeys()
       return true
     }
   }) as T

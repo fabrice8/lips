@@ -596,11 +596,11 @@ function gen( node: Expr ): string {
       return String( node.v )
     case 'id': return ID_RENAMES[ node.name ] ?? node.name
     case 'member': {
-      const obj = gen( node.obj )
-      if( node.computed ) return `(${obj})${node.optional ? '?.' : ''}[${gen( node.prop as Expr )}]`
-      return `(${obj})${node.optional ? '?.' : '.'}${node.prop}`
+      const obj = link( node.obj )
+      if( node.computed ) return `${obj}${node.optional ? '?.' : ''}[${gen( node.prop as Expr )}]`
+      return `${obj}${node.optional ? '?.' : '.'}${node.prop}`
     }
-    case 'call': return `(${gen( node.callee )})${node.optional ? '?.' : ''}(${node.args.map( gen ).join(',')})`
+    case 'call': return `${link( node.callee )}${node.optional ? '?.' : ''}(${node.args.map( gen ).join(',')})`
     case 'unary': return `(${node.op}(${gen( node.arg )}))`
     case 'update': return node.prefix ? `(${node.op}${genTarget( node.arg )})` : `(${genTarget( node.arg )}${node.op})`
     case 'bin': return `((${gen( node.l )})${node.op}(${gen( node.r )}))`
@@ -614,6 +614,16 @@ function gen( node: Expr ): string {
     case 'error': return 'undefined'
   }
 }
+/**
+ * The object of a member or call, as one link of a chain. A chain stays
+ * unparenthesized: `(a?.b).c` is a different expression from `a?.b.c`,
+ * whose `?.` ends the WHOLE chain when `a` is nullish, as JS has it. A
+ * number literal keeps its parentheses (`(1).toFixed`); so does anything
+ * else that is not a chain link, where they are only grouping.
+ */
+const link = ( node: Expr ) =>
+  node.t === 'member' || node.t === 'call' || node.t === 'id' ? gen( node ) : `(${gen( node )})`
+
 /** Assignment/update targets must not be over-parenthesized */
 function genTarget( node: Expr ): string {
   if( node.t === 'id' ) return ID_RENAMES[ node.name ] ?? node.name
@@ -700,6 +710,9 @@ const GLOBALS: Record<string, any> = {
   encodeURIComponent, decodeURIComponent, console
 } as any
 
+/** Where a `?.` ended a chain — never a value an expression returns */
+const ENDED = Symbol('lips.ended')
+
 export function interpretExpression( ast: Expr, env: ExprEnv ): any {
   const scope = env.scope || Object.create( null )
 
@@ -734,26 +747,10 @@ export function interpretExpression( ast: Expr, env: ExprEnv ): any {
       case 'lit': return node.v
       case 'id': return resolveId( node.name, locals )
 
-      case 'member': {
-        const obj = ev( node.obj, locals )
-        if( node.optional && obj == null ) return undefined
-        const prop = node.computed ? ev( node.prop as Expr, locals ) : node.prop as string
-        return obj?.[ prop ]
-      }
-
+      case 'member':
       case 'call': {
-        // Member calls bind `this` to the object
-        if( node.callee.t === 'member' ){
-          const obj = ev( node.callee.obj, locals )
-          if( ( node.callee.optional || node.optional ) && obj == null ) return undefined
-          const prop = node.callee.computed ? ev( node.callee.prop as Expr, locals ) : node.callee.prop as string
-          const fn = obj?.[ prop ]
-          if( node.optional && fn == null ) return undefined
-          return fn.apply( obj, node.args.map( a => ev( a, locals ) ) )
-        }
-        const fn = ev( node.callee, locals )
-        if( node.optional && fn == null ) return undefined
-        return fn( ...node.args.map( a => ev( a, locals ) ) )
+        const v = chain( node, locals )
+        return v === ENDED ? undefined : v
       }
 
       case 'unary': {
@@ -847,6 +844,31 @@ export function interpretExpression( ast: Expr, env: ExprEnv ): any {
 
       case 'error': return undefined
     }
+  }
+
+  /**
+   * A member or call as JS reads it, so this mode means what the compiled
+   * one means: a `?.` on a nullish value ends the whole chain (`ENDED`,
+   * turned into `undefined` where the chain ends), and a plain `.` on one
+   * throws, as `state.user.name` throws when there is no user (JS throws
+   * it: `obj[ prop ]` on nothing, `Reflect.apply` on a non-function).
+   */
+  const chain = ( node: Expr, locals: Record<string, any>[] ): any => {
+    if( node.t !== 'member' && node.t !== 'call' ) return ev( node, locals )
+
+    const m = node.t === 'member' ? node : node.callee.t === 'member' ? node.callee : null
+    let obj: any, fn: any
+
+    if( m ){
+      obj = chain( m.obj, locals )
+      if( obj === ENDED || m.optional && obj == null ) return ENDED
+      fn = obj[ m.computed ? ev( m.prop as Expr, locals ) : m.prop as string ]
+      if( node === m ) return fn
+    }
+    else if( ( fn = chain( ( node as Expr & { t: 'call' } ).callee, locals ) ) === ENDED ) return ENDED
+
+    const call = node as Expr & { t: 'call' }
+    return call.optional && fn == null ? ENDED : Reflect.apply( fn, obj, call.args.map( a => ev( a, locals ) ) )
   }
 
   const setTarget = ( target: Expr, value: any, locals: Record<string, any>[] ) => {
