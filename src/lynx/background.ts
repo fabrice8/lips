@@ -33,7 +33,7 @@ import { treeHost, treeNode, link, unlink, type TreeNode } from '../ir/tree'
 import { A11Y, IMPLICIT, LIVE, WORDS, lynxA11y, roleOf, type Aria, type Words } from './a11y'
 import {
   CREATE, TEXT, INSERT, REMOVE, ATTR, SET_TEXT, STYLES, LISTEN, UNLISTEN, RELEASE, INVOKE,
-  PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, SVG_PART, scopeClass, type WireEvent
+  PAGE_ID, LYNX_TAG, LYNX_EVENT, OPS_EVENT, DOM_EVENT, SVG_PART, scopeClass, type WireEvent, type WireReply
 } from './protocol'
 
 /** Markup text: what an attribute value or a text run may not hold as is */
@@ -83,9 +83,23 @@ export interface LynxNode extends TreeNode {
   scrollTo( x?: number | { top?: number, left?: number, behavior?: string }, y?: number ): void
   scrollIntoView( arg?: boolean | { behavior?: string, block?: string, inline?: string } ): void
   animate( keyframes: unknown, options?: AnimateOptions ): { id: string, play(): void, pause(): void, cancel(): void, finish(): void }
+  /** Its box once laid out, or null when Lynx cannot measure it: a promise here, so `await` it on both hosts */
+  getBoundingClientRect(): Promise<Rect | null>
   /** Part of an svg's markup: its SVG spelling. On an svg: the markup last sent */
   part?: string
   drawn?: string
+}
+
+/** A box as the DOM's `getBoundingClientRect()` gives it, in CSS pixels */
+export interface Rect {
+  x: number
+  y: number
+  width: number
+  height: number
+  top: number
+  right: number
+  bottom: number
+  left: number
 }
 
 export interface BackgroundOptions {
@@ -99,8 +113,8 @@ export interface BackgroundHost {
   host: Host<LynxNode>
   /** The page: mount the root instance here */
   root: LynxNode
-  /** An element event forwarded by the main thread */
-  receive( wire: WireEvent ): void
+  /** An element event forwarded by the main thread, or a UI method's result */
+  receive( wire: WireEvent | WireReply ): void
   /** Send what is pending now instead of at the end of the microtask */
   flush(): void
 }
@@ -223,7 +237,10 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
   }
 
   /** A UI method on a real element, run once the batch is flushed (`./main`) */
-  const invoke = ( n: LynxNode, method: string, params: unknown = {} ) => { n.real && emit( INVOKE, n.id, method, params ) }
+  const invoke = ( n: LynxNode, method: string, params: unknown = {}, call = 0 ) => { n.real && emit( INVOKE, n.id, method, params, call ) }
+  /** What waits for a UI method's result, by its call */
+  const replies = new Map<number, ( r: WireReply ) => void>()
+  let calls = 0
 
   /**
    * The DOM element's methods, by its names and its arguments, as Lynx's
@@ -253,6 +270,23 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       const id = `lips-${this.id}-${++animations}`, to = ( op: number ) => () => invoke( this, 'animate', [ op, id ] )
       invoke( this, 'animate', [ START, id, keyframes, typeof options === 'number' ? { duration: options } : options ] )
       return { id, play: to( PLAY ), pause: to( PAUSE ), cancel: to( CANCEL ), finish: to( FINISH ) }
+    },
+    /**
+     * Lynx's `boundingClientRect` UI method, run once the batch is flushed
+     * and answered once laid out (Android waits for layout), relative to
+     * the LynxView as the DOM's is to the viewport. A box with only layout
+     * styles gets no native view, and Lynx answers it NO_UI_FOR_NODE; any
+     * attribute gives it one (`MarkHasLayoutOnlyPropsIfNecessary`), so a
+     * measured box carries `lips-rect`. Null when it cannot be measured.
+     */
+    getBoundingClientRect( this: LynxNode ){
+      return new Promise<Rect | null>( resolve => {
+        if( !this.real ) return resolve( null )
+        host.attr( this, 'lips-rect', '' )
+        replies.set( ++calls, ( { code, data: d }: any ) => resolve( code || !d ? null
+          : { x: d.left, y: d.top, width: d.width, height: d.height, top: d.top, right: d.right, bottom: d.bottom, left: d.left }) )
+        invoke( this, 'boundingClientRect', {}, calls )
+      })
     }
   }
 
@@ -525,6 +559,11 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
      * joins its target, as `e.target.value` reads on the DOM.
      */
     receive( wire ){
+      if( 'call' in wire ){
+        replies.get( wire.call )?.( wire )
+        replies.delete( wire.call )
+        return
+      }
       const set = handlers.get( wire.id )?.get( wire.name ), event: any = wire.event, value = event.detail?.value
 
       // A tap inside a disabled button reaches no handler, as the DOM fires no click for it, there or above it
@@ -561,6 +600,6 @@ export function connectBackground( words?: Words ): BackgroundHost {
     announce: content => lynx.accessibilityAnnounce?.({ content }, () => {})
   })
 
-  main.addEventListener( DOM_EVENT, ( e: { data: WireEvent } ) => bg.receive( e.data ) )
+  main.addEventListener( DOM_EVENT, ( e: { data: WireEvent | WireReply } ) => bg.receive( e.data ) )
   return bg
 }

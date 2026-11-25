@@ -264,6 +264,13 @@ const KB = 1024
  * `list`'s attribute text by the prop's name: +0.15 (2.44 → 2.59). A
  * table of the 28 typed names measured 0.25 larger than the two name
  * patterns kept; a spec checks the patterns against every one of them.
+ *
+ * 2026-11-25b: lynx-background 4.85→5.1 — a ref that measures. Equal
+ * writes are dropped (L4, lips#39) within the old budget (4.85); a ref's
+ * `getBoundingClientRect()`, its reply by call id and the `lips-rect` mark
+ * that gives a layout-only box a native view: +0.16 (4.85 → 5.01). The
+ * rect is mapped field by field: spreading Lynx's answer would carry its
+ * `id` and `dataset` into what the DOM gives as a plain box.
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
@@ -274,7 +281,7 @@ const BUDGETS = {
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
   'dist/lynx.min.js': 18.05,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.65, // Lynx main thread: the applier over Element PAPI
-  'dist/lynx-background.min.js': 4.85 // Lynx background thread: the host the runtime renders into
+  'dist/lynx-background.min.js': 5.1 // Lynx background thread: the host the runtime renders into
 }
 
 let failed = false

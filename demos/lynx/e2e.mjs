@@ -184,6 +184,10 @@ try {
   await tap('focus')
   check( "a ref's focus() focuses the input", await waitText('Focused: 1', 5000 ), await text() )
 
+  // A ref that measures: Lynx's boundingClientRect, answered back to the background
+  await tap('measure')
+  check( "a ref's getBoundingClientRect() answers with the box", await waitText('Rect: 120×30', 5000 ), await text() )
+
   await page.screenshot({ path: join( here, 'dist/e2e.png' ) })
   check( 'no page errors', !errors.length, errors.join(' | ') )
 }

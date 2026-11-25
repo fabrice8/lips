@@ -46,10 +46,13 @@ let env: LynxTestingEnv
 /** UI method calls: element, method, params, and how many flushes came first */
 let invoked: [ any, string, any, number ][]
 let flushes = 0
+/** What a UI method answers, when a spec says: by default nothing, as the engine never calls back a method that returns nothing */
+let answer: ( ( el: any, method: string, params: any ) => { code: number, data?: unknown } ) | undefined
 
 beforeEach( () => {
   invoked = []
   flushes = 0
+  answer = undefined
   // vitest's own jsdom window: the environment's elements live in its document
   env = new LynxTestingEnv({ window: window as any })
   // Its Element PAPI looks itself up here, as its vitest preset would install it
@@ -67,7 +70,11 @@ beforeEach( () => {
   Object.assign( env.mainThread.globalThis, {
     __AddEventListener: ( el: any, name: string, fn: any, o: any ) => el.addEventListener( name, engine( fn, o ), phase( o ) ),
     __RemoveEventListener: ( el: any, name: string, fn: any, o: any ) => el.removeEventListener( name, engine( fn ), phase( o ) ),
-    __InvokeUIMethod: ( el: any, method: string, params: any ) => { invoked.push([ el, method, params, flushes ]) },
+    __InvokeUIMethod: ( el: any, method: string, params: any, cb: ( r: any ) => void ) => {
+      invoked.push([ el, method, params, flushes ])
+      // Asynchronously, as the engine answers once laid out
+      answer && setTimeout( () => cb( answer!( el, method, params ) ) )
+    },
     __ElementAnimate: ( el: any, args: any ) => { invoked.push([ el, '__ElementAnimate', args, flushes ]) },
     __FlushElementTree: () => { flushes++ }
   })
@@ -868,6 +875,45 @@ describe('element references: @ref (#37)', () => {
     inst.state.on = false
     await tick()
     expect( refs ).toEqual( {} )
+  })
+
+  it('Lynx: getBoundingClientRect() answers with the box Lynx measured, after the flush, and each call its own', async () => {
+    answer = el => ({ code: 0, data: { id: '', dataset: {}, left: +el.dataset.k, top: 20, right: +el.dataset.k + 100, bottom: 70, width: 100, height: 50 } })
+    const app = await boot( `<div data-k="10" @ref="a"></div><div data-k="300" @ref="b"></div>` )
+    const { a, b } = app.inst.self.refs
+    const [ ra, rb ] = await Promise.all([ a.getBoundingClientRect(), b.getBoundingClientRect() ])
+    expect( ra ).toEqual({ x: 10, y: 20, width: 100, height: 50, top: 20, right: 110, bottom: 70, left: 10 })
+    expect( rb ).toMatchObject({ x: 300, left: 300, right: 400 })
+    expect( calls() ).toEqual([ [ 'view', 'boundingClientRect', {}, 2 ], [ 'view', 'boundingClientRect', {}, 2 ] ])
+    // Measured boxes are given a native view, once
+    expect( app.page.querySelectorAll('[lips-rect]') ).toHaveLength( 2 )
+    invoked = []
+    await a.getBoundingClientRect()
+    expect( calls() ).toHaveLength( 1 )
+  })
+
+  it('Lynx: getBoundingClientRect() is null when Lynx cannot measure the box', async () => {
+    answer = () => ({ code: 6, data: 'node does not have a LynxUI' })
+    const app = await boot( `<div @ref="a"></div>` )
+    expect( await app.inst.self.refs.a.getBoundingClientRect() ).toBeNull()
+    answer = () => ({ code: 0 })
+    expect( await app.inst.self.refs.a.getBoundingClientRect() ).toBeNull()
+  })
+
+  it('Lynx: getBoundingClientRect() is null at once for what is no Lynx element: an svg\'s part', async () => {
+    answer = () => ({ code: 0, data: { left: 1, top: 1, right: 2, bottom: 2, width: 1, height: 1 } })
+    const app = await boot( `<svg viewBox="0 0 10 10"><rect @ref="r" width="5" height="5"/></svg>` )
+    expect( await app.inst.self.refs.r.getBoundingClientRect() ).toBeNull()
+    expect( calls() ).toEqual( [] )
+  })
+
+  it('dom: getBoundingClientRect() is the platform\'s, and await reads it as on Lynx', async () => {
+    const box = document.createElement('div')
+    document.body.append( box )
+    const inst = renderIR( compileTemplate(`<div @ref="a"></div>`).ir, {} )
+    inst.mount( box )
+    expect( await inst.self.refs.a.getBoundingClientRect() ).toMatchObject({ x: 0, y: 0, width: 0, height: 0 })
+    box.remove()
   })
 
   it('dom: the ref is the element, so its methods are the platform\'s', async () => {

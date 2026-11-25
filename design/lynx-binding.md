@@ -650,8 +650,10 @@ with `__LoadStyleSheet`, which is internal (§8).
   - Key events do not type: text entry goes through an IME interface the
     runtime does not document. Typing stays tier C, and tier A types for
     real in Chromium.
-- **Protocol: `INVOKE id, method, params`.** The applier runs UI methods
-  after the batch's flush, never before it.
+- **Protocol: `INVOKE id, method, params, call`.** The applier runs UI
+  methods after the batch's flush, never before it. A `call` other than 0
+  asks for the result: the main thread sends `{ call, code, data }` back
+  on the event channel, and the background resolves what waits for it.
 - **Inputs.** The background host sends `value` as the attribute in the
   batch that creates the input, and as `setValue` after that. A value equal
   to what the input last reported is not sent, so state that mirrors the
@@ -980,6 +982,55 @@ with `__LoadStyleSheet`, which is internal (§8).
 - **Not verified.** That `requestAccessibilityFocus` moves the screen
   reader, and that `animate` plays, are tier C. `keepFocus` is
   hot-swap only and has no tier B check.
+
+**As built, a ref that measures (2026-11-25).**
+
+- **The need.** A popover, a menu or a tooltip places itself from where
+  its trigger is (RFC-008 §7). On Lynx a ref's methods ran and nothing
+  came back: the applier passed Lynx's callback a no-op.
+- **What Lynx has.** `__InvokeUIMethod( el, 'boundingClientRect', {}, cb )`
+  calls back `{ code, data: { id, dataset, left, top, right, bottom,
+  width, height } }`. The numbers are in dp/pt, the units of Lynx's CSS
+  pixels, relative to the LynxView by default, as the DOM's are to the
+  viewport. Android answers once layout is done (`LynxBaseUI.
+  boundingClientRect` waits for `uiOwnerDidPerformLayout`). `code` 0 is
+  success (`LynxUIMethodConstants`).
+- **The name is the DOM's.** `getBoundingClientRect()` on the background
+  host's node returns a promise of `{ x, y, width, height, top, right,
+  bottom, left }`, or `null`. On the DOM the ref is the element, whose
+  method returns the box itself; `await` reads both the same, so
+  `await this.refs.anchor.getBoundingClientRect()` is one line on both
+  hosts. No new method on the DOM side, and the core carries no table.
+- **Null, not a throw.** For a node that is no Lynx element (an svg's
+  part: there is nothing to ask), and for any answer other than success
+  with data. A part that places itself falls back to a default place; an
+  error would only make every caller wrap it.
+- **A layout-only box has nothing to measure.** Lynx gives a node with
+  only layout styles, no attribute and no event no native view
+  (`Element::CanBeLayoutOnly`), and answers it `NO_UI_FOR_NODE` (6). "Any
+  attribute will cause has_layout_only_props_ = false"
+  (`MarkHasLayoutOnlyPropsIfNecessary`), and a node that stops being
+  layout-only gets its view at the next flush (`TransitionToNativeView`).
+  So the first measure sets `lips-rect` in the same batch, before the
+  flush the call runs after. It costs one native view per measured box,
+  and only measured boxes pay it; it is sent once (equal writes are not
+  sent again).
+- **Each call its own.** Calls are numbered; an answer resolves its own
+  call and is dropped. A call Lynx never answers leaves one entry behind.
+- **Tests.**
+  - Tier A, 4 specs: the box mapped to the DOM's shape, after the flush,
+    two calls in flight each answered by their own; `lips-rect` set once;
+    `null` for code 6 and for success with no data; `null` at once for an
+    svg's part, with nothing asked; on the DOM, the platform's own. Nine
+    deliberate breakages were each caught (the applier never answering,
+    answering the wrong call, call ids reused, the old INVOKE arity, no
+    `lips-rect`, the box mapped wrong, an error code read as success, the
+    reply not delivered, an svg part asked).
+  - Tier B and Lynx for Web e2e: the demo measures a box with only a width
+    and a height, so a layout-only one, and shows `Rect: 120×30`.
+- **Not verified.** Android and iOS devices (tier C). `relativeTo` and
+  `androidEnableTransformProps` are not passed: a transformed box on
+  Android measures untransformed.
 
 ### 4.6 Expressions
 
