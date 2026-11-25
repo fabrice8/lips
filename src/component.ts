@@ -1,11 +1,16 @@
 /**
- * `component()` — a component, its types inferred.
+ * `component()` — a component written apart from where it is used, its
+ * types inferred.
+ *
+ * Written in a `register`, `render` or `root` call, a component needs
+ * nothing: those calls infer it themselves. Written apart — its own `.ts`
+ * file, a route table — its handlers' `this` is fixed where it is written,
+ * before any of them sees it, and this is what types it there.
  *
  * Returns what it is given: the object is the component, as it always
- * was, and `register`, `render`, a route or `<{…}/>` take it as they take
- * any other. All it adds is types: `state` and `static` read from their
- * values, the handlers from themselves, and `this` in every handler from
- * all three, its sibling handlers included.
+ * was. All it adds is types: `state` and `static` read from their values,
+ * the handlers from themselves, and `this` in every handler from all
+ * three, its sibling handlers included.
  *
  *   const counter = component({
  *     state: { count: 0 },
@@ -22,15 +27,15 @@
  *
  *   component<{ input: { initial?: number }, state: { picked: string | null } }>()({ … })
  */
-import type { Component, Definition, Inferred, Parts } from './types'
+import type { TypedComponent, Definition, Inferred, Parts } from './types'
 
 export function component<P extends Parts>(): <State extends object = {}, Static extends object = {}, Methods = {}>(
   definition: Definition<Inferred<P, State, Static>, Methods>
-) => Component<Inferred<P, State, Static>>
+) => TypedComponent<Inferred<P, State, Static>>
 
 export function component<State extends object = {}, Static extends object = {}, Methods = {}>(
   definition: Definition<Inferred<{}, State, Static>, Methods>
-): Component<Inferred<{}, State, Static>>
+): TypedComponent<Inferred<{}, State, Static>>
 
 export function component( definition?: object ){
   return definition ? definition : ( named: object ) => named

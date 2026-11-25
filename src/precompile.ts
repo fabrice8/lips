@@ -19,11 +19,11 @@ import { compileStyle } from './ir/style'
 import type { TemplateIR, CompileOptions } from './ir/compiler'
 import type { StyleIR, StylePreprocessor } from './ir/style'
 import type { TemplateDiagnostic } from './ir/parser'
-import type { Component, Shape } from './types'
+import type { Component, TypedComponent, Shape } from './types'
 
 /** What `precompile()` returns: the template it was given, with `ir` (and `style`) for its sources */
 /** A component with its markup and stylesheet compiled: no source ships */
-export type PrecompiledComponent<S extends Shape = Shape> = Omit<Component<S>, 'default' | 'macros' | 'stylesheet'> & { ir: TemplateIR }
+export type PrecompiledComponent<S extends Shape = Shape> = Omit<TypedComponent<S>, 'default' | 'macros' | 'stylesheet'> & { ir: TemplateIR }
 
 export interface PrecompileOptions {
   /**
@@ -59,12 +59,13 @@ export function precompile<S extends Shape = Shape>( template: Component<S>, opt
   { ir, diagnostics } = compileTemplate( template.default || '', copts ),
   { default: _src, macros: _macros, stylesheet, ...rest } = template
 
-  if( !stylesheet ) return { template: { ...rest, ir }, diagnostics }
+  // A precompiled component keeps the shape it was given: the mark is type-only
+  if( !stylesheet ) return { template: { ...rest, ir } as PrecompiledComponent<S>, diagnostics }
 
   const style = compileStyle( stylesheet, { nsp: options.name || 'lips', preprocess: options.preprocess })
 
   return {
-    template: { ...rest, ir, style: style.ir },
+    template: { ...rest, ir, style: style.ir } as PrecompiledComponent<S>,
     diagnostics: [ ...diagnostics, ...style.diagnostics ]
   }
 }

@@ -157,11 +157,7 @@ export type Handlers<S extends Shape = Shape> = {
 }
 
 // -------------------------------------------------------------- component
-/**
- * What `register`, `render`, `root` and a route take. `render()` reads `S`
- * back from `handler`'s `Handlers<S>`, which every component's type
- * carries, a handler written or not: a spread copy keeps it too.
- */
+/** What `register`, `render`, `root` and a route take */
 export type Component<S extends Shape = Shape> = {
   /**
    * The scope of a component placed by value — a route page, or
@@ -202,19 +198,36 @@ export type Component<S extends Shape = Shape> = {
   style?: StyleIR
 }
 
+/** Marks a component that carries its shape; type-only, never set */
+declare const SHAPE: unique symbol
+
 /**
- * What `component()` takes: a component whose state, static and handlers
- * are being inferred. Each handler's `this` is the component's members
- * and every handler beside it.
+ * A component whose shape is known, so `render()` reads it back: what
+ * `component()` and `precompile()` return.
+ */
+export type TypedComponent<S extends Shape = Shape> = Component<S> & { readonly [ SHAPE ]: S }
+
+/**
+ * A component being written, its state, static and handlers inferred:
+ * what `component()` takes, and what `register`, `render` and `root` take
+ * written in the call. Each handler's `this` is the component's members
+ * and every handler beside it. A `TypedComponent` is not one: its shape is
+ * already known.
  */
 export type Definition<S extends Shape, Methods> = Omit<Component<S>, 'handler'> & {
+  readonly [ SHAPE ]?: never
   handler?: Methods
             & Partial<Hooks>
             & { [ K in ReservedName ]?: never }
             & ThisType<Self<S, Methods>>
 }
 
-/** The shape `component()` gives: what `P` names, else what it inferred */
+/**
+ * The shape a `Definition` gives: what `P` names, else what was inferred.
+ * Written in a `register`, `render` or `root` call, nothing names `input`,
+ * so it reads as `Record<string, any>` there (or as what `render()` is
+ * handed).
+ */
 export type Inferred<P extends Parts, State, Static> = {
   input   : Part<P, 'input', {}>
   state   : Part<P, 'state', State>

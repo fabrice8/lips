@@ -134,6 +134,11 @@ describe('component() infers a component', () => {
 
     expectTypeOf( lips.render('pre', template ).state.count ).toEqualTypeOf<number>()
     expectTypeOf( lips.root( counter, '#app' ).state.label ).toEqualTypeOf<string>()
+
+    // …its named input too, which no value would show
+    const pre = precompile( picker, { name: 'picker' }).template
+    // @ts-expect-error — tone is a string
+    lips.render('pre-picker', pre, { tone: 1 })
     expect( document.querySelector('#app .n')?.textContent ).toBe('0')
   })
 
@@ -144,6 +149,73 @@ describe('component() infers a component', () => {
 
     expect( lips.use( plugin ) ).toBe( lips )
     expect( bare ).toBe( counter )
+  })
+})
+
+// ------------------------------------------------------ written in the call
+describe('register, render and root infer a component written in the call', () => {
+  it('types `this` in every handler, siblings included, with no wrapper', () => {
+    document.body.innerHTML = '<div id="app"></div>'
+    const lips = new Lips()
+
+    lips.register('inline-counter', {
+      state: { count: 0 },
+      handler: {
+        step( by: number ){ this.state.count += by },
+        reset(){
+          expectTypeOf( this.step ).toEqualTypeOf<( by: number ) => void>()
+          // @ts-expect-error — a sibling the component does not have
+          this.stp( 1 )
+          // @ts-expect-error — a state key it does not have
+          this.state.cont
+        }
+      },
+      default: `<b class="i">{state.count}</b>`
+    })
+
+    const r = lips.root({
+      static: { title: 'T' },
+      handler: { onMount(){ expectTypeOf( this.static.title ).toEqualTypeOf<string>() } },
+      default: `<div><inline-counter/></div>`
+    }, '#app')
+
+    expectTypeOf( r.state ).toEqualTypeOf<{}>()
+    expect( document.querySelector('#app .i')?.textContent ).toBe('0')
+  })
+
+  it('render() reads `input` from what it is handed', () => {
+    const c = new Lips().render('inline', {
+      state: { n: 1 },
+      handler: { onInput(){ expectTypeOf( this.input.tone ).toEqualTypeOf<string>() } },
+      default: `<i class="t">{input.tone}</i>`
+    }, { tone: 'red' }).appendTo( document.body )
+
+    expectTypeOf( c.state.n ).toEqualTypeOf<number>()
+    expect( document.querySelector('.t')?.textContent ).toBe('red')
+  })
+
+  it('refuses a handler named after a member', () => {
+    // @ts-expect-error — `emit` is the component's own
+    expect( () => new Lips().register('bad-inline', { handler: { emit(){} } }) ).toThrow( /reserved/ )
+  })
+
+  it('a component typed elsewhere keeps its own shape', () => {
+    const lips = new Lips()
+
+    // From component(): its named input is checked, not inferred from the argument
+    // @ts-expect-error — tone is a string
+    lips.render('picker', picker, { tone: 1 })
+
+    // Annotated by hand, or a module's exports: read from what they hold
+    const tpl: Component<Shape<{ state: { n: number } }>> = { state: { n: 4 }, default: `<i/>` }
+    expectTypeOf( lips.render('annotated', tpl ).state.n ).toEqualTypeOf<number>()
+
+    // Bare `Component` is untyped, and stays permissive
+    const loose: Component = { state: { n: 1 }, default: `<i/>` }
+    const c = lips.render('loose', loose )
+    expectTypeOf( c.state.n ).toBeAny()
+    c.state.whatever = 2
+    expect( c.state.n ).toBe( 1 )
   })
 })
 
@@ -175,19 +247,6 @@ describe('typed by hand', () => {
 
   it('Hooks lists the lifecycle', () => {
     expectTypeOf<keyof Hooks>().toEqualTypeOf<'onCreate' | 'onInput' | 'onMount' | 'onRender' | 'onUpdate' | 'onAttach' | 'onDetach' | 'onContext' | 'onError' | 'onDestroy'>()
-  })
-
-  it('an untyped component stays permissive', () => {
-    const lips = new Lips()
-    const c = lips.render('loose', {
-      state: { n: 1 },
-      default: `<i>{state.n}</i>`,
-      handler: { a(){ this.state.anything; this.anyHandler() } }
-    })
-
-    expectTypeOf( c.state.n ).toBeAny()
-    c.state.whatever = 2
-    expect( c.state.n ).toBe( 1 )
   })
 
   it('the old names and the old `context` field are gone', () => {

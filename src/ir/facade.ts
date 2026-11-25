@@ -67,7 +67,7 @@ import { initial } from './initial'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import type { StyleIR, StyleCompileResult, StyleCompileOptions } from './style'
-import type { Component, Shape, LipsConfig, Handlers, MessageFormatEngine, Plugin } from '../types'
+import type { Component, TypedComponent, Definition, Inferred, Shape, LipsConfig, Handlers, MessageFormatEngine, Plugin } from '../types'
 import I18N from '../i18n'
 
 /**
@@ -300,7 +300,13 @@ export class IRLips<Context extends Object = Shape<{}>['context']> {
    * looks here, so the component would never render, and what fails
    * instead is whatever its markup reads (`./tags`).
    */
-  register<S extends Shape = Shape>( name: string, template: Component<S> ){
+  register<S extends Shape>( name: string, template: TypedComponent<S> ): this
+  /** Written in the call: its state, static and handlers inferred, `this` typed in each */
+  register<State extends object = {}, Static extends object = {}, Methods = {}>(
+    name: string,
+    template: Definition<Inferred<{ input: Record<string, any> }, State, Static>, Methods>
+  ): this
+  register( name: string, template: FacadeTemplate ){
     const is = TAKEN?.( name )
     if( is ) throw new Error(`[lips] <${name}> is ${is}: the compiler reads the tag as one, so a component of that name never renders. Register it under another name`)
     // A handler named after a member of the component is refused here, not at its first render
@@ -426,7 +432,14 @@ export class IRLips<Context extends Object = Shape<{}>['context']> {
   }
 
   // ---- rendering
-  render<S extends Shape = Shape>( name: string, template: Component<S>, input?: S['input'] ){
+  render<S extends Shape>( name: string, template: TypedComponent<S>, input?: S['input'] ): IRFacadeComponent<S>
+  /** Written in the call: inferred as `register()` infers it, `input` as what it is handed */
+  render<State extends object = {}, Static extends object = {}, Methods = {}, Input extends object = Record<string, any>>(
+    name: string,
+    template: Definition<Inferred<{ input: Input }, State, Static>, Methods>,
+    input?: Input
+  ): IRFacadeComponent<Inferred<{ input: Input }, State, Static>>
+  render( name: string, template: FacadeTemplate, input?: Record<string, any> ){
     const options: RuntimeOptions = {
       mode: this.config?.mode,
       components: this.componentsProxy,
@@ -485,8 +498,14 @@ export class IRLips<Context extends Object = Shape<{}>['context']> {
 
     return new IRFacadeComponent( this, name, template, input, this.compile( template ), this.u ? this.u.runtime( options ) : options )
   }
-  root<S extends Shape = Shape>( template: Component<S>, selector: string ){
-    const root = this.render<S>( '__ROOT__', template )
+  root<S extends Shape>( template: TypedComponent<S>, selector: string ): IRFacadeComponent<S>
+  /** Written in the call: inferred as `register()` infers it */
+  root<State extends object = {}, Static extends object = {}, Methods = {}>(
+    template: Definition<Inferred<{ input: Record<string, any> }, State, Static>, Methods>,
+    selector: string
+  ): IRFacadeComponent<Inferred<{ input: Record<string, any> }, State, Static>>
+  root( template: FacadeTemplate, selector: string ){
+    const root = this.render( '__ROOT__', template as TypedComponent<Shape> )
     this.__root = root
     root.appendTo( selector )
     return root
