@@ -14,7 +14,7 @@
  * a context key) what the section's next example renders.
  */
 import { describe, it, expect, vi } from 'vitest'
-import Lips, { compileTemplate, signal, effect, untrack, reactive, batch } from '../src/lips'
+import Lips, { component, compileTemplate, signal, effect, untrack, reactive, batch } from '../src/lips'
 import { precompile } from '../src/precompile'
 import { untrusted, untrustedPolicy } from '../src/untrusted'
 
@@ -45,8 +45,8 @@ const unmarked: number[] = []
 }
 
 const squash = ( s: string ) => s.replace( /\s+/g, ' ' ).trim()
-const objectOf = ( code: string ) => new Function( `return (${code})` )()
-const scope = { Lips, compileTemplate, precompile, untrusted, untrustedPolicy, signal, effect, untrack, reactive, batch, document }
+const scope = { Lips, component, compileTemplate, precompile, untrusted, untrustedPolicy, signal, effect, untrack, reactive, batch, document }
+const objectOf = ( code: string ) => new Function( ...Object.keys( scope ), `return (${code})` )( ...Object.values( scope ) )
 
 describe('docs/reference.md: every example runs as it says', () => {
   it('has examples, and every one says how it is checked', () => {

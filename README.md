@@ -22,7 +22,7 @@ template string ──parse──▶ AST ──compile──▶ IR ──render�
 - **Precompile + CSP mode** — build templates to IR; run with no `eval`/`Function` under a strict CSP
 - **Hot-swap** — `instance.swap(newIR)` re-renders only what changed, preserving state
 - **Batteries included** — router, i18n, macros, scoped styles, slots, component events
-- **TypeScript** — full type definitions
+- **TypeScript** — `component()` infers state, static and handlers; `this` is typed in every handler
 
 ## 🚀 Quick start
 
@@ -76,6 +76,42 @@ import Lips from '@lipsjs/lips'
 | `@lipsjs/lips/lynx/background` | Lynx background thread: the host Lips renders into | ~5 KB |
 | `@lipsjs/lips/lynx-plugin` | Rspeedy plugin: `*.lips.css` sheets and the page config Lips needs | — |
 | `@lipsjs/lips/dev` | unminified full build | — |
+
+## 🔷 TypeScript
+
+`component()` returns the object it is given and infers its types: `state`
+and `static` from their values, each handler from itself, and `this` in
+every handler from all three, sibling handlers included. `render()` reads
+them back, so the handle is typed with no annotation.
+
+```ts
+import Lips, { component } from '@lipsjs/lips'
+
+const counter = component<{ input: { initial?: number } }>()({
+  state: { count: 0 },
+  handler: {
+    onInput(){ this.state.count = this.input.initial ?? 0 },
+    step( by: number ){ this.state.count += by },
+    reset(){ this.step( -this.state.count ) }   // a typo here is an error
+  },
+  default: `<button on-click(step, 1)>{state.count}</button>`
+})
+
+new Lips().render('counter', counter, { initial: 2 }).state.count   // number
+```
+
+Only what no value shows is named, by part: the `input` a parent hands it,
+or a `state` whose start says too little (`null`, `[]`). The app's context
+is typed once, for every component and for `new Lips()`:
+
+```ts
+declare module '@lipsjs/lips' {
+  interface SharedContext { theme: 'dark' | 'light' }
+}
+```
+
+The types, and what the template strings do not check, are in the
+[reference](docs/reference.md#types).
 
 ## 🧩 Template syntax
 

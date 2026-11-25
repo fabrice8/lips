@@ -5,6 +5,45 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Changed — a component's types are inferred (breaking)
+
+Typing a component took four positional type arguments, `Metavars<Input,
+State, Static, Context>`, written apart from the values they described;
+`render()` could not read them back, and `this` in a handler read any
+sibling, real or not, as `any`. At runtime only the removed `context`
+field changes.
+
+- **`component( definition )`** returns the object it is given and infers
+  its types: `state` and `static` from their values, each handler from
+  itself, and `this` in every handler from all three. A sibling handler it
+  does not have, a state key, or a handler named after a member of the
+  component (`emit`, `state`…, which `register()` refuses) is a type error.
+  What no value shows is named by part, in a first call:
+  `component<{ input: Props }>()({ … })`.
+- **`render()` and `root()` read the types back**: the handle's `state`,
+  and the `input` `render()` is handed, are typed with no annotation.
+  `precompile()` keeps them.
+- **`SharedContext`** is the app's context, typed once by augmenting it,
+  for every component and for `new Lips()`. `setContext( key, value )`
+  checks the value against the key.
+- **Names that say what each type is**, the old ones removed:
+
+  | Was | Now |
+  |---|---|
+  | `Template<MT>` | `Component<S>`, what `register` and `render` take |
+  | `Component<MT>`, the rendered handle | `Rendered<S>` |
+  | `Metavars<I, S, St, C>` | `Shape<{ input, state, static, context }>`, by name |
+  | `Handler<MT>` | `Handlers<S>` |
+  | `ComponentSelf<MT>` | `Self<S, Methods>` |
+  | `LifecycleEvents<MT>`, `LifeCycleEventTypes` | `Hooks`, `HookName` |
+  | `PrecompiledTemplate` | `PrecompiledComponent<S>` |
+
+  `Component` now names the definition: an annotation that meant the
+  handle fails to compile, rather than meaning something else silently.
+- **The `context` template field is removed.** `watchContext` replaced it
+  (it never declared what a component reads); the runtime no longer reads
+  the old name, and the `.lips` plugin no longer exports it.
+
 ### Fixed — an audit of every surface against what the docs say
 
 Each item below was a documented behaviour Lips did not have, found by a
@@ -67,8 +106,8 @@ test catches.
   `from`, `to` or `by` is LIPS-C004.
 - **The `.lips` plugin inlines `const macros`** (a macro there never
   expanded) and exports `const watchContext`.
-- **Types**: `Template` has `name`; `precompile()` returns the template it
-  was given (`static`, `watchContext`, `name` included), typed.
+- **Types**: a component has `name`; `precompile()` returns the component
+  it was given (`static`, `watchContext`, `name` included), typed.
 
 ### Added — what a template wrote and nothing said
 

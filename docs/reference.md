@@ -10,13 +10,14 @@ checked:
 - `compiles`: a template that compiles with no error;
 - `reports LIPS-…`: a template that reports that diagnostic;
 - `runs`: code run against a fresh `lips`, which must not throw;
-- `from <file>`: copied from that file, which a demo runs.
+- `from <file>`: copied from that file, which a demo runs and
+  `npm run typecheck` checks.
 
 The design behind each part is in the RFCs under [`design/`](../design);
 this page is how it behaves.
 
 **Contents**: [The Lips instance](#the-lips-instance) ·
-[A component](#a-component) · [Lifecycle](#lifecycle) ·
+[A component](#a-component) · [Types](#types) · [Lifecycle](#lifecycle) ·
 [Template syntax](#template-syntax) · [Composition](#composition) ·
 [Context](#context) · [i18n](#i18n) · [Stylesheets](#stylesheets) ·
 [The router](#the-router) · [Hot-swap](#hot-swap) ·
@@ -113,7 +114,7 @@ A component is a plain object. Every field is optional.
 | `handler` | methods, bound to the component (`this`), and the [lifecycle](#lifecycle) hooks |
 | `macros` | `<macro>` definitions, inlined at compile time ([Macros](#macros)) |
 | `stylesheet` | scoped CSS whose values may be `{expressions}` ([Stylesheets](#stylesheets)) |
-| `watchContext` | context fields whose change runs `onContext` ([Context](#context)). `context` is its old name |
+| `watchContext` | context fields whose change runs `onContext` ([Context](#context)) |
 | `name` | the scope of a template placed by value (a route page, `<{state.view}/>`); left out, each template object gets its own |
 | `ir`, `style` | precompiled template and stylesheet, used instead of `default` and `stylesheet` ([Precompile](#precompile-and-csp)) |
 
@@ -138,6 +139,76 @@ component, as `this` is in a handler: its handlers, `node`, `refs`, `lang`,
 timer, a chart instance) that must not cost a re-render. **`input` or
 context?** `input`, almost always: it keeps a component reusable. Context is
 for what a whole subtree shares ([Context](#context)).
+
+---
+
+## Types
+
+`component( definition )` returns the object it is given, so it goes
+wherever a component does, and types it: `state` and `static` from their
+values, each handler from itself, and `this` in every handler from all
+three, its sibling handlers included. A sibling it does not have, or a
+state key, is a type error. `render()` and `root()` read the types back, so
+the handle's `state` is typed with no annotation.
+
+<!-- renders "3" after clicking "button" -->
+```js
+component({
+  state: { count: 0 },
+  handler: {
+    step( by ){ this.state.count += by },
+    triple(){ this.step( 3 ) }
+  },
+  default: `<button on-click(triple)>{state.count}</button>`
+})
+```
+
+What no value shows is named, by part, in a first call: the `input` a
+parent hands it, a `state` whose start says too little (`null`, `[]`, one
+member of a union), or a `static` of a type from elsewhere. A part not named
+is still inferred.
+
+<!-- from demos/app/client/components/counter.ts -->
+```ts
+export type Input = {
+  initial?: number
+  limit?: number
+  /** Slot body, handed over by the parent — placed with <{input.renderer}/> */
+  renderer?: any
+}
+
+export default component<{ input: Input }>()({
+  static: {
+    fallbackLimit: 12
+  },
+```
+
+The context is the app's, so it is typed once, for every component and for
+`new Lips()`, by adding to `SharedContext`. `setContext( key, value )` then
+checks the value too. A published app writes `declare module '@lipsjs/lips'`.
+
+<!-- from demos/app/client/context.ts -->
+```ts
+declare module '../../../src/types' {
+  interface SharedContext {
+    online: boolean
+```
+
+| Type | What it is |
+|---|---|
+| `Component<S>` | a component: what `register`, `render`, `root`, a route and `<{…}/>` take |
+| `Shape<{ input?, state?, static?, context? }>` | the four typed parts, by name. A part it names is exact, a part it leaves out is empty, `context` is `SharedContext` unless named. Bare, every part is `any` |
+| `Rendered<S>` | what `render()` and `root()` return |
+| `Self<S, Methods>` | `this` in a handler: the component's members and its handlers |
+| `Handlers<S>` | a `handler` object typed apart from its component |
+| `Hooks` · `HookName` | the lifecycle hooks, their signatures and names |
+| `SharedContext` | the app's context, added to once |
+
+**When not**: `component()` sees one object whole. A `.lips` file, or a
+module that exports its parts one by one, types its handler by hand instead,
+as `Handlers<Shape<{ input: Input, state: typeof state }>>`; there a
+sibling handler reads as `any`. What the template string reads is not
+checked: its expressions are not TypeScript.
 
 ---
 
