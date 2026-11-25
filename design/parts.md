@@ -94,6 +94,20 @@ Lynx. IR compiled at Lips's build would be compiled twice over (once per
 target), and tied to the compiler that made it, which an app's own Lips
 need not be.
 
+*As built, a build that ships no compiler (2026-11-25).* `precompile()`
+takes one component, and a part is a plugin with what it requires, so an
+app under such a policy had to walk the plugins itself, and could not
+write what it walked as data: a plugin holds its handlers. Found putting
+the parts into an app that runs `./runtime` alone. `precompilePlugins(
+plugins )` (`./precompile`) is `use()`'s counterpart for that build, as
+`lynxComponents()` is for Lynx: each component of each plugin, and of what
+it requires, compiled, by the same rules (one walk, `./plugins`, which
+both share), as plain JSON by the name it is registered under. The app
+writes it beside its own templates' IR and gives it to its Lips as
+`precompiled`; `use()` registers each component with the IR made for its
+name, and the handlers stay where they are, in the plugin. One copy per
+component, so two plugins that bring the same component still hold one.
+
 **Its look is the app's; its mechanics are inline.** A part takes the classes
 the app gives and sets state classes; what it needs to work (a layer over
 the page, where a panel sits, invisible until placed: `position`,
@@ -313,6 +327,15 @@ field keeps focus. Options are a menu's items, moved through by the same
 (`contains` by default), and `query` tells an app that finds them itself.
 The field shows the chosen option's label, from the app's `value`, until
 the person types.
+
+*As built, the field in a form (2026-11-25).* Found putting it into an
+app's forms: a form's field is the app's, so `id` names it (for a
+`<label for>`, and for the app to focus it where a refusal names it, the
+popover's own id otherwise); `labelledby` labels it and its list by the
+app's label in place of `label`; `describedby`, `required` and `invalid`
+say what the app says of its other fields. Text typed and left, by Escape
+or Tab, goes back to the chosen option's label, so the field never shows
+what was only typed as though it were chosen.
 
 - **Not yet:** the person cannot tap the field while the list is open: the
   layer's backdrop takes the tap and closes the list (the non-modal case

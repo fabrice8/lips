@@ -745,6 +745,20 @@ A component whose markup differs by host carries `lynx` source beside
 plugins )` (from `@lipsjs/lips/lynx`) is `use()`'s counterpart: it compiles
 the plugins, and what they require, for Lynx, as `renderIR`'s `components`.
 
+A part's templates are source. An app that runs `@lipsjs/lips/runtime`
+alone, with no compiler, compiles them in its build with
+`precompilePlugins( plugins )` (from `@lipsjs/lips/precompile`), which
+returns plain JSON by component name, and hands that to its Lips:
+
+<!-- runs -->
+```ts
+// build
+const { components } = precompilePlugins([ combobox, dialog ])
+// page
+const lips = new Lips({ mode: 'interpreted', precompiled: components })
+lips.use( combobox ).use( dialog )
+```
+
 <!-- from demos/app/client/pages/parts.ts -->
 ```html
 <popover open=state.open on-change( setOpen )>

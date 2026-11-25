@@ -26,6 +26,13 @@
  * but the soft keyboard's: the person types and taps, each option is a
  * button, and the chosen one says so (`aria-selected`).
  *
+ * In a form, the field is the app's: `id` names it, for a `<label for>`
+ * and for the app to focus it; `labelledby` labels it and its list by an
+ * element of the app's in place of `label`; `describedby`, `required` and
+ * `invalid` say what the app says of its own fields. Text typed and left,
+ * by Escape or Tab, goes back to the chosen option's label: the field
+ * shows what is chosen, never what was only typed.
+ *
  * The active option has the class `is-active`; the chosen one,
  * `is-selected`; a disabled one, `aria-disabled` and `is-disabled`. Each
  * is drawn as its label, or by the slot, which gets `option`, `active`
@@ -89,9 +96,19 @@ export const combobox: Plugin = {
             case 'Escape':
               if( !p.open ) return
               e.preventDefault?.()
+              self.left()
               return p.set( false, false )
-            case 'Tab': return p.open && p.set( false, false )
+            case 'Tab':
+              self.left()
+              return p.open && p.set( false, false )
           }
+        },
+        /** What was typed and not chosen, given up: the field shows the chosen label again */
+        left(){
+          const self = this as any, s = self.state
+          s.typing = false
+          s.text = ( self.input.options || [] ).find( ( o: Option ) => o.id === self.input.value )?.label ?? ''
+          self.find()
         },
         pick( i: number ){
           const self = this as any, s = self.state, o: Option | undefined = s.shown[ i ]
@@ -104,9 +121,9 @@ export const combobox: Plugin = {
         }
       },
       default: `<let p={ input.of || context.popover } on={ p.open && state.active >= 0 }/>
-<input id="{p.id}-trigger" class=input.class role="combobox" aria-expanded=p.open aria-controls=p.controls aria-autocomplete="list" aria-activedescendant=( on ? p.id + '-' + state.shown[ state.active ].id : null ) aria-label=input.label placeholder=input.placeholder value=state.text @ref="el" on-input( typed ) on-keydown( key )/>
+<input id=( input.id || p.id + '-trigger' ) class=input.class role="combobox" aria-expanded=p.open aria-controls=p.controls aria-autocomplete="list" aria-activedescendant=( on ? p.id + '-' + state.shown[ state.active ].id : null ) aria-label=( input.labelledby ? null : input.label ) aria-labelledby=input.labelledby aria-describedby=input.describedby aria-required=( input.required ? 'true' : null ) aria-invalid=( input.invalid ? 'true' : null ) placeholder=input.placeholder value=state.text @ref="el" on-input( typed ) on-keydown( key )/>
 <popover-content of=p class=input.list popup="content">
-  <div id=p.id role="listbox" aria-label=input.label>
+  <div id=p.id role="listbox" aria-label=( input.labelledby ? null : input.label ) aria-labelledby=input.labelledby>
     <for [o, i] in=state.shown by="id">
       <div id="{p.id}-{o.id}" role="option" aria-selected=( o.id === input.value ) class="{input.option}{state.active === i ? ' is-active' : ''}{o.id === input.value ? ' is-selected' : ''}{o.disabled ? ' is-disabled' : ''}" aria-disabled=( o.disabled ? true : null ) on-click( pick, i )>
         <if( input.renderer )><{input.renderer} option=o active=( state.active === i ) selected=( o.id === input.value )/></if>

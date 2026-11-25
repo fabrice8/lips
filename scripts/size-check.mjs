@@ -335,11 +335,17 @@ const KB = 1024
  * (the grid on the web, buttons on Lynx) and English words. `lynx` is a
  * build-time entry: `lynxComponents` is `use()`'s counterpart for Lynx,
  * with its refusals spelled out. `this.refs` there from the start: 0.
+ * 2026-11-25j: precompile 14.85→15.05 — `precompilePlugins()`, `use()`'s
+ * counterpart for a build that ships no compiler, and the plugin walk it
+ * shares with `lynxComponents()`: 14.63→14.92 on the pinned bun, most of
+ * it the refusals spelled out. A build-time entry. The same change: full
+ * +0.07, runtime +0.06 (`use()` taking the build's IR by name), lynx +0.07
+ * and parts +0.11 (the combobox as a form's field), each in its budget.
  */
 const BUDGETS = {
   'dist/lips.min.js': 36.15,     // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 16.5,   // precompiled-only: none of the above
-  'dist/precompile.min.js': 14.85, // build-time: parser + compiler + style compiler
+  'dist/precompile.min.js': 15.05, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.5,  // opt-in policy for templates you did not write (RFC-007) — no entry carries it

@@ -295,6 +295,14 @@ export type LipsConfig<Context extends Object = {}> = {
    */
   stylePreprocessor?: ( css: string ) => string
   /**
+   * Plugins' components as a build compiled them (`precompilePlugins()`
+   * from `@lipsjs/lips/precompile`), by name: `use()` registers each
+   * component of a plugin with the IR made for its name, so a plugin's
+   * source templates run on `./runtime`, which has no compiler (RFC-008
+   * §4). A component with none here is registered as it is.
+   */
+  precompiled?: Readonly<Record<string, { ir: TemplateIR, style?: StyleIR }>>
+  /**
    * The MessageFormat 2 engine dictionaries are formatted with. The full
    * build wires it in; the precompiled `./runtime` entry ships without it
    * (~7.2 KB gzipped), so an app that translates passes it:
