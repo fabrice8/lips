@@ -5,6 +5,24 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-25
+
+Headless parts (`@lipsjs/lips/parts`: popover and menu) and plugins
+(`lips.use`); a component's types inferred where it is written; the IR
+engine held to what the docs say, after an audit of every surface and the
+parity fixes the parts needed; and the Lynx binding's gaps closed, but for
+the L4 run on a phone (lips#39). Breaking before 1.0, hence the minor
+version:
+
+- a member chain, in both execution modes, ends at `?.` and throws on `.`
+  of nothing, as in JS: interpreted mode read `state.u.name` as `undefined`
+  when `u` was null;
+- a boolean bound on `aria-*` is written out;
+- `LYNX_PAGE_CONFIG` turns on Android's `enableA11y`;
+- the component types are renamed and inferred (`Metavars` and its
+  kin are gone), and the `context` template field, replaced by
+  `watchContext` in 0.3.0, is removed.
+
 ### Changed — a component's types are inferred (breaking)
 
 Typing a component took four positional type arguments, `Metavars<Input,
@@ -169,6 +187,41 @@ test catches.
   first, then its `components`, then its `install( lips, options )`. Once
   per Lips; another plugin of the same name, and a component name
   something else holds, are refused. Chainable. `Plugin` is exported.
+
+### Added — `@lipsjs/lips/parts`: popover and menu (RFC-008, lips#51)
+
+- Headless parts, each a plugin: `lips.use( menu )` installs the menu and
+  the popover it is built on. One template for the DOM and for Lynx; the
+  look is the app's, through the classes it gives.
+- `popover`: controlled (`open` in, `change` out), its pieces sharing
+  `context.popover`, or `of=` for any controller of the same shape. Its
+  content is a fixed layer over the page with a backdrop, placed under or
+  over its trigger (`place`, or the app's own as `place=`), right-to-left
+  included; Escape and a tap outside close it and give focus back.
+- `menu`: WAI-ARIA's menu button over items as data. Arrows, Home and End,
+  typeahead, past disabled items; Enter, Space or a tap selects and closes.
+  `move` and `typed` are exported.
+
+### Added — a ref that measures, and equal writes not sent, on Lynx (lips#50)
+
+- `await this.refs.x.getBoundingClientRect()` reads the same on both
+  hosts: on Lynx a promise of the DOM's box shape, `null` for what is not
+  a Lynx element or a failed answer. A measured layout-only box is given a
+  native view (`lips-rect`), since Lynx answers none for it.
+- The background host drops a write equal to the last one: text, an
+  attribute, a custom property. A re-run `<for>` row sends nothing that did
+  not change.
+- Lynx's boolean attributes are sent as booleans, since HarmonyOS reads any
+  text as true.
+
+### Changed — list props as JSON, and Android's `enableA11y` on (lips#47, lips#44)
+
+- A `list`'s own props (`span-count`, `sticky-offset`, `sticky`, the
+  `experimental-*` flags) reach Lynx as the numbers and booleans it reads;
+  as text it dropped them, so `span-count="2"` gave one column.
+- `LYNX_PAGE_CONFIG` sets `enableA11y: true`, Android's helper
+  accessibility path, measured with TalkBack. An app's own page config that
+  sets it keeps its value.
 
 ### Added — inline SVG on Lynx (lips#34)
 
