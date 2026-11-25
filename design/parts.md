@@ -202,10 +202,11 @@ picker on the layer, the grid's keys and `./i18n`.
   `getBoundingClientRect()` on the DOM, and from Lynx's `boundingClientRect`
   UI method on Lynx, through a reply the protocol does not have yet.
 - **Typed Lynx attributes.** Lips writes an attribute as text. Lynx reads
-  some only as numbers or booleans: a list's `span-count` and
-  `sticky-offset` (found with lips#43), an `overlay`'s `visible` and
-  `level`, and likely `flatten`. One table of those, converted where the
-  main thread sets them, closes all of them.
+  some only as numbers or booleans. A `list`'s own props (`span-count`,
+  `sticky-offset`, `sticky`, the `experimental-*` flags) are converted by
+  name in lips#48. An `overlay`'s `visible` and `level`, and likely
+  `flatten`, are not yet: the same conversion, extended to them, closes
+  them.
 - **Android's back button**, which should close the topmost layer: whether
   Lynx sends it to the page, and how, is to find out.
 - **Android's screen reader** (lips#44, `enableA11y`): until the host
