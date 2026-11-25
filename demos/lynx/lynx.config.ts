@@ -1,6 +1,6 @@
 import { defineConfig } from '@lynx-js/rspeedy'
 import { pluginVanillaLynx } from '@lynx-js/vanilla-rsbuild-plugin'
-import { pluginLipsStyles } from './lips-styles.ts'
+import { pluginLips } from '@lipsjs/lips/lynx-plugin'
 
 /**
  * `src/main-thread.ts` is the entry; the plugin picks up the sibling
@@ -9,6 +9,6 @@ import { pluginLipsStyles } from './lips-styles.ts'
  */
 export default defineConfig({
   source: { entry: './src/main-thread.ts' },
-  plugins: [ pluginVanillaLynx(), pluginLipsStyles() ],
+  plugins: [ pluginVanillaLynx(), pluginLips() ],
   environments: { web: {}, lynx: {} }
 })

@@ -4,11 +4,11 @@
  * in interpreted mode, so nothing depends on `eval` (RFC-006 §4.6).
  * `compileLynxTemplate` adapts the HTML-shaped vocabulary (RFC-006 §4.3).
  */
-import { compileLynxTemplate } from '../../../src/lynx/template'
-import { renderIR } from '../../../src/ir/runtime'
-import { connectBackground } from '../../../src/lynx/background'
+import { compileLynxTemplate } from '@lipsjs/lips/lynx'
+import { renderIR } from '@lipsjs/lips/runtime'
+import { connectBackground } from '@lipsjs/lips/lynx/background'
 import { TEMPLATE, state, handlers } from './app'
-// The sheet's binds; its CSS is already in the bundle (../lips-styles.ts)
+// The sheet's binds; its CSS is already in the bundle (`pluginLips`)
 import sheet from './app.lips.css?raw'
 
 const { ir, diagnostics } = compileLynxTemplate( TEMPLATE )

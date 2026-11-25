@@ -77,6 +77,21 @@ const bindOf = ( name: string ) => {
  */
 const EMPTY_IS_TEXT = new Set([ 'value', 'placeholder' ])
 
+/**
+ * A cell's layout hints (lips#43): attributes of a `list-item` that Lynx's
+ * list reads from the insert and update actions it is told, not from the
+ * cell, and only as JSON: a flag is a boolean, a size a number
+ * (`AdapterHelper::UpdateFiberInsertAction`). A flag is set when present,
+ * as in HTML, unless `"false"`. Lynx for Web reads the attributes, so
+ * they are still set on the cell too.
+ */
+const flag = ( v: string | null ) => v !== null && v !== 'false'
+const size = ( v: string | null ) => v === null || v === '' || isNaN( +v ) ? undefined : +v
+const HINTS: Record<string, ( v: string | null ) => unknown> = {
+  'full-span': flag, 'sticky-top': flag, 'sticky-bottom': flag,
+  'estimated-height-px': size, 'estimated-main-axis-size-px': size
+}
+
 /** A list's cells: in Lips's order, and in the order the list was last told */
 interface ListState {
   order: number[]
@@ -85,6 +100,8 @@ interface ListState {
   attached: Set<number>
   /** Cells removed this batch: detached once the list has let them go */
   gone: [ number, Ref ][]
+  /** Cells whose hints changed this batch */
+  hinted: Set<number>
 }
 
 /**
@@ -150,6 +167,9 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
   /** Lynx's element ids → Lips's: an event names its target by Lynx's */
   uids = new Map<number, number>([ [ pageId, PAGE_ID ] ]),
   lists = new Map<number, ListState>(),
+  /** Each cell's hints, and the list it is in */
+  hints = new Map<number, Record<string, unknown>>(),
+  listOf = new Map<number, number>(),
   /** UI methods wait for the flush: before it the engine throws */
   invokes: [ Ref, string, object ][] = []
 
@@ -159,7 +179,7 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
    * so the answer is the cell at that position, attached and laid out.
    */
   const list = ( id: number ) => {
-    const st: ListState = { order: [], shown: [], attached: new Set(), gone: [] }
+    const st: ListState = { order: [], shown: [], attached: new Set(), gone: [], hinted: new Set() }
     lists.set( id, st )
     return __CreateList( pageId,
       ( ref, listID, index, operationID ) => {
@@ -191,7 +211,9 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
    * Tell a list what changed since it was last told: the cells that left
    * or moved, by their old positions, then the ones that arrived or
    * moved, by their new positions. Each carries the `item-key` Lynx
-   * requires — the cell's id, unique and stable for its lifetime.
+   * requires — the cell's id, unique and stable for its lifetime — and
+   * its hints. A cell that stayed but whose hints changed is an update,
+   * by its position, with `flush: false`: its content is not rebuilt.
    */
   const commit = ( id: number, st: ListState ) => {
     const
@@ -200,14 +222,18 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
     stay = st.shown.filter( c => at.has( c ) ),
     keep = new Set( [ ...stable( stay.map( c => at.get( c )! ) ) ].map( i => stay[ i ] ) ),
     removeAction: number[] = [],
-    insertAction: object[] = []
+    insertAction: object[] = [],
+    updateAction: object[] = []
 
     st.shown.forEach( ( c, i ) => keep.has( c ) || removeAction.push( i ) )
-    next.forEach( ( c, position ) => keep.has( c ) || insertAction.push({ position, type: 'default', 'item-key': String( c ) }) )
+    next.forEach( ( c, position ) => keep.has( c )
+      ? st.hinted.has( c ) && updateAction.push({ from: position, to: position, flush: false, type: 'default', 'item-key': String( c ), ...hints.get( c ) })
+      : insertAction.push({ position, type: 'default', 'item-key': String( c ), ...hints.get( c ) }) )
 
     st.shown = next
+    st.hinted.clear()
     const ref = els.get( id )!
-    __SetAttribute( ref, 'update-list-info', { insertAction, removeAction, updateAction: [] })
+    __SetAttribute( ref, 'update-list-info', { insertAction, removeAction, updateAction })
     for( const [ c, cell ] of st.gone )
       at.has( c ) || st.attached.delete( c ) && __RemoveElement( ref, cell )
     st.gone = []
@@ -231,6 +257,7 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
         }
         case INSERT:
           if( st = lists.get( a ) ){
+            listOf.set( b, a )
             const at = st.order.indexOf( c )
             st.order.splice( at < 0 ? st.order.length : at, 0, b )
             touched.add( a )
@@ -240,13 +267,27 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
           break
         case REMOVE:
           if( st = lists.get( a ) ){
+            listOf.delete( b )
             st.order.splice( st.order.indexOf( b ), 1 )
             st.gone.push([ b, els.get( b )! ])
             touched.add( a )
           }
           else __RemoveElement( els.get( a )!, els.get( b )! )
           break
-        case ATTR: attr( els.get( a )!, b, c ); break
+        case ATTR:
+          attr( els.get( a )!, b, c )
+          if( b in HINTS ){
+            const h = hints.get( a ) || {}, list = listOf.get( a ), v = HINTS[ b ]( c )
+            if( h[ b ] === v ) break
+            h[ b ] = v
+            hints.set( a, h )
+            // A cell the list already has: told again, as an update
+            if( list !== undefined && ( st = lists.get( list ) ) ){
+              st.hinted.add( a )
+              touched.add( list )
+            }
+          }
+          break
         case SET_TEXT: __SetAttribute( els.get( a )!, 'text', b ); break
         case STYLES: __SetInlineStyles( els.get( a )!, b ); break
         case LISTEN: {
@@ -271,6 +312,8 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
           els.delete( a )
           listeners.delete( a )
           lists.delete( a )
+          hints.delete( a )
+          listOf.delete( a )
           break
         case INVOKE: invokes.push([ els.get( a )!, b, c ]); break
         default:

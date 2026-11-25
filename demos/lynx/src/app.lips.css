@@ -1,7 +1,8 @@
 /*
  * The demo's component sheet, in Lips syntax: compiled at build time to
- * flat CSS scoped by `.lips-app` (see ../lips-styles.ts). The braces bind
- * state; the background writes them as variables on the root.
+ * flat CSS scoped by `.lips-app` (by `pluginLips`, from
+ * `@lipsjs/lips/lynx-plugin`). The braces bind state; the background
+ * writes them as variables on the root.
  */
 --accent: {state.accent};
 padding: {state.pad}px;
@@ -21,6 +22,7 @@ font-size: 15px;
 .echo { margin-bottom: 8px; }
 .pane { width: 50%; height: 100px; background-color: #f1f5f9; }
 .line, .cell { height: 24px; }
+.head { background-color: #cbd5e1; }
 
 @media (max-width: 500px) {
   .title { letter-spacing: 1px; }

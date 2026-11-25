@@ -157,6 +157,27 @@ view .a, text, image, scroll-view { color: red }
     ])
   })
 
+  it('line-clamp has a code of its own, naming text-maxline (#42)', () => {
+    expect( found(`.a {
+  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.b { LINE-CLAMP: {state.n}; }`) ).toEqual([
+      [ 'LIPS-L012', 'error', 2, 3 ],
+      [ 'LIPS-L012', 'error', 6, 6 ]
+    ])
+    const [ literal, bound ] = lynx('.a { line-clamp: 3; }\n.b { line-clamp: {state.n}; }').diagnostics
+    expect( literal.message ).toBe("'line-clamp' does not cut text on Lynx")
+    expect( literal.hint ).toContain('text-maxline="3"')
+    expect( literal.hint ).toContain('text-overflow: ellipsis')
+    expect( bound.hint ).toContain('text-maxline="N"')
+    // Its own code, not the generic one too
+    expect( lynx('.a { line-clamp: 2; }').diagnostics.map( d => d.code ) ).toEqual([ 'LIPS-L012' ])
+    // A name that only contains it is not it
+    expect( found('.a { -x-line-clamp-gap: 2; }').map( f => f[ 0 ] ) ).toEqual([ 'LIPS-L008' ])
+  })
+
   it('no false alarms: calc() on lengths, minmax(), custom properties, the binds the compiler wrote', () => {
     expect( found(`.a {
   width: calc(100% - 10px);

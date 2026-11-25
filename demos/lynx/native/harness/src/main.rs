@@ -237,6 +237,18 @@ fn main() -> R<()> {
   wait_dom(&mut page, "Count: 2", |c| c.contains(&text("Count: 2")))?;
   check("tap round-trips through both threads (×2)", true, String::new());
 
+  // lips#41: Lynx does not block a disabled button's tap; Lips drops it. Both kinds of tap
+  touch(&mut page, "#off")?;
+  tap(&mut page, "#off")?;
+  page.wait_for_timeout(Duration::from_millis(300));
+  let dom = page.content()?;
+  let off = dom.split("<view id=\"off\"").nth(1).and_then(|s| s.split('>').next()).unwrap_or("").to_string();
+  check(
+    "a disabled button's tap reaches no handler, and it reads as disabled",
+    dom.contains(&text("Count: 2")) && off.contains("accessibility-value=\"disabled\"") && !off.contains(" disabled="),
+    format!("{off} / count 2: {}", dom.contains(&text("Count: 2"))),
+  );
+
   tap(&mut page, "#add")?;
   let dom = wait_dom(&mut page, "row 3", |c| c.contains(&text("row 3")))?;
   check("keyed insert", in_order(&dom, &["one", "two", "row 3"]), dom.clone());
@@ -316,9 +328,20 @@ fn main() -> R<()> {
 
   let first = cells(&dom);
   check(
-    "a list builds only the cells in view (items 1–5 of 40)",
-    first == [1, 2, 3, 4, 5],
+    "a list builds only the cells in view (its header and items 1–4 of 40)",
+    first == [1, 2, 3, 4],
     format!("{first:?}"),
+  );
+  // lips#43: the header's hints reach the engine's list. That this engine sticks it is not
+  // checked: the headless runtime does not, nor applies span-count (RFC-006 §4.5, "As built, cell hints")
+  let head = dom.split("<list-item id=\"head\"").nth(1).and_then(|s| s.split('>').next()).unwrap_or("").to_string();
+  let feed = dom.split("<list id=\"feed\"").nth(1).unwrap_or("");
+  check(
+    "a list-item full-span sticky-top is the list's first cell, with its hints, in a sticky list",
+    head.contains("full-span=\"true\"") && head.contains("sticky-top=\"true\"")
+      && feed.split('>').next().unwrap_or("").contains("sticky=\"true\"")
+      && feed.find("id=\"head\"") < feed.find(&text("item 1")),
+    head,
   );
 
   // fill → setValue on the native input → its `input` event → `e.target.value`
@@ -376,9 +399,9 @@ fn main() -> R<()> {
   check("a ref's scrollTo({ top: 60 }) scrolls the native scroll view", jumped, page.content()?);
 
   tap(&mut page, "#shuffle")?;
-  let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37, 36])))?;
+  let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37])))?;
   check(
-    "a reordered list asks again for the cells in view (items 40–36)",
+    "a reordered list asks again for the cells in view (items 40–37, under its header)",
     shuffled,
     format!("{:?}", cells(&page.content()?)),
   );

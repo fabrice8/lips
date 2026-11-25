@@ -1,7 +1,8 @@
 # Lips on Lynx — renderer, styles, inputs and lists (RFC-006 L1–L3)
 
 One HTML-shaped Lips template, rendered natively by Lynx through the
-two-thread binding in `src/lynx/`:
+two-thread binding, as an app gets it: from the published entries of
+`@lipsjs/lips`, and nothing from the repository's `src/`.
 
 - `src/background.ts` runs Lips. It compiles the template from its source
   string with `compileLynxTemplate`, in interpreted mode, and renders it
@@ -9,11 +10,25 @@ two-thread binding in `src/lynx/`:
 - `src/main-thread.ts` creates the page and the applier. The applier is the
   only code that calls Element PAPI.
 
+## Lips, as published
+
+`pack.sh` builds the repository, packs it as npm would publish it (`dist/`
+only) and installs the tarball here without saving it. `run.sh`, `sim.sh`
+and `e2e.mjs` run it first. After changing Lips, run it again before
+`npm run dev` or `npm run build`. The demo imports:
+
+| Import | In |
+|---|---|
+| `@lipsjs/lips/lynx/main` (`connectMain`) | `src/main-thread.ts` |
+| `@lipsjs/lips/lynx/background` (`connectBackground`) | `src/background.ts` |
+| `@lipsjs/lips/runtime` (`renderIR`) and `@lipsjs/lips/lynx` (`compileLynxTemplate`) | `src/background.ts` |
+| `@lipsjs/lips/lynx-plugin` (`pluginLips`) | `lynx.config.ts` |
+
 ## Styles
 
 `src/app.lips.css` is the component's sheet, in Lips syntax: `{state.x}`
-binds a value. `lips-styles.ts` is an Rsbuild plugin that compiles it at
-build time, because Lynx cannot add a stylesheet at runtime:
+binds a value. `pluginLips` compiles it at build time, because Lynx cannot
+add a stylesheet at runtime:
 
 - `main-thread.ts` imports it, and the bundle gets flat CSS scoped by
   `.lips-app`. Lint errors (`LIPS-L…`) fail the build.
@@ -21,6 +36,9 @@ build time, because Lynx cannot add a stylesheet at runtime:
   runtime writes as variables on the root.
 - The plugin sets the page config those rely on: inline variables,
   `@media` and CSS inheritance.
+- It also has the build lower Lips's own files with the app's code: Lynx's
+  background engine does not parse `||=`, and a build leaves
+  `node_modules` as it is.
 
 Import a Lips sheet from a script, not with `@import` from `style.css`:
 css-loader sends an `@import` past every configured loader, so the sheet
@@ -32,8 +50,12 @@ would reach Lynx uncompiled.
   `e.target.value`, as on the DOM. The `fill` button sets the value from
   state, which reaches the native input through `setValue`.
 - `<scroll-view scroll-y>` reports where it is through `scroll`.
-- `<list>` holds 40 `<list-item>`s, and Lynx asks for each one as it
-  scrolls into view. `shuffle` reverses them.
+- `<list sticky>` holds a `full-span sticky-top` header and 40
+  `<list-item>`s, and Lynx asks for each one as it scrolls into view.
+  `shuffle` reverses them. The header's hints reach the list in its
+  insert action; Lynx for Web sticks it, and the headless engine does
+  not (RFC-006 §4.5, "As built, cell hints").
+- `#off` is a disabled button wired to the counter: its taps do not count.
 - The `fill` and `shuffle` labels and the cells' text are bare text in
   elements that are not text. `compileLynxTemplate` wraps each in one
   `text`, without which Lynx would render nothing.
@@ -72,7 +94,7 @@ Once:
 export PATH="$PATH:$HOME/Library/Android/sdk/platform-tools:$HOME/Library/Android/sdk/emulator"
 
 bun install                        # repo root
-cd demos/lynx && npm ci
+cd demos/lynx && npm ci && ./pack.sh
 npx playwright install chromium    # for npm run e2e
 ```
 
@@ -108,12 +130,12 @@ measurements.
 native/run.sh          # or: npm run native
 ```
 
-This needs git, curl, cargo and node, on Linux x86_64 or macOS on Apple
+This needs git, curl, cargo, node and bun, on Linux x86_64 or macOS on Apple
 Silicon. It fetches lynx-stack's headless runner crates at the commit
 RFC-006 pins, then the runtime and the core script. The runtime is Lynx 4.1
 on Linux and lynx-stack's macOS build on a Mac. Both are checked against
-lynx-stack's pinned SHA-256s on every run. It then builds the bundle and
-runs `native/harness`:
+lynx-stack's pinned SHA-256s on every run. It then packs Lips
+(`pack.sh`), builds the bundle and runs `native/harness`:
 
 - first render, taps and keyed moves are checked in the engine's own DOM;
 - the sheet's computed styles are read from its native CSS engine, before

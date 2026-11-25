@@ -408,8 +408,14 @@ const refTo = ( benv: RunEnv, node: N, name: () => any, watch: ( fn: () => void 
   return () => { eff.dispose(); drop() }
 }
 
+/**
+ * A bound value as an attribute: `null`/`undefined` remove it. A boolean
+ * is HTML's presence (`true` → `""`, `false` → removed), except on
+ * `aria-*`, where ARIA reads `""` as "not set": there it is written out,
+ * `"true"` / `"false"` (lips#40, RFC-006 §9.6).
+ */
 const applyAttr = ( h: Host, el: N, name: string, v: any ) =>
-  h.attr( el, name, v === false || v == null ? null : v === true ? '' : String( v ) )
+  h.attr( el, name, v == null || v === false && !name.startsWith('aria-') ? null : v === true && !name.startsWith('aria-') ? '' : String( v ) )
 
 const defineGetter = ( scope: any, name: string, get: () => any ) =>
   Object.defineProperty( scope, name, { get, enumerable: true, configurable: true } )

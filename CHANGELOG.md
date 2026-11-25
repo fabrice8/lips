@@ -49,6 +49,57 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 - Untrusted templates cannot read `self.refs` (`LIPS-U005`), as they cannot
   read `self.node`.
 
+### Added — the Lynx runtime, published (lips#38)
+
+- `@lipsjs/lips/lynx/main` (`connectMain`, the main-thread applier) and
+  `@lipsjs/lips/lynx/background` (`connectBackground`, the background
+  host): one entry per thread, each with its size budget (2.21 and 4.74 KB
+  gzipped). The background renders with `renderIR` from
+  `@lipsjs/lips/runtime`. Before, no app outside this repository could
+  render on Lynx.
+- `@lipsjs/lips/lynx-plugin` (`pluginLips`), the Rspeedy plugin: compiles
+  `*.lips.css` sheets (an error fails the build), sets the page config, and
+  adds Lips's files to what the app compiles, because Lynx's background
+  engine does not parse `||=`. It needs a Lynx build plugin before it and
+  imports none itself.
+- Packaging is decided as subpath entries of `@lipsjs/lips`, not a
+  separate package (RFC-006 §9.3).
+- The Lynx demo builds from the packed package only (`demos/lynx/pack.sh`),
+  and tier B runs against it.
+
+### Changed — a boolean bound on `aria-*` is written out (lips#40)
+
+- `aria-selected=state.on` now writes `"true"` or `"false"`, as ARIA reads
+  them. Before, `true` was written as `""` and `false` removed the
+  attribute, and ARIA reads both as "not set", so the element never read
+  as selected. **DOM output changes**: a bound `false` on `aria-*` is now
+  present as `"false"`. `null` and `undefined` still remove it, and every
+  other attribute keeps HTML's presence rule. Spreads follow the same
+  rule. RFC-006 §9.6.
+
+### Added — `disabled` on a button, on Lynx (lips#41)
+
+- A disabled `<button>` runs no tap handler, its own or one above it, as on
+  the DOM: Lynx does not block the tap itself. Its state is sent as
+  `aria-disabled` is, so assistive technology is told. Other events, and
+  `disabled` on an input, are unchanged.
+
+### Added — `LIPS-L012`: `line-clamp` on Lynx (lips#42)
+
+- `line-clamp` and `-webkit-line-clamp` in a Lynx sheet are an error of
+  their own, whose hint names the fix: the `text-maxline` attribute on the
+  text, with `text-overflow: ellipsis`. Before, they got the generic
+  `LIPS-L008` warning and the text was never cut.
+
+### Added — list cell hints on Lynx (lips#43)
+
+- `full-span`, `sticky-top`, `sticky-bottom`, `estimated-height-px` and
+  `estimated-main-axis-size-px` on a `list-item` reach Lynx's list in its
+  insert actions, as the booleans and numbers it reads, and in an update
+  action when they change on a cell it already has. Write the list's own
+  `sticky` for sticky cells. Cells are still built eagerly: recycling is a
+  later step.
+
 ## [0.3.1] — 2026-11-23
 
 The Lynx pass, published for a build step. Nothing changes for an app that

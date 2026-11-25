@@ -22,6 +22,8 @@ import { createRequire } from 'node:module'
 const here = dirname( fileURLToPath( import.meta.url ) )
 const require = createRequire( import.meta.url )
 
+// Lips as npm publishes it, then the demo against it
+execSync( './pack.sh', { cwd: here, stdio: 'inherit' })
 execSync( 'npx rspeedy build', { cwd: here, stdio: 'inherit' })
 
 const dist = join( here, 'dist' )
@@ -89,6 +91,11 @@ try {
   await tap('inc')
   check( 'second tap', await waitText('Count: 2'), await text() )
 
+  // lips#41: a disabled button's tap reaches no handler
+  await tap('off')
+  await page.waitForTimeout( 300 )
+  check( "a disabled button's tap reaches no handler", /Count: 2\b/.test( await text() ), await text() )
+
   await tap('add')
   check( 'keyed insert', await waitText('row 3'), await text() )
 
@@ -141,6 +148,19 @@ try {
   const cells = () => inShadow( r => [ ...r.querySelectorAll('[data-cell]') ].map( c => c.textContent ) )
   const all = await cells()
   check( 'the list holds its cells, in order', all.length === 40 && all[ 0 ] === 'item 1', JSON.stringify( all.slice( 0, 3 ) ) )
+  // lips#43: the header cell is sticky-top in a sticky list; Lynx for Web reads the cell's attributes
+  const tops = () => inShadow( r => {
+    const top = e => Math.round( e.getBoundingClientRect().top )
+    return { list: top( r.querySelector('[data-k="feed"]') ), head: top( r.querySelector('#head') ), first: top( r.querySelector('[data-cell="1"]') ) }
+  })
+  const rest = await tops()
+  await inShadow( r => { r.querySelector('[data-k="feed"]').scrollTop = 200 } )
+  await page.waitForTimeout( 300 )
+  const scrolled = await tops()
+  check( 'a sticky-top header stays at the top of its list while the list scrolls',
+    rest.head === rest.list && scrolled.head === scrolled.list && scrolled.first < rest.first - 100, JSON.stringify({ rest, scrolled }) )
+  await inShadow( r => { r.querySelector('[data-k="feed"]').scrollTop = 0 } )
+
   await tap('shuffle')
   await page.waitForTimeout( 300 )
   const shuffled = await cells()

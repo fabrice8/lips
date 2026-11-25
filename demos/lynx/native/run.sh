@@ -2,7 +2,7 @@
 # RFC-006 test tier B: the demo's native bundle in the REAL Lynx engine
 # (libLynx_clay), headless, on Linux x86_64 or macOS on Apple Silicon.
 #
-#   demos/lynx/native/run.sh            (needs git, curl, cargo, node)
+#   demos/lynx/native/run.sh            (needs git, curl, cargo, node, bun)
 #
 # Everything it fetches is pinned and verified:
 #   - lynx-family/lynx-stack @ b651885: the engine bridge and the headless
@@ -33,7 +33,7 @@ case "$os/$(uname -m)" in
     echo "✗ tier B runs on Linux x86_64 or macOS arm64, not $os/$(uname -m): use CI or a Linux VM"
     exit 1 ;;
 esac
-for tool in git curl cargo node; do
+for tool in git curl cargo node bun; do
   command -v "$tool" >/dev/null || { echo "✗ tier B needs $tool${tool/cargo/cargo (Rust, https://rustup.rs)}"; exit 1; }
 done
 CORE_URL=https://lynx-genui-storage.tos-cn-beijing.volces.com/lynx_4_1_core_libs/lynx_core.jslynx_core.js
@@ -74,8 +74,8 @@ if [ "$os" = Darwin ]; then
   [ "$lib" -nt "$sdk/lib/$RUNTIME_FILE" ] || { cp "$sdk/lib/$RUNTIME_FILE" "$lib" && codesign --force --sign - "$lib"; }
 fi
 
-# 3. The bundle under test
-[ -d "$here/../node_modules" ] || ( cd "$here/.." && npm ci --no-audit --no-fund )
+# 3. The bundle under test, built against Lips as npm publishes it (../pack.sh)
+"$here/../pack.sh"
 ( cd "$here/.." && npx rspeedy build >"$cache/build.log" 2>&1 ) || { cat "$cache/build.log"; exit 1; }
 
 # 4. Run; the runner's build scripts use the verified SDK instead of downloading
@@ -87,11 +87,13 @@ status=0
 ( cd "$cache" && "$here/target/debug/lips-tierb" "$here/../dist/main.lynx.bundle" "$here/../dist/native.bmp" ) >"$log" 2>&1 || status=$?
 
 # Anywhere in a line: the engine logs to the same stream, mid-line at times
-grep -oE '(✓|✗) .*|all checks passed|SOME CHECKS FAILED' "$log" || true
-errors=$(grep -cE 'onAppJSError|exception:' "$log" || true)
+# The harness's own error (a wait that timed out) is `Error: "…"`
+grep -oE '(✓|✗) .*|all checks passed|SOME CHECKS FAILED|Error: ".*' "$log" | cut -c1-300 || true
+# A script that does not parse never runs: the engine logs that as a failed evaluation, not as an app error
+errors=$(grep -cE 'onAppJSError|exception:|evaluateJavaScript failed' "$log" || true)
 if [ "$errors" != "0" ]; then
   echo "✗ the engine reported $errors JS error(s) — see $log"
-  grep -E 'onAppJSError|exception:' "$log" | head -5
+  grep -E 'onAppJSError|exception:|evaluateJavaScript failed' "$log" | head -5 | cut -c1-300
   exit 1
 fi
 echo "✓ no JS errors reported by the engine"

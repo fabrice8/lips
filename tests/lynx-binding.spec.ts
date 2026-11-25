@@ -413,6 +413,77 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     expect( insertAction ).toHaveLength( 2 )
   })
 
+  describe('cell hints: full-span, sticky, estimated sizes (#43)', () => {
+    const HINTED = `<list sticky><list-item data-id="head" full-span sticky-top estimated-main-axis-size-px="40">Head</list-item>`
+      + `<for [row] in=state.rows by="id"><list-item data-id=row.id sticky-bottom=row.last estimated-height-px=row.h>{row.label}</list-item></for></list>`
+    const hinted = ( ...ids: number[] ) => ids.map( ( id, i ) => ({ id, label: `r${id}`, last: i === ids.length - 1, h: 20 + id }) )
+    const KEYS = [ 'full-span', 'sticky-top', 'sticky-bottom', 'estimated-height-px', 'estimated-main-axis-size-px' ]
+    const hintsOf = ( a: any ) => Object.fromEntries( KEYS.filter( k => k in a ).map( k => [ k, a[ k ] ] ) )
+
+    it('a list-item full-span sticky-top reaches its insert action with those fields, as Lynx reads them', async () => {
+      const app = await boot( HINTED, { state: { rows: hinted( 1, 2 ) } } )
+      const list = app.q('list')
+      const [ first ] = told( list )
+      // Lynx's list reads booleans and numbers only (`IsBool`, `IsNumber`): never attribute text
+      expect( first.insertAction.map( hintsOf ) ).toEqual([
+        { 'full-span': true, 'sticky-top': true, 'estimated-main-axis-size-px': 40 },
+        { 'sticky-bottom': false, 'estimated-height-px': 21 },
+        { 'sticky-bottom': true, 'estimated-height-px': 22 }
+      ])
+      expect( first.updateAction ).toEqual( [] )
+      // Lynx for Web reads them as attributes of the cell: still set there
+      ask( list, 0 )
+      expect( list.children[ 0 ].hasAttribute('sticky-top') ).toBe( true )
+      // The list's own switch is an attribute, as before
+      expect( list.getAttribute('sticky') ).toBe('true')
+    })
+
+    it('a cell with no hints carries none; a flag written "false" is false, as Lynx for Web reads it', async () => {
+      const app = await boot( LIST, { state: { rows: rows( 1 ) } } )
+      expect( Object.keys( told( app.q('list') )[ 0 ].insertAction[ 0 ] ).sort() ).toEqual([ 'item-key', 'position', 'type' ])
+
+      const flags = await boot( `<list><list-item full-span="false" sticky-top="">x</list-item></list>` )
+      expect( hintsOf( told( flags.q('list') )[ 0 ].insertAction[ 0 ] ) ).toEqual({ 'full-span': false, 'sticky-top': true })
+    })
+
+    it('a hint that changes on a cell the list has is an update, by its position, that rebuilds nothing', async () => {
+      const app = await boot( HINTED, { state: { rows: hinted( 1, 2 ) } } )
+      const list = app.q('list')
+      await app.act( () => app.inst.state.rows = [ { ...app.inst.state.rows[ 0 ], last: true, h: 50 }, app.inst.state.rows[ 1 ] ] )
+      const [ , second ] = told( list )
+      expect( second.insertAction ).toEqual( [] )
+      expect( second.removeAction ).toEqual( [] )
+      expect( second.updateAction ).toEqual([
+        { from: 1, to: 1, flush: false, type: 'default', 'item-key': first( list ).insertAction[ 1 ][ 'item-key' ], 'sticky-bottom': true, 'estimated-height-px': 50 }
+      ])
+
+      // Told once: the next change to the list does not tell it again
+      await app.act( () => app.inst.state.rows = [ ...app.inst.state.rows, { id: 9, label: 'r9', last: false, h: 29 } ] )
+      const [ , , third ] = told( list )
+      expect( third.insertAction.map( hintsOf ) ).toEqual([ { 'sticky-bottom': false, 'estimated-height-px': 29 } ])
+      expect( third.updateAction ).toEqual( [] )
+    })
+
+    it('a moved or added cell carries its hints again, as they are now', async () => {
+      const app = await boot( HINTED, { state: { rows: hinted( 1, 2 ) } } )
+      await app.act( () => app.inst.state.rows = hinted( 2, 1, 3 ) )
+      const [ , second ] = told( app.q('list') )
+      // Whichever cell stays, each position the list is told about has the hints of the row there now
+      const byPosition = Object.fromEntries([
+        ...second.insertAction.map( ( a: any ) => [ a.position, hintsOf( a ) ] ),
+        ...second.updateAction.map( ( a: any ) => [ a.from, hintsOf( a ) ] )
+      ])
+      expect( byPosition ).toEqual({
+        1: { 'sticky-bottom': false, 'estimated-height-px': 22 },
+        2: { 'sticky-bottom': false, 'estimated-height-px': 21 },
+        3: { 'sticky-bottom': true, 'estimated-height-px': 23 }
+      })
+      // The cell that stayed and whose hints did not change is not told again
+      expect( second.insertAction.length + second.updateAction.length ).toBe( 3 )
+    })
+  })
+  const first = ( list: any ) => told( list )[ 0 ]
+
   it('an input value: the attribute first, then setValue after the flush', async () => {
     const app = await boot( `<input data-k="in" value=state.v>`, { state: { v: 'a' } } )
     const input = app.q('[data-k="in"]')
@@ -887,9 +958,11 @@ describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
     expect( value() ).toBe('not checked, required')
     await app.act( () => Object.assign( app.inst.state, { c: 'mixed', i: 'true' }) )
     expect( value() ).toBe('mixed, invalid, required')
-    // A bound `true` arrives as "" — ARIA's "not set" (RFC-006 §9)
+    // A bound boolean is written out (lips#40): `true` reads as checked, `false` as not checked
     await app.act( () => app.inst.state.c = true )
-    expect( value() ).toBe('invalid, required')
+    expect( value() ).toBe('checked, invalid, required')
+    await app.act( () => app.inst.state.c = false )
+    expect( value() ).toBe('not checked, invalid, required')
     expect( app.q('[data-k="c"]').getAttribute('accessibility-role-description') ).toBe('checkbox')
   })
 
@@ -956,6 +1029,75 @@ describe('Lynx accessibility: ARIA read as Lynx attributes', () => {
     const ops = app.batches.flat()
     expect( ops ).toContain('sélectionné')
     expect( ops ).toContain('onglet')
+  })
+})
+
+describe('Lynx: disabled on a button (#41)', () => {
+  const TEMPLATE = `<div data-k="row" on-click( row )>`
+    + `<button data-k="b" disabled=state.off aria-disabled=state.aria on-click( inc ) on-touchstart( touch )><span data-k="label">+1</span></button>`
+    + `<button data-k="other" on-click( inc )>other</button></div>`
+    + `<div data-k="menu" on-click.outside( out )><span>menu</span></div>`
+    + `<input data-k="in" disabled=state.off>`
+  const setup = ( off: unknown ) => ({
+    state: { off, aria: undefined as unknown, n: 0, rows: 0, outs: 0, touches: 0 },
+    handlers: { touch( this: any ){ this.state.touches++ }, inc( this: any ){ this.state.n++ }, row( this: any ){ this.state.rows++ }, out( this: any ){ this.state.outs++ } }
+  })
+  const counts = ( app: any ) => [ app.inst.state.n, app.inst.state.rows, app.inst.state.outs ]
+  /** A tap as Lynx dispatches it, bubbling: from the element, or from its raw text, which Lynx for Web hit-tests to */
+  const tap = ( app: any, k: string ) => app.dispatch( `[data-k="${k}"]`, ( w: any ) => new w.Event( 'tap', { bubbles: true }) )
+  const tapText = async ( app: any, k: string ) => {
+    env.switchToMainThread()
+    const text = app.q(`[data-k="${k}"]`).firstChild
+    expect( text.nodeType ).toBe( 3 )
+    text.dispatchEvent( new env.env.window.Event( 'tap', { bubbles: true }) )
+    env.switchToBackgroundThread()
+    await tick()
+  }
+
+  it('a tap on it, or inside it, reaches no handler: its own, one above it, or one outside', async () => {
+    const app = await boot( TEMPLATE, setup( true ) )
+    await tap( app, 'b' )
+    await tap( app, 'label' )
+    await tapText( app, 'label' )
+    expect( counts( app ) ).toEqual([ 0, 0, 0 ])
+
+    // Another button in the same row is not disabled
+    await tap( app, 'other' )
+    expect( counts( app ) ).toEqual([ 1, 1, 1 ])
+
+    // HTML blocks a disabled control's clicks only: a touch still reaches it
+    await app.dispatch( '[data-k="b"]', ( w: any ) => new w.Event( 'touchstart', { bubbles: true }) )
+    expect( app.inst.state.touches ).toBe( 1 )
+  })
+
+  it('carries the disabled state as aria-disabled does, and is not sent as an attribute', async () => {
+    const app = await boot( TEMPLATE, setup( true ) )
+    const b = app.q('[data-k="b"]')
+    expect( b.getAttribute('accessibility-value') ).toBe('disabled')
+    expect( b.hasAttribute('disabled') ).toBe( false )
+    // HTML's disabled wins over aria-disabled="false"
+    await app.act( () => app.inst.state.aria = 'false' )
+    expect( b.getAttribute('accessibility-value') ).toBe('disabled')
+  })
+
+  it('enabled again, both come back', async () => {
+    const app = await boot( TEMPLATE, setup( true ) )
+    await app.act( () => app.inst.state.off = false )
+    expect( app.q('[data-k="b"]').hasAttribute('accessibility-value') ).toBe( false )
+    await tapText( app, 'label' )
+    expect( counts( app ) ).toEqual([ 1, 1, 1 ])
+
+    await app.act( () => app.inst.state.off = true )
+    await tap( app, 'b' )
+    expect( counts( app ) ).toEqual([ 1, 1, 1 ])
+    expect( app.q('[data-k="b"]').getAttribute('accessibility-value') ).toBe('disabled')
+  })
+
+  it('a present attribute disables, as in HTML; on an input it stays the input\'s own', async () => {
+    const app = await boot( `<button data-k="b" disabled on-click( inc )>x</button><input data-k="in" disabled>`, setup( true ) )
+    await tap( app, 'b' )
+    expect( app.inst.state.n ).toBe( 0 )
+    expect( app.q('[data-k="in"]').getAttribute('disabled') ).toBe('true')
   })
 })
 

@@ -412,8 +412,13 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
       else if( name === 'value' && ( el.type === 'input' || el.type === 'textarea' ) && el.batch !== batch ){
         value !== typed.get( el.id ) && emit( INVOKE, el.id, 'setValue', { value: value ?? '' })
       }
-      /** ARIA is read here, not sent: Lynx has its own attributes (`./a11y`) */
-      else if( A11Y.has( name ) ){
+      /**
+       * ARIA is read here, not sent: Lynx has its own attributes (`./a11y`).
+       * So is `disabled` on a button: Lynx has no disabled view and does
+       * not block its tap (lips#41). It is sent as `aria-disabled` is, and
+       * `receive` drops the taps inside it.
+       */
+      else if( A11Y.has( name ) || name === 'disabled' && el.role === 'button' ){
         const a = el.aria ||= {}
         if( name === 'for' ){
           a.for && labels.get( a.for ) === el && labels.delete( a.for )
@@ -492,6 +497,11 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
     for( ; n; n = n.parent ) if( n === el ) return true
     return false
   }
+  /** Inside a disabled button (lips#41) */
+  const off = ( n: LynxNode | null | undefined ) => {
+    for( ; n; n = n.parent ) if( n.aria?.disabled != null ) return true
+    return false
+  }
 
   return {
     host, root, flush,
@@ -502,6 +512,10 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
      */
     receive( wire ){
       const set = handlers.get( wire.id )?.get( wire.name ), event: any = wire.event, value = event.detail?.value
+
+      // A tap inside a disabled button reaches no handler, as the DOM fires no click for it, there or above it
+      if( event.type === 'tap' && off( live.get( wire.t! ) || live.get( wire.id ) ) ) return
+
       if( typeof value === 'string' ){
         typed.set( wire.id, value )
         event.target = { ...event.target, value }

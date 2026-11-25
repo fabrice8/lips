@@ -5,6 +5,12 @@
  * Ids are for the native headless run, which locates by id and class;
  * `data-k` is for the web e2e.
  *
+ * `#head` is the list's sticky header: it stays while the list scrolls
+ * (lips#43).
+ *
+ * `#off` is a disabled button wired to the counter: a tap on it must not
+ * count (lips#41).
+ *
  * L3: an input synced through `setValue` and its `input` event, a
  * `scroll-view` reporting where it is, and a native `list` that asks for
  * its cells as they scroll into view.
@@ -17,6 +23,7 @@ export const TEMPLATE = `
     <button class="btn" id="add" data-k="add" on-click( add )><span>add</span></button>
     <button class="btn" id="rev" data-k="rev" on-click( reverse )><span>reverse</span></button>
     <button class="btn" id="theme" data-k="theme" on-click( theme )><span>theme</span></button>
+    <button class="btn" id="off" data-k="off" disabled on-click( inc )><span>off</span></button>
   </div>
   <div class="swatch" id="swatch" data-k="swatch" on-touchstart( onTouch )></div>
   <svg id="icon" data-k="icon" viewBox="0 0 24 24" width="24" height="24"><rect width="24" height="24" fill=state.accent/></svg>
@@ -41,7 +48,8 @@ export const TEMPLATE = `
     <scroll-view class="pane" id="scroller" data-k="scroller" scroll-y on-scroll( onScroll ) @ref="scroller">
       <for [n] in=state.lines><p class="line">line {n}</p></for>
     </scroll-view>
-    <list class="pane" id="feed" data-k="feed">
+    <list class="pane" id="feed" data-k="feed" sticky>
+      <list-item class="cell head" id="head" full-span sticky-top estimated-main-axis-size-px="24">feed</list-item>
       <for [cell] in=state.feed by="id"><list-item class="cell" data-cell=cell.id>item {cell.id}</list-item></for>
     </list>
   </div>

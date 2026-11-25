@@ -508,11 +508,36 @@ with `__LoadStyleSheet`, which is internal (§8).
     | LIPS-L009 | error | `min()`, `max()`, `clamp()` (§3.3) |
     | LIPS-L010 | error | `calc()` off a length property (§3.2) |
     | LIPS-L011 | warning | `!important` (§3.3) |
+    | LIPS-L012 | error | `line-clamp`, `-webkit-line-clamp`: Lynx cuts text with the `text-maxline` attribute (lips#42) |
 
     Every CSS limit in §3.1–§3.3 has one. Layout defaults (§3.3) cannot be
     seen in a sheet.
   - **`LYNX_PAGE_CONFIG`**: `enableCSSInlineVariables`, `enableCSSRule`
     and `enableCSSInheritance`, all `true`.
+- **As built, `line-clamp` (2026-11-24, lips#42).** Lynx cuts a text to N
+  lines with an attribute, `text-maxline="N"` on the `<text>`, with
+  `text-overflow: ellipsis`, and has no `line-clamp` property. A sheet
+  using one got only the generic L008, and the text was never cut.
+  - `LIPS-L012` (error) fires on `line-clamp` and `-webkit-line-clamp`,
+    in any case, in place of L008. Its hint names `text-maxline`, with
+    the literal count when there is one (`text-maxline="3"`), `N` for a
+    bound one. An error, like L009 and L010: the rule would do nothing
+    on Lynx, and the fix is known.
+  - Mapping a literal `line-clamp: N` onto the elements a rule scopes
+    was not built. A rule's selector does not say which elements it
+    reaches at run time, so it would be right only where it is
+    unambiguous, and the issue preferred the lint as the cheaper route.
+  - Cost: +105 bytes gzipped on `lynx` (17.79 → 17.89; budget 18.05) and
+    on the plugin.
+  - Tier A: 1 spec in `tests/lynx-style.spec.ts`: both spellings with
+    their locations, the hint with a literal and with a bind, no L008
+    beside it, quiet `text-overflow` and `overflow`, and a longer name
+    that only contains it. Nine deliberate breakages were each caught:
+    no code of its own, `-webkit-` missed, L008 as well, any name
+    containing it, case-sensitive, the fix not named, the count not
+    carried, a warning instead of an error, `text-overflow` flagged.
+  - Not verified: that `text-maxline` cuts the text is Lynx's documented
+    behaviour, not checked at tier B.
 - **The core cost.** The style compiler gained a `scope` option and a
   `lint` hook. Its statements now start at their first character, so every
   diagnostic, not just Lynx's, points at the right column. That costs 69
@@ -520,7 +545,8 @@ with `__LoadStyleSheet`, which is internal (§8).
   for 6 bytes. Compiling a 4,000-rule sheet is ~20% faster than before,
   with identical output.
 - **Build route: `demos/lynx/lips-styles.ts`.** This is the CSS half of
-  §4.7's plugin, kept with the demo until packaging is decided.
+  §4.7's plugin, kept with the demo until packaging is decided. *Now
+  published as `@lipsjs/lips/lynx-plugin` (§4.7, "As built, packaging").*
   - A `*.lips.css` file is compiled ahead of Lynx's CSS pipeline. Its file
     name is the scope.
   - A `?raw` import of it gives the background its IR.
@@ -667,7 +693,88 @@ with `__LoadStyleSheet`, which is internal (§8).
 - **Not done.** List cell layout hints (`full-span`, sticky, estimated
   sizes) and recycling are not passed on. UI methods from app code, once
   not done for want of element references, are built: "As built, element
-  references" below.
+  references" below. *Cell hints are built: "As built, cell hints" below.
+  Recycling is not.*
+
+**As built, cell hints (2026-11-24, lips#43).**
+
+- **What Lynx reads, and where** (engine source, `lynx-family/lynx` at
+  4.1.0 and at head): `core/list/decoupled_adapter_helper.cc`, the list
+  the 4.1 runtime uses (its log says `enable_native_list=true,
+  enable_decoupled_list=true`), reads `full-span`, `sticky-top`,
+  `sticky-bottom`, `estimated-height-px` and `estimated-main-axis-size-px`
+  from each `update-list-info` insert action, and again from an update
+  action, by item key. It reads them only as JSON: a flag counts only if
+  `IsBool()`, a size only if `IsNumber()`. ReactLynx's own list sends the
+  same fields (`platformInfo.ts`). Lynx for Web reads them as attributes
+  of the `list-item`, and sticks a cell with CSS only in a list whose
+  `sticky` is true.
+- **The applier** keeps each cell's hints, converted from the attribute
+  text Lips sends: a flag is set when present (HTML's rule) unless written
+  `"false"`, a size is a number or left out. They go into the cell's insert
+  action. A hint that changes on a cell the list already has, and did not
+  move, is an update action by its position with `flush: false`, so the
+  cell is not rebuilt; a value sent again unchanged tells the list
+  nothing. The attributes are still set on the cell, for Lynx for Web.
+  The list's own `sticky` is an ordinary attribute: an empty one goes as
+  `true` (L3).
+- **Recycling is a later step.** The applier still builds cells eagerly
+  and ignores `enqueueComponent`. Reusing cells needs the background to
+  rebind a cell to another row, and is to be measured at L4.
+- **Found on the way: list props that Lynx reads as numbers or `false`.**
+  `span-count`, `sticky-offset` and `experimental-*` are read only as JSON
+  numbers or booleans too (`ListContainerImpl::ResolveAttribute`), and a
+  Lips attribute is text, so `span-count="2"` is ignored. Cell hints are
+  converted here; the list's own props are not yet. Recorded as a
+  follow-up, not part of lips#43.
+- **Cost.** +233 bytes gzipped on `lynx-main` (2.21 → 2.44; budget
+  2.3 → 2.5). A single converter table and a shared action object
+  measured 12 bytes larger, so the plainer form stays.
+- **Tests.**
+  - Tier A, 5 specs in `tests/lynx-binding.spec.ts`, both threads: a
+    `list-item full-span sticky-top` and bound sizes reach the insert
+    action as booleans and numbers; a cell with none carries none, and
+    `"false"` is false; a changed hint on a staying cell is one update by
+    its position with `flush: false`, told once; a reorder carries each
+    position's current hints whichever cell stays. Thirteen deliberate
+    breakages were each caught: hints left out of the insert (twice, two
+    code shapes), hints as attribute text, `"false"` read as set (twice),
+    sizes not numbers, a size read as a flag, a changed hint not told, an
+    update that rebuilds the cell, an unchanged hint told again, an update
+    by its old position, hints not set on the cell, a hinted cell never
+    cleared.
+  - Lynx for Web e2e (21/21): the demo's list has a `full-span sticky-top`
+    header. After the list scrolls 200px, the header's top is still the
+    list's top, and the first item has moved up. Without `sticky-top` the
+    header scrolls away and the check fails.
+  - Tier B (29/29): the header is the list's first cell in the real
+    engine, with `full-span` and `sticky-top`, in a list whose `sticky` is
+    `true`, and the virtualization checks hold around it.
+- **Not verified: a sticky header in the native engine.** The issue asked
+  for it at tier B, and it could not be shown there. In the headless 4.1
+  runtime (macOS arm64), with the fields above in the insert action (read
+  in the built main-thread script) and `sticky` set, the header scrolls
+  away, in its element box and in the frame's pixels, after a 40px and a
+  200px drag. The same runtime also lays out `list-type="flow"` in one
+  column. Tried and ruled out: `sticky-offset`, `list-type`,
+  `custom-list-name="list-container"`, `experimental-recycle-sticky-item`
+  (which also could not arrive as `false`). lynx-stack has no headless
+  sticky test to compare with.
+- **Device check: not sticky on either platform either** (Lynx Explorer
+  4.1.0, iOS Simulator iPhone 17 / iOS 26.2 and Android emulator API
+  36.1; kept apart from tier B). Dragged on the device, the demo's header
+  scrolls away with its cells, at 26 pt as at 80 pt, also with
+  `span-count` and `sticky-offset` sent as numbers and `list-type="single"`
+  (a temporary applier change, not kept). **A bundle with no Lips in it**
+  (raw Element PAPI: `__CreateList`, `sticky` true, `sticky-offset` 0,
+  `span-count` 1, and an `update-list-info` whose header action carries
+  `full-span: true` and `sticky-top: true`, at index 0 or 5) **does not
+  stick it on iOS or Android either**. So Lips sends what the engine
+  documents, and the documented Element PAPI route does not produce a
+  sticky cell in Lynx 4.1. Whatever ReactLynx's sticky lists rely on
+  beyond it was not found. Recorded as open, with the raw-PAPI probe as
+  the reproduction to take upstream.
+
 
 **As built, event data (2026-11-24, lips#35).**
 
@@ -827,6 +934,78 @@ the existing `mode: 'interpreted'`. Nothing depends on `eval`.
   SDK 4.0 floor, §9).
 - A runtime entry (`@lipsjs/lips/lynx`) holds the background host and the
   main-thread applier, with its own size budget in `scripts/size-check.mjs`.
+  *As built: one entry per thread, `./lynx/main` and `./lynx/background`;
+  `./lynx` was already the build-time pass (below).*
+
+**As built, packaging (2026-11-24, lips#38).**
+
+- **§9.3 decided: subpath entries of `@lipsjs/lips`.** Nothing forced a
+  second package. The background host is a `Host` for the core runtime
+  and the template pass is the core compiler with a transform, so a
+  separate `@lipsjs/lynx` would pin a matching core version in every app
+  and release in lockstep anyway. Entries keep one version, one
+  changelog and the size ratchet that already covers them.
+- **The entries.**
+
+  | Import | Holds | Runs | gz |
+  |---|---|---|---|
+  | `@lipsjs/lips/lynx` | `compileLynxTemplate`, `lynxVocabulary`, `compileLynxStyle`, `LYNX_PAGE_CONFIG` | build, or the background for templates as data | 17.79 |
+  | `@lipsjs/lips/lynx/main` | `connectMain`, `createApplier` | main thread | 2.21 |
+  | `@lipsjs/lips/lynx/background` | `connectBackground`, `createBackgroundHost`, `WORDS` | background thread | 4.74 |
+  | `@lipsjs/lips/lynx-plugin` | `pluginLips`, `buildSheet` | Node, in the build (`lynx-plugin.mjs`) | — |
+
+  The background renders with `renderIR` from `@lipsjs/lips/runtime`:
+  the host holds no IR runtime, so it is bundled once.
+- **One runtime entry per thread, not one for both.** Each thread loads
+  its own bundle, and the main thread's is on the first frame. An entry
+  holding both would make every app rely on its bundler shaking the
+  other half out of a prebuilt file.
+- **The plugin** is `demos/lynx/lips-styles.ts` moved into `src/lynx/plugin.ts`,
+  with two changes:
+  - **It imports no Lynx build package.** It finds the template plugin on
+    the compiler, where the Lynx build plugin registered it, and sets the
+    page config through that class's hooks. The hooks are kept per copy
+    of `@lynx-js/template-webpack-plugin`, so an import could bind a copy
+    the build never runs, and Lips would need a peer dependency. Without
+    a Lynx build plugin it throws, rather than building a bundle with no
+    page config.
+  - **It adds Lips's `dist/` to what the app compiles** (Rsbuild
+    `source.include`). Found at tier B: the published entries are built
+    for current engines, the background engine refuses `||=` (`SyntaxError:
+    unexpected token in expression: '='`), and an app's build leaves
+    `node_modules` as it is. When the demo imported `src/`, the app's own
+    target had lowered Lips with the demo's code. Now it lowers the
+    published files the same way.
+- **The demo imports only published names.** `demos/lynx/pack.sh` builds
+  the repository, packs it with `npm pack` (only `files`: `dist/`), and
+  installs the tarball without saving it. `run.sh`, `sim.sh` and `e2e.mjs`
+  run it first, so every tier builds what an app would install. CI's
+  three Lynx jobs install bun for it. `jiti` left the demo: Rspeedy loads
+  the plugin as plain JS.
+- **Found on the way: `run.sh` passed a bundle that never ran.** A script
+  that does not parse is logged as `evaluateJavaScript failed`, not as an
+  app error, so the first run printed "no JS errors". It exited non-zero,
+  since the first render timed out, but did not say why. It now counts
+  that line as an engine error and prints the harness's own error.
+- **Tests.**
+  - Tier A, `tests/lynx-package.spec.ts` (6 specs): the demo's imports are
+    published entries and nothing outside its folder; every export is a
+    file the build writes, declared from a source that exists; the
+    plugin's sheets, `?raw` IR, failing errors with their location, Lips
+    in `source.include` (POSIX and Windows paths), and the page config
+    through the registered template plugin, or a throw without one. Ten
+    deliberate breakages were each caught: the demo importing `src/` (two
+    ways), Lips left out of `source.include`, the page config not set, an
+    error not failing the build, no template plugin skipped silently,
+    sheets not flattened, an export the build does not write, declarations
+    from a source that does not exist, and `?raw` shipping the CSS.
+  - Tier B, the whole suite (27/27) on the packed entries, macOS arm64.
+    With Lips left out of `source.include`, the bundle does not load and
+    `run.sh` fails with the engine's SyntaxError.
+- **Not done.** The plugin compiles sheets only. Templates are compiled
+  at run time (templates as data, as the demo does) or ahead of time with
+  `precompile` from `@lipsjs/lips/precompile`; a loader for `.lips` files
+  waits for an app that needs one.
 
 ### 4.8 Accessibility
 
@@ -852,7 +1031,7 @@ unchanged. The vocabulary pass reports what has no Lynx equivalent.
 | `aria-labelledby`, `<label for>` | `accessibility-label`: the text of those ids | Resolved in the background, at run time, and kept current. The background keeps an id map; ids resolve in the same host. |
 | `aria-describedby` | appended to the label, after `", "` | Lynx has no description or hint (§9.7). |
 | button, link and heading roles on a `view`, with no label | `accessibility-label`: the content's text | iOS would read nothing otherwise (§3.8). A part's own `aria-label` or `alt` stands in for its text. `aria-hidden` parts are left out. |
-| `aria-checked`, `-pressed`, `-selected`, `-expanded`, `-current`, `-disabled`, `-invalid`, `-required`, `-valuetext`, `-valuenow` | `accessibility-value`, as words joined by `", "` | `"false"` reads `not checked` and `collapsed` where ARIA has a word for it, and nothing elsewhere. `"mixed"` reads `mixed`. Empty is ARIA's "not set" (§9.6). |
+| `aria-checked`, `-pressed`, `-selected`, `-expanded`, `-current`, `-disabled`, `-invalid`, `-required`, `-valuetext`, `-valuenow` | `accessibility-value`, as words joined by `", "` | `"false"` reads `not checked` and `collapsed` where ARIA has a word for it, and nothing elsewhere. `"mixed"` reads `mixed`. Empty is ARIA's "not set"; a bound boolean arrives as `"true"`/`"false"` (§9.6, decided). |
 | `aria-roledescription` | `accessibility-role-description` | |
 | `aria-hidden="true"` | `accessibility-elements-hidden` | The whole subtree, as in ARIA. `accessibility-element: false` would leave the children reachable. |
 | `aria-modal="true"` | `accessibility-exclusive-focus` | |
@@ -930,7 +1109,51 @@ list takes its first token, as ARIA does with the first role it knows.
   - Focus moves: built with element references (§4.5, "As built, element
     references"; §9.9).
   - HTML's `disabled` on a `button` is not mapped. Lynx does not block
-    the tap either.
+    the tap either. *Built in lips#41, below.*
+
+**As built, disabled buttons (2026-11-24, lips#41).**
+
+- **What HTML does.** A disabled control gets no click: none is
+  dispatched, so neither its handlers nor its ancestors' run. Other
+  events (a touch) still reach it. Lynx has no disabled `view`, and taps
+  a `view` whatever its attributes.
+- **The background host reads `disabled` on a `<button>`** (the tag, whose
+  implied role is button) as it reads ARIA, and never sends it:
+  - **Taps.** `receive` drops a `tap` whose target, or failing that its
+    listening element, is inside a disabled button. Every listener, the
+    button's own, one above it and a `.outside` one, gets none. The
+    engine still forwards it: the main thread does not know the state,
+    and the protocol stays as it was. Other events pass.
+  - **The state** goes out as `aria-disabled` does, in
+    `accessibility-value` (`disabled`, in `WORDS`). `disabled` wins over
+    `aria-disabled="false"`, as in HTML.
+  - Enabled again, both come back at the next flush.
+  - `disabled` elsewhere (on an `input`, which Lynx reads) is sent as
+    before.
+- **Cost.** +63 bytes gzipped on `lynx-background` (4.74 → 4.80). No core
+  change.
+- **Tests.**
+  - Tier A, 4 specs, both threads: a tap on the button, on its label and
+    on its raw text reaches none of three handlers, while another button
+    in the same row works and a touch still reaches the disabled one; the
+    state, and `disabled` over `aria-disabled="false"`; enabled and
+    disabled again; a present attribute, and an input's own `disabled`.
+    Nine deliberate breakages were each caught: the tap forwarded
+    regardless, only the button's own listener checked, a tap inside it
+    not checked, `disabled` sent as an attribute, the state not sent,
+    `aria-disabled="false"` winning, `disabled` taken from every element,
+    enabling not restoring, and every event dropped, not only taps.
+  - Tier B: the demo's `#off` button, wired to the counter, gets a
+    hit-tested touch and a tap; the count does not move and the engine's
+    element reads `accessibility-value="disabled"` with no `disabled`
+    attribute. Forwarding the tap regardless fails it.
+  - **Device check** (Lynx Explorer 4.1.0, the demo from the dev server;
+    kept apart from tier B): on the iOS Simulator (iPhone 17, iOS 26.2)
+    and on the Android emulator (API 36.1, arm64), two taps on `#off`
+    left `Count: 0` and `Outside: 0`, and one on `+1` gave `Count: 1` and
+    `Outside: 1`. So the engines' own taps are dropped for the button's
+    handler and for the page-level `.outside` one alike.
+- **Not verified.** What a screen reader says for it is tier C.
 
 ## 5. Engine APIs: allowed and refused
 
@@ -1025,8 +1248,16 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      the browser would lay it out.
    - Anything else is an error (LIPS-L102), because one text or several
      would lay out differently.
-3. **Packaging:** subpath entries of `@lipsjs/lips`, or a separate
-   `@lipsjs/lynx` package.
+3. ~~**Packaging:** subpath entries of `@lipsjs/lips`, or a separate
+   `@lipsjs/lynx` package.~~ **Decided 2026-11-24: subpath entries**
+   (lips#38, §4.7 "As built, packaging").
+   - Nothing forced a separate package: the hosts are hosts for the core
+     runtime, and the template pass is the core compiler, so a second
+     package would release in lockstep with a pinned core anyway.
+   - `./lynx` (build-time pass), `./lynx/main`, `./lynx/background` (one
+     runtime entry per thread, each with its budget) and `./lynx-plugin`.
+   - Cost: an app on Lynx installs the DOM entries too. They are files in
+     the package, not code in its bundles.
 4. **Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
    set `enableA11y: true`?
    - Without it, Android reads labels, hidden subtrees, values and headings,
@@ -1043,13 +1274,28 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      branch, and words would still be needed on Android.
    - Also open: whether `WORDS` should come from the app's i18n catalog
      (`design/i18n-context.md`) instead of an argument.
-6. **Boolean binds on `aria-*` (core runtime, affects the DOM too).**
-   `runtime.ts:394` writes `true` as `""` (presence) and `false` as removed.
-   ARIA reads `aria-checked=""` as unset, so `aria-selected=state.on` never
-   reads as selected, on the DOM or on Lynx. The Lynx host follows ARIA,
-   not the runtime.
-   - Proposed fix: write `String( v )` for names starting `aria-`.
-   - This changes DOM output, so it is the owner's call and a separate PR.
+6. ~~**Boolean binds on `aria-*` (core runtime, affects the DOM too).**~~
+   **Decided 2026-11-24: written out** (lips#40).
+   - `applyAttr` wrote `true` as `""` (presence) and `false` as removed.
+     ARIA reads `aria-checked=""` as unset, so `aria-selected=state.on`
+     never read as selected, on the DOM or on Lynx.
+   - Now a bound boolean on a name starting `aria-` is `String( v )`:
+     `"true"` or `"false"`. `null` and `undefined` still remove it. Every
+     other attribute keeps HTML's presence. Spreads follow the same rule.
+   - **It changes DOM output**: `aria-selected={false}` was no attribute and
+     is now `aria-selected="false"`, which ARIA reads as "not selected",
+     where it read "not set" before. An app that wrote the strings itself
+     (`on ? 'true' : 'false'`) sees no change.
+   - The Lynx host needed nothing: it already followed ARIA, so a bound
+     `true` now reads as the state's word where it read as nothing.
+   - Cost: +14 bytes gzipped on `runtime`, +10 on `full`.
+   - Tier A: two DOM specs (`tests/ir-runtime.spec.ts`: bound attributes,
+     and spreads) and the Lynx checkbox spec. Seven deliberate breakages
+     were each caught: the presence rule back, `true` or `false` alone left
+     as presence, `null` written as `"null"`, the rule on the wrong prefix,
+     on too wide a prefix (`a`, which `autoplay` caught), and a spread that
+     skips it. `aria` without the dash survived, and is equivalent: no
+     attribute starts `aria` but `aria-*`.
 7. **`aria-describedby`.** As built, it is appended to the label. The
    alternatives are an L106 warning and drop, or HarmonyOS's untyped
    `accessibility-description`.
