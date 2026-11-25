@@ -1,7 +1,7 @@
 # RFC-008 — Parts: headless components at `@lipsjs/lips/parts`
 
-**Status:** proposal · 2026-11-25 · home and posture decided by the owner
-(§2)
+**Status:** in progress · 2026-11-25 · home and posture decided by the owner
+(§2) · popover and menu built (§5, "As built")
 **Depends on:** RFC-001 (template IR), RFC-004 (StyleIR), RFC-005 (scoped
 context), RFC-006 (Lips on Lynx)
 **Tracked in:** [ROADMAP.md](../ROADMAP.md)
@@ -63,43 +63,63 @@ So an icon is an inline `<svg>` with its colour bound into its markup
 
 ## 4. What a part is
 
-A part is a Lips component: a template and its handlers, registered by
-name with `lips.register` like any other. Each piece is exported as its
-name and its template, and the app registers the ones it uses:
+A part is Lips components: templates and their handlers, as any app
+writes them. Each part is a plugin (`Plugin`), which `lips.use()` installs
+with what it is built on, once:
 
 ```js
-import Lips from '@lipsjs/lips/runtime'
-import { popover, menu, dialog } from '@lipsjs/lips/parts'
+import Lips from '@lipsjs/lips'
+import { menu } from '@lipsjs/lips/parts'
 
-const lips = new Lips({ mode: 'interpreted' })
-for( const [ name, template ] of [ ...popover, ...menu, ...dialog ] ) lips.register( name, template )
+const lips = new Lips()
+lips.use( menu )   // and the popover it is built on
 ```
 
 **One template, both hosts.** Each part's template is written for the DOM and
 for Lynx at once, as RFC-006 §4.3 allows: `div`, `button`, `p`, `span`,
 `input`, and no tag `LIPS-L101` refuses. Where the two hosts differ, the part
-holds both behaviours, and the host decides which one runs (`overlay` exists
-only on Lynx; `backdrop-filter` only on the web).
+holds both behaviours, and the host decides which one runs
+(`backdrop-filter` exists only on the web, `blur-view` only on Lynx).
 
-**Shipped compiled.** A part is published as its template IR, compiled for
-the DOM and for Lynx at Lips's build, so an app in interpreted mode under a
-content security policy with no `unsafe-eval` needs no compiler. Its sheet,
-the little a part needs to work (`position`, `overflow`, `display`, never a
-colour), is compiled the same way.
+**Shipped as source.** A part is published as its template's source and its
+handlers, and the app compiles it as it compiles its own templates: the full
+entry at run time, `precompile()` (`./precompile`) in its build where a
+content security policy refuses `unsafe-eval`, `compileLynxTemplate()` for
+Lynx. IR compiled at Lips's build would be compiled twice over (once per
+target), and tied to the compiler that made it, which an app's own Lips
+need not be.
 
-**Composed from pieces, through context.** A part's pieces share its state
-through scoped context (RFC-005), as Lynx UI's do through React context:
+**Its look is the app's; its mechanics are inline.** A part takes the classes
+the app gives and sets state classes; what it needs to work (a layer over
+the page, where a panel sits, invisible until placed: `position`,
+`opacity`, never a colour) is an inline `style`. Lips puts live values in a
+component's scoped sheet, not in `style=`, and a part would too, but Lynx
+cannot add a sheet at run time (`./lynx/plugin`): a part's sheet would have
+to reach the app's build as a `*.lips.css` the app imports. Nothing a part
+needs so far is what only a sheet reaches (`:hover`, `@keyframes`,
+`@media`). When one does, the plugin carries its sheet and the Lynx build
+picks it up; that is the seam.
+
+**Composed from pieces: the part they sit in, or the one they are given.**
 
 ```html
 <popover open=state.menuOpen on-change( setMenu )>
-  <popover-trigger class="btn">Actions</popover-trigger>
+  <popover-trigger class="btn"><span>Actions</span></popover-trigger>
   <popover-content class="menu">…</popover-content>
 </popover>
 ```
 
-`popover` provides `context.popover` (open, its ids, its trigger's
-reference); `popover-trigger` and `popover-content` read it. The app passes
-nothing between them.
+`popover` provides what its pieces share (whether it is open, its ids, its
+trigger's reference, how to open and close it) as `context.popover`, which
+reaches them where its slot places them (RFC-005 §4.4), as Lynx UI's
+pieces reach theirs through React's context. A piece given `of` uses that
+instead: mine if given, else the one I sit in, so a piece is driven by any
+controller of the same shape, and is not tied to the part around it.
+Context carries only that, the part a piece belongs to; what a piece needs
+from the app is an input.
+
+What a part keeps without drawing it (its controller, an id) is in its
+`static`, one per instance; what it draws from is in `state`.
 
 **Controlled.** What the app cares about is an input, and a change comes
 back as an event: `open` / `on-change`, `value` / `on-change`. A part holds
@@ -121,19 +141,69 @@ still spoken (§7).
 What each part renders, and how it works on each host. Keys are the ARIA
 Authoring Practices' for the pattern.
 
-**Layer**: what floats, the primitive the next four stand on. On the web, an
-element positioned against its anchor and moved above the page; on Lynx, an
-`overlay`. It places itself from its anchor's rectangle (§7, a reference
-that measures), flips to the other side where there is no room, and mirrors
-in right-to-left. A layer that need not escape its scroll container (a
-row's menu in a short list) stays in place, absolutely positioned, and
-measures nothing.
+**Layer**: what floats, the primitive the next four stand on. One element
+fixed over the page, on both hosts: on Lynx `position: fixed` places an
+element as a child of the page's root, which is what Lynx asks of a page
+that is all Lynx. Lynx's `overlay`, a layer outside Lynx with one child
+that must itself be fixed, is for a Lynx module inside a native page; no
+part serves that yet. What floats places itself from its anchor's
+rectangle (§7, a reference that measures), flips to the other side where
+there is no room, and mirrors in right-to-left. A layer that need not
+escape its scroll container (a row's menu in a short list) stays in place,
+absolutely positioned, and measures nothing.
 
 **Popover and menu**: a trigger with `aria-expanded` and `aria-controls`, a
-layer. It closes on Escape, on a tap outside (`.outside`) and on the
-Android back button (§7), and gives focus back to its trigger
-(`refs.focus`). A menu adds its items' roving focus, arrow keys,
-Home/End and typing to find an item; on Lynx an item is a button.
+layer. It closes on Escape, on a tap outside and on the Android back button
+(§7), and gives focus back to its trigger (`refs.focus`). A menu adds arrow
+keys, Home/End and typing to find an item; on Lynx an item is a button.
+
+*As built (2026-11-25).* `popover`, `popover-trigger`, `popover-content`
+(`./parts/popover`) and `popover-menu` (`./parts/menu`), for the DOM and
+Lynx from one template each:
+
+- **The layer is the popover's**, not a part of its own: `popover-content`
+  renders, while open, the fixed layer, a backdrop in it and the panel.
+  A dialog will share the layer when it is built, and take it out then.
+- **A tap outside is the backdrop's**: it takes the tap whole, so the
+  panel closes and nothing beneath is reached, as a menu on a phone does.
+  `.outside` would not do for a toggle: it listens in the capture phase on
+  both hosts, so a `.stop` cannot hide the event from it, and it runs
+  before the trigger's own tap, which would close the panel and open it
+  again. A popover that lets taps through (non-modal) needs `.outside` to
+  skip its trigger, and so a way to ask, on Lynx, whether an event's target
+  `{ id, uid }` is inside a ref; built with the first part that needs it.
+- **What happens on each open is lifecycle, not a watcher.** The layer
+  (`popover-layer`) and the menu's list (`popover-menu-list`) are
+  components inside the content's `<if>`: mounted each time it opens,
+  destroyed when it closes. The layer's `onAttach` measures and places the
+  panel; the list's `onMount` sets where it starts and its `onAttach` takes
+  focus. (`onAttach` did not run for a component a branch renders after
+  mount; fixed in Lips with the first parts.)
+- **Placed when measured, by a placement the app may replace.** The panel
+  is drawn invisible, then the trigger, the layer and the panel are
+  measured, and `place()`, or the app's own (`place=`), puts it: below the
+  trigger, above where only that fits, at its start edge or its end in
+  right-to-left (`dir="rtl"`), kept inside the layer.
+- **Which element is the popup is a choice** (`popup`): the panel, by
+  default, takes the popover's id, its `role`, the trigger as its label and
+  focus; with `popup="content"` the content takes them, as the menu's list
+  does.
+- **The menu's list is the popup**, `role="menu"`: it keeps focus and names
+  the active item with `aria-activedescendant`, as a combobox will. Lynx,
+  which has neither, gives it accessibility focus and makes each item a
+  button. Arrows and Home/End skip disabled items, a letter goes to the
+  next item it starts, Enter or Space or a tap selects (`select`), Tab
+  closes it and lets focus move on; a tap opens it on its first item,
+  ArrowUp on the trigger on its last. Its items are data,
+  `{ id, label, disabled? }`, each drawn as its label or by its slot,
+  which gets `item` and `active`.
+- **Named `popover-menu`**: `menu` is an HTML element, and `register`
+  now refuses a name the compiler reads as one.
+- **Not yet:** `aria-roledescription` on the list, so that Lynx speaks a
+  menu as one (§4, `LIPS-L105` until then), waits for words the app
+  translates, which a plugin will carry; opening on hover, focus or a long
+  press (INTERFACE's regions show on each), as more of `popover-trigger`'s
+  policy; Android's back button (§7).
 
 **Dialog**: a layer over the whole page, `aria-modal`, its title as its
 label. On the web it keeps Tab inside it and makes the page behind it inert;
@@ -183,7 +253,7 @@ Each is one change to Lips, with its tests, in this order:
 
 1. **What the parts stand on in Lips** (§7): a reference that measures, and
    Lynx attributes that take a number or a boolean.
-2. Layer, popover and menu.
+2. Layer, popover and menu. **Built** (§5, "As built").
 3. Dialog.
 4. Toasts.
 5. A region that reveals and folds; icons; blurred backdrop.
@@ -220,15 +290,16 @@ picker on the layer, the grid's keys and `./i18n`.
 Every behaviour a part promises has a test that fails when the behaviour is
 removed: its roles and states, its keys, where focus goes and comes back,
 what a screen reader is told. Each runs on the DOM, and on Lynx's headless
-tier (RFC-006 test tier B) for the attributes the main thread writes. A part
+tier (RFC-006 test tier A, both threads in one process) for the attributes
+the main thread writes and what Lynx measures. A part
 the size budget does not hold is refused by `size-check`.
 
 ## 9. Open
 
 - Whether a part should also accept a template for each piece it draws (an
   option's row, a day's cell), as a slot (`<{input.renderer}/>`), or only
-  classes. The first parts take classes, and a slot is added where an app
-  needs one.
+  classes. The menu takes both: classes for its items, and a slot for an
+  item's row where the app gives one.
 - Android's back button (§7).
 - Motion: a layer that animates in and out. Lynx animates with transitions
   and `animate()`; a part would set `is-entering` and `is-leaving` and

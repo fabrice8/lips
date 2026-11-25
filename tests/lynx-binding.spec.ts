@@ -34,11 +34,12 @@ import { compileLynxTemplate } from '../src/lynx/template'
 import { compileTemplate } from '../src/ir/compiler'
 import { compileLynxStyle } from '../src/lynx/style'
 import { stylisPreprocessor } from '../src/stylis'
-import { renderIR, type RenderSetup, type RuntimeOptions } from '../src/ir/runtime'
+import { renderIR, type RenderSetup, type RuntimeOptions, type IRComponentDef } from '../src/ir/runtime'
 import { createBackgroundHost, connectBackground, type LynxNode, type BackgroundHost } from '../src/lynx/background'
 import { connectMain } from '../src/lynx/main'
 import * as OP from '../src/lynx/protocol'
 import { WORDS } from '../src/lynx/a11y'
+import { popover, menu } from '../src/parts'
 
 const G = globalThis as any
 
@@ -1323,5 +1324,121 @@ describe('background host: an equal write is not sent (#39, L4)', () => {
     for( const v of [ '1px', '1px', '2px', null, null ] ) bg.host.styleVar!( box, '--h', v )
     await tick()
     expect( ops( batches ).map( o => o[ 2 ] ) ).toEqual([ '--h: 1px', '--h: 2px', '' ])
+  })
+})
+
+// ------------------------------------------------------------------- parts
+describe('parts on Lynx: popover and menu (RFC-008)', () => {
+  /**
+   * Each piece compiled as an app compiles it. The only things reported
+   * are the DOM's ARIA that Lynx cannot read: a menu's role (L105, until the
+   * part says what it is with words the app translates) and the attributes
+   * naming what it controls (L106).
+   */
+  const pieces = () => Object.fromEntries( Object.entries({ ...popover.components, ...menu.components }).map( ( [ name, t ] ) => {
+    const { ir, diagnostics } = compileLynxTemplate( t.default as string )
+    expect( diagnostics.filter( d => d.code !== 'LIPS-L105' && d.code !== 'LIPS-L106' ), name ).toEqual( [] )
+    return [ name, { ir, state: t.state, statics: t.static, handlers: t.handler as IRComponentDef['handlers'], deep: true } ]
+  }) )
+  const box = ( left: number, top: number, width: number, height: number ) =>
+    ({ id: '', dataset: {}, left, top, width, height, right: left + width, bottom: top + height })
+  const calls = () => invoked.map( ( [ el, method ] ) => [ el.getAttribute('class')?.split(' ')[ 0 ], method ] )
+
+  let picked: string[]
+  const menuButton = async () => {
+    picked = []
+    // The trigger, the layer and the panel, as Lynx would measure them
+    answer = el => {
+      const c = el.getAttribute('class') || ''
+      return { code: 0, data: c.includes('btn') ? box( 20, 100, 80, 30 ) : c.includes('lips-layer') ? box( 0, 0, 400, 800 ) : box( 0, 0, 200, 300 ) }
+    }
+    return boot( `<view>
+      <popover open=state.open on-change( setOpen )>
+        <popover-trigger haspopup="menu" class="btn"><text>Actions</text></popover-trigger>
+        <popover-menu items=state.items class="menu" item="row" on-select( run )/>
+      </popover>
+    </view>`, {
+      state: { open: false, items: [ { id: 'edit', label: 'Edit' }, { id: 'copy', label: 'Copy', disabled: true }, { id: 'cut', label: 'Cut' } ] },
+      handlers: {
+        setOpen( open: boolean ){ ( this as any ).state.open = open },
+        run( item: { id: string } ){ picked.push( item.id ) }
+      }
+    }, { components: pieces() })
+  }
+  const settle = async ( check: () => boolean ) => {
+    for( let i = 0; i < 50 && !check(); i++ ) await tick()
+    expect( check() ).toBe( true )
+  }
+  /** The placed box, and the menu's list in it: the popup, which takes focus */
+  const panel = ( app: any ) => app.q('.menu')
+  const list = ( app: any ) => panel( app )?.firstElementChild
+  const focused = ( el: any ) => invoked.some( ( [ at, method ] ) => at === el && method === 'requestAccessibilityFocus' )
+
+  it('a tap opens it over the page: the panel placed below the trigger from the boxes Lynx measured, given accessibility focus', async () => {
+    const app = await menuButton()
+    expect( app.q('.lips-layer') ).toBeNull()
+    await app.fire('.btn')
+    await settle( () => /top: 130px/.test( panel( app )?.getAttribute('style') || '' ) )
+    app.check()
+
+    expect( app.inst.state.open ).toBe( true )
+    // A fixed view, a child of the page's root as Lynx places it; no overlay, which is for Lynx inside a native page
+    expect( app.q('.lips-layer')!.localName ).toBe('view')
+    expect( app.q('.lips-layer')!.getAttribute('style') ).toContain('position: fixed')
+    expect( app.q('overlay') ).toBeNull()
+    expect( panel( app ).getAttribute('style') ).toMatch( /left: 20px/ )
+    expect( panel( app ).getAttribute('style') ).not.toMatch( /opacity/ )
+    expect( focused( list( app ) ) ).toBe( true )
+    expect( focused( panel( app ) ) ).toBe( false )
+  })
+
+  it('its items are buttons; a tap selects one, closes it, and gives focus back to the trigger; a disabled one does nothing', async () => {
+    const app = await menuButton()
+    await app.fire('.btn')
+    await settle( () => !!panel( app ) )
+    const rows = [ ...app.page.querySelectorAll('.row') ] as any[]
+    expect( rows.map( r => r.getAttribute('accessibility-traits') ) ).toEqual([ 'button', 'button', 'button' ])
+    expect( rows[ 0 ].getAttribute('class') ).toContain('is-active')
+
+    rows[ 1 ].setAttribute( 'data-pick', '' )
+    await app.fire('[data-pick]')
+    expect( picked ).toEqual( [] )
+    expect( panel( app ) ).not.toBeNull()
+
+    invoked = []
+    rows[ 2 ].setAttribute( 'data-go', '' )
+    await app.fire('[data-go]')
+    await settle( () => !panel( app ) )
+    expect( picked ).toEqual([ 'cut' ])
+    expect( app.inst.state.open ).toBe( false )
+    expect( calls() ).toEqual( expect.arrayContaining([ [ 'btn', 'requestAccessibilityFocus' ] ]) )
+  })
+
+  it('closed before Lynx answers with the boxes, it is neither placed nor focused', async () => {
+    answer = () => ({ code: 0, data: box( 0, 0, 10, 10 ) })
+    const app = await boot( `<popover open=state.open on-change( setOpen )>
+      <popover-trigger class="pt"><text>P</text></popover-trigger>
+      <popover-content class="pc"><text>in</text></popover-content>
+    </popover>`, { state: { open: false }, handlers: { setOpen( o: boolean ){ ( this as any ).state.open = o } } }, { components: pieces() })
+    await app.fire('.pt')
+    expect( app.q('.pc') ).not.toBeNull()
+    // Closed while the measures are on their way
+    await app.act( () => { app.inst.state.open = false })
+    for( let i = 0; i < 5; i++ ) await tick()
+    expect( app.q('.pc') ).toBeNull()
+    expect( invoked.filter( ( [ , m ] ) => m === 'requestAccessibilityFocus' ) ).toEqual( [] )
+  })
+
+  it('a tap on the backdrop closes it, and one tap on the trigger opens it again', async () => {
+    const app = await menuButton()
+    await app.fire('.btn')
+    await settle( () => !!panel( app ) )
+    await app.fire('.lips-backdrop')
+    await settle( () => !app.q('.lips-layer') )
+    expect( app.inst.state.open ).toBe( false )
+    // Open again from the trigger: one tap, one open
+    await app.fire('.btn')
+    await settle( () => !!panel( app ) )
+    expect( app.inst.state.open ).toBe( true )
   })
 })

@@ -296,6 +296,11 @@ const KB = 1024
  * the version in `.bun-version`, which every workflow installs. CI took
  * the latest until then, and these budgets, set on a local 1.4.0, failed
  * on its 1.4.5 by 0.01: 1.4.0 makes the full entry 0.09 smaller.
+ *
+ * 2026-11-25e: parts 2.0, new (RFC-008) — popover and menu as plugins,
+ * 1.89. Their templates ship as source and their handlers as code; nothing
+ * of the runtime is imported, so this entry only ever grows by parts. Each new
+ * part moves it once, by what it measures.
  */
 const BUDGETS = {
   'dist/lips.min.js': 35.15,     // full: runtime + parser/compiler + style compiler + router
@@ -306,7 +311,8 @@ const BUDGETS = {
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
   'dist/lynx.min.js': 18.05,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
-  'dist/lynx-background.min.js': 5.1 // Lynx background thread: the host the runtime renders into
+  'dist/lynx-background.min.js': 5.1, // Lynx background thread: the host the runtime renders into
+  'dist/parts.min.js': 2.0       // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
 }
 
 let failed = false
