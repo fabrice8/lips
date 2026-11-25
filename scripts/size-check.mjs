@@ -301,15 +301,33 @@ const KB = 1024
  * 1.89. Their templates ship as source and their handlers as code; nothing
  * of the runtime is imported, so this entry only ever grows by parts. Each new
  * part moves it once, by what it measures.
+ * 2026-11-25f: full 35.15→36.15, runtime 16.05→16.5, precompile 14.25→14.85,
+ * lynx 18.05→18.5, untrusted 9.35→9.5 — the surface audit's fixes. Over
+ * master, built on one bun: full +1.02, runtime +0.46, precompile +0.55,
+ * lynx +0.48, untrusted +0.09, the rest 0. Each budget is CI's pinned-bun
+ * size plus that, and room as the others have (1.4.5 builds up to 0.3%
+ * larger than 1.4.0, so `untrusted` needed 0.05 more). Commit by commit,
+ * the compiler's (character references, `<for>` values, the macro
+ * call-site errors, `@format` on unknown tags): +0.53
+ * precompile, +0.47 full, +0.46 lynx, and 0 in `./runtime`, so the seam
+ * holds. The runtime's (one error boundary and update signal over every
+ * effect, handler errors, form properties, `@`-props on unknown tags,
+ * `input`/`static` defaults, the key-set channel, the mode parity of
+ * member chains, router teardown): +0.43 runtime, +0.53 full, +0.09
+ * untrusted (the DOM host it wraps). A bare handler name resolved first:
+ * +0.03. Each is a behaviour the docs promised; none is optional. Trimmed
+ * before raising: the decoded named references are HTML's five and
+ * `&nbsp;` only (LIPS-P013 names the rest), and the interpreted chain lets
+ * JS throw its own TypeError instead of building one.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 35.15,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 16.05,  // precompiled-only: none of the above
-  'dist/precompile.min.js': 14.25, // build-time: parser + compiler + style compiler
+  'dist/lips.min.js': 36.15,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 16.5,   // precompiled-only: none of the above
+  'dist/precompile.min.js': 14.85, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
-  'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
-  'dist/lynx.min.js': 18.05,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
+  'dist/untrusted.min.js': 9.5,  // opt-in policy for templates you did not write (RFC-007) — no entry carries it
+  'dist/lynx.min.js': 18.5,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 5.1, // Lynx background thread: the host the runtime renders into
   'dist/parts.min.js': 2.0       // opt-in headless parts (RFC-008): templates as source and their handlers — no runtime
