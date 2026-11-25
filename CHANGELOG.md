@@ -5,6 +5,17 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-25
+
+Every part RFC-008 plans, at `@lipsjs/lips/parts`: the layer taken out of
+the popover, dialog, toasts, icons, a blurred backdrop, combobox, a region
+that folds, virtual list and grid, and date picker, each a plugin for the
+DOM and Lynx. A component may carry `lynx` source where its markup differs
+by host, and `lynxComponents()` compiles plugins for Lynx as `lips.use()`
+installs them. Fixed on the way: setting an input's value on Lynx misread
+the rest of its batch, and `this.refs` was missing where a template named
+no `@ref`. Nothing breaks.
+
 ### Added — dialog, toasts, icons and a blurred backdrop (RFC-008)
 
 Four more parts at `@lipsjs/lips/parts`, each a plugin, one template for
@@ -35,6 +46,20 @@ the DOM and Lynx:
   a line icon), drawn as inline svg with its colour bound into the
   markup. Hidden from a screen reader unless labelled; labelled, it names
   the button it is in, on both hosts. One set per Lips.
+
+### Added — combobox, and a region that reveals and folds (RFC-008)
+
+- **`combobox`**: `popover-combobox`, a text field that is a popover's
+  trigger, over options as data `{ id, label, disabled? }`. What is typed
+  is its own: it finds the options that `match` (`contains` by default)
+  and says `query`, for an app that finds them itself; `value` is the
+  app's, and a choice comes back as `change`. Focus stays in the field,
+  which names the active option (`aria-activedescendant`); arrows open
+  and move past disabled options, Enter chooses, Escape and Tab close.
+  On Lynx the person types and taps, and each option is a button.
+- **`reveal`**: `reveal-region`, the content a popover's trigger shows in
+  the page's flow, not in a layer. Folded, it renders nothing, or with
+  `keep` stays rendered and hidden, so what was typed in it stays.
 
 ### Added — virtual list and grid, and date picker (RFC-008)
 
@@ -69,20 +94,6 @@ the DOM and Lynx:
 A component whose template named no `@ref` had no `refs`, so a handler
 reading `this.refs.x`, as the types promise it can, threw. Every
 component has `refs` now.
-
-### Added — combobox, and a region that reveals and folds (RFC-008)
-
-- **`combobox`**: `popover-combobox`, a text field that is a popover's
-  trigger, over options as data `{ id, label, disabled? }`. What is typed
-  is its own: it finds the options that `match` (`contains` by default)
-  and says `query`, for an app that finds them itself; `value` is the
-  app's, and a choice comes back as `change`. Focus stays in the field,
-  which names the active option (`aria-activedescendant`); arrows open
-  and move past disabled options, Enter chooses, Escape and Tab close.
-  On Lynx the person types and taps, and each option is a button.
-- **`reveal`**: `reveal-region`, the content a popover's trigger shows in
-  the page's flow, not in a layer. Folded, it renders nothing, or with
-  `keep` stays rendered and hidden, so what was typed in it stays.
 
 ### Fixed — Lynx: setting an input's value misread the rest of its batch
 
