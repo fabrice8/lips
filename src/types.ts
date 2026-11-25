@@ -167,6 +167,13 @@ export type Component<S extends Shape = Shape> = {
   name?: string
   /** Template source — the component's markup */
   default?: string
+  /**
+   * Template source for Lynx, where the markup differs by host: a part
+   * that renders Lynx's own `list` on Lynx and windowed rows on the web.
+   * `lynxComponents()` (`./lynx`) compiles it in place of `default`. Left
+   * out, `default` serves both hosts, as it should wherever it can.
+   */
+  lynx?: string
   /** Precompiled template IR — used instead of `default` (see `precompile`) */
   ir?: TemplateIR
   state?: S['state']

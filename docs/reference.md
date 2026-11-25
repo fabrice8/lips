@@ -733,8 +733,17 @@ options? )` installs what it requires, then its components, then runs its
 `install`; once per Lips. Another plugin of the same name, or a component
 name something else holds, is refused.
 
-`@lipsjs/lips/parts` ships headless parts as plugins: `popover` and `menu`
-(built on it). Details: [RFC-008](../design/parts.md).
+`@lipsjs/lips/parts` ships headless parts as plugins: `popover`, and on it
+`menu`, `dialog`, `combobox`, `reveal` (a region that folds) and
+`datePicker`; `layer` and its blurred backdrop, `toast`, `icons( set )` and
+`virtualList`. Each takes the classes the app gives, sets state classes
+(`is-open`, `is-active`, `is-selected`), and holds its keys, focus and
+ARIA on both hosts. Details: [RFC-008](../design/parts.md).
+
+A component whose markup differs by host carries `lynx` source beside
+`default`. On Lynx an app renders with `renderIR`, so `lynxComponents(
+plugins )` (from `@lipsjs/lips/lynx`) is `use()`'s counterpart: it compiles
+the plugins, and what they require, for Lynx, as `renderIR`'s `components`.
 
 <!-- from demos/app/client/pages/parts.ts -->
 ```html

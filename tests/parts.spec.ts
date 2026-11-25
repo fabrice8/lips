@@ -1,13 +1,14 @@
 /**
  * RFC-008 — parts: popover, menu, dialog, toasts, icons, the blurred
- * backdrop, combobox and a region that folds, on the DOM.
+ * backdrop, combobox, a region that folds, the virtual list and the date
+ * picker, on the DOM.
  *
  * Each promise a part makes has a check here: its roles and states, its
  * keys, where focus goes and comes back, and where its panel is placed.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Lips from '../src/lips'
-import { popover, menu, dialog, toast, icons, combobox, reveal, contains, place, move, typed, type MenuItem, type PopoverApi, type Toast, type Option } from '../src/parts'
+import { popover, menu, dialog, toast, icons, combobox, reveal, virtualList, frame, datePicker, isoOf, addDays, addMonths, weeksOf, calendarWords, firstDay, ENGLISH, contains, place, move, typed, type MenuItem, type PopoverApi, type Toast, type Option } from '../src/parts'
 
 const settle = ( check: () => boolean, timeout = 2000 ) => new Promise<void>( ( res, rej ) => {
   const t0 = Date.now()
@@ -924,5 +925,329 @@ describe('a region that reveals and folds', () => {
     await settle( () => !!q('.details') )
     expect( q('.details')!.getAttribute('role') ).toBe('region')
     expect( q('.details')!.getAttribute('aria-labelledby') ).toBe( b.id )
+  })
+})
+
+// ------------------------------------------------------------------- virtual list
+describe('virtual list and grid', () => {
+  const ROWS = Array.from( { length: 1000 }, ( _, i ) => ({ id: `r${i}`, name: `Row ${i}` }) )
+  /** jsdom lays nothing out: the box is given its height */
+  async function rows( extra = '', items = ROWS ){
+    lips.use( virtualList )
+    const real = HTMLElement.prototype.getBoundingClientRect
+    HTMLElement.prototype.getBoundingClientRect = function(){
+      return this.classList.contains('rows') ? { top: 0, left: 0, right: 300, bottom: 200, width: 300, height: 200, x: 0, y: 0 } as DOMRect : real.call( this )
+    }
+    try {
+      app = lips.render( 'vl', {
+        state: { items },
+        default: `<div><virtual-list items=state.items size=40 class="rows" row="row" ${extra} [item, index]><span>{item.name}:{index}</span></virtual-list></div>`
+      })
+      app.appendTo('#app')
+      await settle( () => drawn().length > 3 )
+    }
+    finally { HTMLElement.prototype.getBoundingClientRect = real }
+  }
+  const drawn = () => [ ...document.querySelectorAll('.row') ] as HTMLElement[]
+  const texts = () => drawn().map( r => r.textContent )
+  const scroll = ( top: number, height = 200 ) => {
+    const box = q('.rows')!
+    Object.defineProperty( box, 'scrollTop', { value: top, configurable: true })
+    Object.defineProperty( box, 'clientHeight', { value: height, configurable: true })
+    box.dispatchEvent( new Event('scroll') )
+  }
+
+  it('draws only what is in view and the overscan, each row where it falls, in a box as tall as all of them', async () => {
+    await rows()
+    // 200 px of 40 px rows: 5 in view, and 3 past them
+    expect( texts() ).toEqual( Array.from( { length: 8 }, ( _, i ) => `Row ${i}:${i}` ) )
+    expect( drawn()[ 2 ].getAttribute('style') ).toContain('top: 80px')
+    expect( drawn()[ 2 ].getAttribute('style') ).toContain('height: 40px')
+    expect( q('.rows')!.firstElementChild!.getAttribute('style') ).toContain('height: 40000px')
+    expect( q('.rows')!.getAttribute('style') ).toContain('overflow-y: auto')
+  })
+
+  it('scrolled, it draws what is in view there', async () => {
+    await rows()
+    scroll( 4000 )
+    // Rows 100 to 104 in view, 97 to 107 drawn
+    await settle( () => texts()[ 0 ] === 'Row 97:97' )
+    expect( texts().length ).toBe( 11 )
+    expect( drawn()[ 0 ].getAttribute('style') ).toContain('top: 3880px')
+    expect( texts()[ texts().length - 1 ] ).toBe('Row 107:107')
+  })
+
+  it('a box grown taller draws what now fits, read as it scrolls', async () => {
+    await rows()
+    scroll( 0, 400 )
+    // 10 in view, and 3 past them
+    await settle( () => drawn().length === 13 )
+  })
+
+  it('a row kept in view is the same element as it scrolls', async () => {
+    await rows()
+    const fourth = drawn()[ 4 ]
+    scroll( 40 )
+    await settle( () => texts()[ 0 ] === 'Row 0:0' && texts().length === 9 )
+    expect( drawn()[ 4 ] ).toBe( fourth )
+  })
+
+  it('follows the app\'s items', async () => {
+    await rows()
+    app.state.items = ROWS.slice( 0, 2 )
+    await settle( () => drawn().length === 2 )
+    expect( q('.rows')!.firstElementChild!.getAttribute('style') ).toContain('height: 80px')
+  })
+
+  it('in columns: a row holds that many items, side by side', async () => {
+    await rows( 'columns=4' )
+    // 8 rows drawn, 4 items each
+    expect( drawn().length ).toBe( 32 )
+    expect( drawn()[ 5 ].getAttribute('style') ).toMatch( /top: 40px; left: 25%; width: 25%/ )
+    expect( q('.rows')!.firstElementChild!.getAttribute('style') ).toContain('height: 10000px')
+  })
+
+  it('as a grid, it says how many rows it has and each row which it is', async () => {
+    await rows( 'role="grid"' )
+    expect( q('.rows')!.getAttribute('aria-rowcount') ).toBe('1000')
+    expect( drawn()[ 3 ].getAttribute('role') ).toBe('row')
+    expect( drawn()[ 3 ].getAttribute('aria-rowindex') ).toBe('4')
+    scroll( 4000 )
+    await settle( () => drawn()[ 0 ].getAttribute('aria-rowindex') === '98' )
+  })
+
+  it('as a plain list, it says neither', async () => {
+    await rows()
+    expect( q('.rows')!.hasAttribute('aria-rowcount') ).toBe( false )
+    expect( drawn()[ 0 ].hasAttribute('aria-rowindex') ).toBe( false )
+    expect( drawn()[ 0 ].hasAttribute('role') ).toBe( false )
+  })
+
+  it('frame: from the first row to draw to past the last, in items', () => {
+    expect( frame( 1000, 0, 200, 40 ) ).toEqual([ 0, 8 ])
+    expect( frame( 1000, 4000, 200, 40, 1, 0 ) ).toEqual([ 100, 105 ])
+    expect( frame( 10, 0, 200, 40, 3, 0 ) ).toEqual([ 0, 10 ])
+    expect( frame( 1000, 39000, 1000, 40 ) ).toEqual([ 972, 1000 ])
+    expect( frame( 5, 0, 200, 0 ) ).toEqual([ 0, 0 ])
+  })
+})
+
+// ------------------------------------------------------------------- date picker
+describe('date picker', () => {
+  let changed: string[], months: string[]
+  async function grid( extra = '', value: string | null = '2026-11-25' ){
+    lips.use( datePicker )
+    changed = []
+    months = []
+    app = lips.render( 'date', {
+      state: { due: value },
+      static: { weekend: ( iso: string ) => [ 0, 6 ].includes( new Date( iso + 'T00:00:00Z' ).getUTCDay() ) },
+      handler: {
+        setDue( iso: string ){ changed.push( iso ); ( this as any ).state.due = iso },
+        shown( m: string ){ months.push( m ) }
+      },
+      default: `<div><date-grid value=state.due today="2026-11-25" lang="en-GB" class="cal" day="day" ${extra} on-change( setDue ) on-month( shown )/></div>`
+    })
+    app.appendTo('#app')
+    await settle( () => !!q('[role="grid"]') )
+    return q('[role="grid"]')!
+  }
+  const cell = ( iso: string ) => document.querySelector( `[id$="-${iso}"]` ) as HTMLElement | null
+  const active = ( g: HTMLElement ) => g.getAttribute('aria-activedescendant')!.replace( /^lips-date-\d+-/, '' )
+  const title = () => q('[id$="-title"]')!.textContent
+  const weeks = () => document.querySelectorAll('[role="grid"] > [role="row"]').length - 1
+
+  it('a month as a grid of days, in the reader\'s language: its title, its weekdays from Monday, each day named in full', async () => {
+    const g = await grid()
+    expect( title() ).toBe('November 2026')
+    expect( g.getAttribute('aria-labelledby') ).toBe( q('[id$="-title"]')!.id )
+    expect( [ ...document.querySelectorAll('[role="columnheader"]') ].map( h => h.textContent ) ).toEqual([ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ])
+    expect( document.querySelector('[role="columnheader"]')!.getAttribute('aria-label') ).toBe('Monday')
+    // From the Monday of the week holding the 1st, a Sunday: six weeks
+    expect( weeks() ).toBe( 6 )
+    expect( document.querySelector('[role="gridcell"]')!.id ).toMatch( /-2026-10-26$/ )
+    expect( cell('2026-10-26')!.className ).toContain('is-outside')
+    expect( cell('2026-11-25')!.getAttribute('aria-label') ).toBe('Wednesday, 25 November 2026')
+  })
+
+  it('the chosen day is selected and active; today is marked', async () => {
+    const g = await grid( '', '2026-11-10' )
+    expect( active( g ) ).toBe('2026-11-10')
+    expect( cell('2026-11-10')!.getAttribute('aria-selected') ).toBe('true')
+    expect( cell('2026-11-10')!.className ).toBe('day is-active is-selected')
+    expect( cell('2026-11-11')!.getAttribute('aria-selected') ).toBe('false')
+    expect( cell('2026-11-25')!.className ).toBe('day is-today')
+  })
+
+  it('in American English, the week starts on Sunday', async () => {
+    await grid( 'lang="en-US"' )
+    expect( document.querySelector('[role="columnheader"]')!.textContent ).toBe('Sun')
+    expect( weeks() ).toBe( 5 )
+    expect( cell('2026-11-25')!.getAttribute('aria-label') ).toBe('Wednesday, November 25, 2026')
+  })
+
+  it('the title in the language\'s own order', async () => {
+    await grid( 'lang="ja"' )
+    expect( title() ).toBe('2026年11月')
+  })
+
+  it('`first` sets the week\'s start', async () => {
+    await grid( 'first=6' )
+    expect( document.querySelector('[role="columnheader"]')!.textContent ).toBe('Sat')
+  })
+
+  it('arrows move a day and a week, Home and End to the week\'s ends', async () => {
+    const g = await grid()
+    for( const [ k, to ] of [ [ 'ArrowRight', '2026-11-26' ], [ 'ArrowDown', '2026-12-03' ], [ 'ArrowLeft', '2026-12-02' ], [ 'ArrowUp', '2026-11-25' ], [ 'Home', '2026-11-23' ], [ 'End', '2026-11-29' ] ] ){
+      key( g, k )
+      await settle( () => active( g ) === to )
+    }
+    expect( changed ).toEqual( [] )
+  })
+
+  it('crossing into another month shows it and says so', async () => {
+    const g = await grid()
+    key( g, 'ArrowDown' )
+    await settle( () => active( g ) === '2026-12-02' )
+    expect( title() ).toBe('December 2026')
+    expect( months ).toEqual([ '2026-12' ])
+    expect( cell('2026-12-02')!.className ).toContain('is-active')
+  })
+
+  it('Page Up and Down move a month, kept to its last day; with Shift, a year', async () => {
+    const g = await grid( '', '2026-01-31' )
+    key( g, 'PageDown' )
+    await settle( () => active( g ) === '2026-02-28' )
+    key( g, 'PageUp' )
+    await settle( () => active( g ) === '2026-01-28' )
+    g.dispatchEvent( new KeyboardEvent( 'keydown', { key: 'PageUp', shiftKey: true, bubbles: true }) )
+    await settle( () => active( g ) === '2025-01-28' )
+    expect( title() ).toBe('January 2025')
+  })
+
+  it('Enter or Space chooses the active day; a tap chooses the day tapped', async () => {
+    const g = await grid()
+    key( g, 'ArrowRight' )
+    await settle( () => active( g ) === '2026-11-26' )
+    key( g, 'Enter' )
+    await settle( () => changed.length === 1 )
+    key( g, 'ArrowRight' )
+    key( g, ' ' )
+    await settle( () => changed.length === 2 )
+    cell('2026-11-03')!.click()
+    await settle( () => changed.length === 3 )
+    expect( changed ).toEqual([ '2026-11-26', '2026-11-27', '2026-11-03' ])
+    expect( active( g ) ).toBe('2026-11-03')
+    expect( cell('2026-11-03')!.getAttribute('aria-selected') ).toBe('true')
+  })
+
+  it('a day before min, after max or one the app refuses cannot be chosen', async () => {
+    const g = await grid( 'min="2026-11-05" max="2026-11-26" disabled=static.weekend' )
+    // Before min, after max (a Friday), a Saturday
+    for( const iso of [ '2026-11-04', '2026-11-27', '2026-11-21' ] ){
+      expect( cell( iso )!.getAttribute('aria-disabled'), iso ).toBe('true')
+      expect( cell( iso )!.className, iso ).toContain('is-disabled')
+      cell( iso )!.click()
+    }
+    // A tap on one moves nothing either
+    expect( active( g ) ).toBe('2026-11-25')
+    expect( cell('2026-11-24')!.hasAttribute('aria-disabled') ).toBe( false )
+    // Reached by the keyboard, it is still not chosen
+    key( g, 'End' )
+    await settle( () => active( g ) === '2026-11-29' )
+    key( g, 'Enter' )
+    await new Promise( r => setTimeout( r, 20 ) )
+    expect( changed ).toEqual( [] )
+  })
+
+  it('the buttons each side of the title move a month, named in words', async () => {
+    const g = await grid()
+    const [ prev, next ] = [ ...q('.cal')!.querySelectorAll('button') ]
+    expect( prev.getAttribute('aria-label') ).toBe('Previous month')
+    next.click()
+    await settle( () => title() === 'December 2026' )
+    expect( active( g ) ).toBe('2026-12-25')
+    prev.click()
+    prev.click()
+    await settle( () => title() === 'October 2026' )
+  })
+
+  it('the app\'s words, where it gives them, name everything', async () => {
+    lips.use( datePicker )
+    const FR = { ...ENGLISH, months: ENGLISH.months.map( m => 'M-' + m ), short: [ 'di', 'lu', 'ma', 'me', 'je', 've', 'sa' ], prev: 'Mois précédent' }
+    app = lips.render( 'date-words', {
+      static: { fr: FR },
+      default: `<div><date-grid value="2026-11-25" today="2026-11-25" words=static.fr first=1/></div>`
+    })
+    app.appendTo('#app')
+    await settle( () => !!q('[role="grid"]') )
+    expect( title() ).toBe('M-November 2026')
+    expect( document.querySelector('[role="columnheader"]')!.textContent ).toBe('lu')
+    expect( q('button')!.getAttribute('aria-label') ).toBe('Mois précédent')
+  })
+
+  it('a new value from the app shows its month', async () => {
+    const g = await grid()
+    app.state.due = '2027-03-02'
+    await settle( () => title() === 'March 2027' )
+    expect( active( g ) ).toBe('2027-03-02')
+  })
+
+  it('in a popover: opened, the grid has focus; a day chosen closes it, focus back on the trigger', async () => {
+    lips.use( datePicker )
+    changed = []
+    app = lips.render( 'date-pop', {
+      state: { open: false, due: '2026-11-25' },
+      handler: {
+        setOpen( o: boolean ){ ( this as any ).state.open = o },
+        setDue( iso: string ){ changed.push( iso ); ( this as any ).state.due = iso }
+      },
+      default: `<div><popover open=state.open on-change( setOpen )>
+        <popover-trigger haspopup="dialog" class="pick"><span>{state.due}</span></popover-trigger>
+        <popover-date value=state.due label="Due date" today="2026-11-25" lang="en-GB" class="sheet" on-change( setDue )/>
+      </popover></div>`
+    })
+    app.appendTo('#app')
+    await settle( () => !!q('.pick') )
+    const t = q('.pick')!
+    t.click()
+    await settle( () => document.activeElement === q('[role="grid"]') )
+    const d = q('[role="dialog"]')!
+    expect( d.getAttribute('aria-label') ).toBe('Due date')
+    expect( t.getAttribute('aria-controls') ).toBe( d.id )
+    key( q('[role="grid"]')!, 'ArrowRight' )
+    key( q('[role="grid"]')!, 'Enter' )
+    await settle( () => !q('[role="dialog"]') )
+    expect( changed ).toEqual([ '2026-11-26' ])
+    expect( document.activeElement ).toBe( t )
+    // Escape closes it too
+    t.click()
+    await settle( () => !!q('[role="grid"]') )
+    key( q('[role="grid"]')!, 'Escape' )
+    await settle( () => !q('[role="dialog"]') )
+  })
+
+  it('days, months and weeks as ISO days, in UTC', () => {
+    expect( isoOf( 2026, 11, 32 ) ).toBe('2027-01-01')
+    expect( addDays( '2026-03-28', 2 ) ).toBe('2026-03-30')
+    expect( addMonths( '2024-03-31', -1 ) ).toBe('2024-02-29')
+    expect( addMonths( '2026-12-15', 1 ) ).toBe('2027-01-15')
+    // February 2027 starts on a Monday: four weeks; 2026's, on a Sunday: five
+    const w = weeksOf( '2027-02', 1 )
+    expect( w.length ).toBe( 4 )
+    expect( [ w[ 0 ][ 0 ], w[ 3 ][ 6 ] ] ).toEqual([ '2027-02-01', '2027-02-28' ])
+    expect( weeksOf( '2026-02', 1 ).length ).toBe( 5 )
+    expect( weeksOf( '2026-02', 0 )[ 0 ][ 0 ] ).toBe('2026-02-01')
+  })
+
+  it('English where Intl does not format dates; Monday where it has no week info', () => {
+    const real = Intl.DateTimeFormat
+    ;( Intl as any ).DateTimeFormat = class { format( v: unknown ){ return String( v ) } }
+    try { expect( calendarWords('fr') ).toBe( ENGLISH ) }
+    finally { ( Intl as any ).DateTimeFormat = real }
+    expect( calendarWords('fr').months[ 0 ] ).toBe('janvier')
+    expect( firstDay('en-US') ).toBe( 0 )
+    expect( firstDay('en-GB') ).toBe( 1 )
+    expect( firstDay('not a tag') ).toBe( 1 )
   })
 })

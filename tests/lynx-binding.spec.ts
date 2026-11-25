@@ -39,7 +39,8 @@ import { createBackgroundHost, connectBackground, type LynxNode, type Background
 import { connectMain } from '../src/lynx/main'
 import * as OP from '../src/lynx/protocol'
 import { WORDS } from '../src/lynx/a11y'
-import { layer, popover, menu, dialog, toast, icons, combobox, reveal } from '../src/parts'
+import { menu, dialog, toast, icons, combobox, reveal, virtualList, datePicker } from '../src/parts'
+import { lynxComponents } from '../src/lynx'
 
 const G = globalThis as any
 
@@ -1339,21 +1340,57 @@ describe('background host: an equal write is not sent (#39, L4)', () => {
 })
 
 // ------------------------------------------------------------------- parts
+describe('lynxComponents: plugins compiled for Lynx, as lips.use installs them', () => {
+  const leaf = { name: 'leaf', components: { 'a-leaf': { default: `<text>leaf</text>` } } }
+  const tree = { name: 'tree', requires: [ leaf ], components: { 'a-tree': { default: `<view><a-leaf/></view>` } } }
+
+  it('what a plugin requires comes too, each plugin once, even through a cycle', () => {
+    const { components } = lynxComponents([ tree, leaf, tree ])
+    expect( Object.keys( components ) ).toEqual([ 'a-leaf', 'a-tree' ])
+    const a: any = { name: 'a', components: { 'c-a': { default: `<text/>` } } }, b: any = { name: 'b', requires: [ a ], components: { 'c-b': { default: `<text/>` } } }
+    a.requires = [ b ]
+    expect( Object.keys( lynxComponents([ a ]).components ) ).toEqual([ 'c-b', 'c-a' ])
+    expect( components[ 'a-tree' ] ).toMatchObject({ nsp: 'a-tree', deep: true })
+  })
+
+  it('a component\'s lynx source is compiled in place of its default', async () => {
+    const both = { name: 'both', components: { 'by-host': { default: `<p class="web">web</p>`, lynx: `<text class="lynx">lynx</text>`, state: { n: 1 }, static: { k: 2 } } } }
+    const { components, diagnostics } = lynxComponents([ both ])
+    expect( diagnostics[ 'by-host' ] ).toEqual( [] )
+    expect( components[ 'by-host' ] ).toMatchObject({ state: { n: 1 }, statics: { k: 2 } })
+    // A module export cannot be named `static`: `_static` is the same field
+    expect( lynxComponents([ { name: 'u', components: { 'by-u': { default: `<text/>`, _static: { k: 3 } } } } ]).components[ 'by-u' ].statics ).toEqual({ k: 3 })
+    const app = await boot( `<view><by-host/></view>`, {}, { components })
+    expect( app.q('.lynx') ).not.toBeNull()
+    expect( app.q('.web') ).toBeNull()
+  })
+
+  it('refuses what use() refuses, and what Lynx cannot take', () => {
+    expect( () => lynxComponents([ leaf, { ...leaf } ]) ).toThrow( /two plugins named <leaf>/ )
+    expect( () => lynxComponents([ leaf, { name: 'other', components: { 'a-leaf': { default: `<text/>` } } } ]) ).toThrow( /<a-leaf> of plugin <other> is compiled already/ )
+    expect( () => lynxComponents([ { name: 'setup', install(){} } ]) ).toThrow( /install\(\), which needs a Lips/ )
+    expect( () => lynxComponents([ { name: 'styled', components: { 'a-s': { default: `<text/>`, stylesheet: `.a{}` } } } ]) ).toThrow( /has a stylesheet/ )
+    expect( () => lynxComponents([ { name: 'pre', components: { 'a-p': { ir: {} as any } } } ]) ).toThrow( /has no source/ )
+  })
+})
+
 describe('parts on Lynx (RFC-008)', () => {
   /**
    * Each piece compiled as an app compiles it. The only things reported
    * are the DOM's ARIA that Lynx cannot read: a menu's role (L105, until the
    * part says what it is with words the app translates) and the attributes
    * naming what it controls (L106); a combobox's and a listbox's, the
-   * same. The dialog, toasts, icons, the blurred backdrop and the region
-   * that folds report nothing.
+   * same; a date picker's dialog (L105). The dialog, toasts, icons, the
+   * blurred backdrop, the region that folds, the virtual list and the
+   * date grid report nothing: the grid is drawn as buttons on Lynx.
    */
   const SET = { check: { paths: [ 'M5 12l5 5L20 7' ], stroke: 2 } }
-  const pieces = () => Object.fromEntries( Object.entries({ ...layer.components, ...popover.components, ...menu.components, ...dialog.components, ...toast.components, ...icons( SET ).components, ...combobox.components, ...reveal.components }).map( ( [ name, t ] ) => {
-    const { ir, diagnostics } = compileLynxTemplate( t.default as string )
-    expect( diagnostics.filter( d => d.code !== 'LIPS-L105' && d.code !== 'LIPS-L106' ), name ).toEqual( [] )
-    return [ name, { ir, state: t.state, statics: t.static, handlers: t.handler as IRComponentDef['handlers'], deep: true } ]
-  }) )
+  const pieces = () => {
+    const { components, diagnostics } = lynxComponents([ menu, dialog, toast, icons( SET ), combobox, reveal, virtualList, datePicker ])
+    for( const [ name, d ] of Object.entries( diagnostics ) )
+      expect( d.filter( d => d.code !== 'LIPS-L105' && d.code !== 'LIPS-L106' ), name ).toEqual( [] )
+    return components
+  }
   const box = ( left: number, top: number, width: number, height: number ) =>
     ({ id: '', dataset: {}, left, top, width, height, right: left + width, bottom: top + height })
   const calls = () => invoked.map( ( [ el, method ] ) => [ el.getAttribute('class')?.split(' ')[ 0 ], method ] )
@@ -1569,5 +1606,43 @@ describe('parts on Lynx (RFC-008)', () => {
     await settle( () => !( app.q('.details').getAttribute('style') || '' ).includes('none') )
     expect( app.q('.more').getAttribute('accessibility-value') ).toBe('expanded')
     expect( app.q('.lips-layer') ).toBeNull()
+  })
+
+  it('a virtual list is Lynx\'s own list: every row a cell, its size the estimate, its columns the span; a cell drawn when asked', async () => {
+    const rows = Array.from( { length: 50 }, ( _, i ) => ({ id: `r${i}`, name: `Row ${i}` }) )
+    const app = await boot( `<view>
+      <virtual-list items=state.rows size=40 columns=2 class="rows" row="row" [item, index]><text>{item.name}:{index}</text></virtual-list>
+    </view>`, { state: { rows } }, { components: pieces() })
+    const list = app.q('list')
+    expect( list.getAttribute('class') ).toBe('rows')
+    expect( list.getAttribute('list-type') ).toBe('flow')
+    expect( list.getAttribute('span-count') ).toBe('2')
+    const [ told ] = JSON.parse( list.getAttribute('update-list-info') )
+    expect( told.insertAction ).toHaveLength( 50 )
+    expect( told.insertAction[ 0 ][ 'estimated-main-axis-size-px' ] ).toBe( 40 )
+    // None drawn until the list asks, as it does on scroll
+    expect( list.children ).toHaveLength( 0 )
+    env.switchToMainThread()
+    list.componentAtIndex( list, G.__GetElementUniqueID( list ), 3, 0 )
+    env.switchToBackgroundThread()
+    expect( list.children[ 0 ].getAttribute('class') ).toBe('row')
+    expect( list.children[ 0 ].textContent ).toBe('Row 3:3')
+  })
+
+  it('a date grid: each day a button named in full, the chosen one selected; a tap chooses', async () => {
+    const app = await boot( `<view>
+      <date-grid value=state.due today="2026-11-25" lang="en-GB" first=1 class="cal" day="day" on-change( setDue )/>
+    </view>`, { state: { due: '2026-11-25' }, handlers: { setDue( iso: string ){ ( this as any ).state.due = iso } } }, { components: pieces() })
+    const days = [ ...app.page.querySelectorAll('.day') ] as any[]
+    expect( days ).toHaveLength( 42 )
+    expect( days.every( d => d.getAttribute('accessibility-traits') === 'button' ) ).toBe( true )
+    const due = days.find( d => d.getAttribute('class').includes('is-selected') )
+    expect( due.getAttribute('accessibility-label') ).toBe('Wednesday, 25 November 2026')
+    expect( due.getAttribute('accessibility-value') ).toBe('selected')
+    expect( app.q('[role="grid"]') ).toBeNull()
+
+    days[ 10 ].setAttribute( 'data-go', '' )
+    await app.fire('[data-go]')
+    expect( app.inst.state.due ).toBe('2026-11-05')
   })
 })

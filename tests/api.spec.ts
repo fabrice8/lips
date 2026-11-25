@@ -159,6 +159,14 @@ describe('@ref', () => {
     expect( self.refs.query ).toBeUndefined()
   })
 
+  it('is there from the start, root or nested, whether or not the template names one', async () => {
+    const seen: any[] = []
+    lips.register( 'api-ref-none', { handler: { onCreate(){ seen.push( ( this as any ).refs ) } }, default: '<p>none</p>' })
+    lips.render('api-ref-root', { handler: { onCreate(){ seen.push( ( this as any ).refs ) } }, default: '<div><api-ref-none/></div>' }).appendTo('#app')
+    await turn()
+    expect( seen ).toEqual([ {}, {} ])
+  })
+
   it('names a tag no component claims, too', () => {
     let self: any
     lips.render('api-ref-el', { handler: { onCreate(){ self = this } }, default: '<scroll-view @ref="pane"></scroll-view>' }).appendTo('#app')

@@ -1,8 +1,7 @@
 # RFC-008 — Parts: headless components at `@lipsjs/lips/parts`
 
 **Status:** in progress · 2026-11-25 · home and posture decided by the owner
-(§2) · popover, menu, dialog, toasts, icons, the blurred backdrop, combobox
-and a region that folds built (§5, "As built")
+(§2) · every part in §5 built (§5, "As built")
 **Depends on:** RFC-001 (template IR), RFC-004 (StyleIR), RFC-005 (scoped
 context), RFC-006 (Lips on Lynx)
 **Tracked in:** [ROADMAP.md](../ROADMAP.md)
@@ -81,6 +80,11 @@ for Lynx at once, as RFC-006 §4.3 allows: `div`, `button`, `p`, `span`,
 `input`, and no tag `LIPS-L101` refuses. Where the two hosts differ, the part
 holds both behaviours, and the host decides which one runs
 (`backdrop-filter` exists only on the web, `blur-view` only on Lynx).
+Where the markup itself differs (the virtual list is Lynx's own `list`
+there), the component carries `lynx` source beside `default`, and
+`lynxComponents()` (`./lynx`) compiles it for Lynx; decided by the owner
+on 2026-11-25, over blocks of host-only markup in one template and over
+two components the app picks between.
 
 **Shipped as source.** A part is published as its template's source and its
 handlers, and the app compiles it as it compiles its own templates: the full
@@ -324,11 +328,51 @@ rendered, from each row's measured or estimated height. A grid keeps
 where it is. On Lynx the part renders Lynx's own `list`, which already
 recycles; a grid of columns needs `span-count`, read only as a number (§7).
 
+*As built (2026-11-25).* `virtual-list` (`./parts/list`). On the web, a
+box that scrolls, measured when it is in the page and read again on each
+scroll; rows of one `size`, `columns` to a row, `overscan` rows past the
+view each side (`frame()`). A row that stays in view stays the same
+element. A `grid` or `table` of one column carries `aria-rowcount` and
+`aria-rowindex`; a grid of columns is tiles, whose rows ARIA would count
+otherwise, and says neither. On Lynx, its `lynx` source: Lynx's `list`,
+`list-type` flow for columns, `span-count`, each row a `list-item` with
+`size` as its estimate. Lips builds every cell in the background and
+Lynx draws only those it asks for (RFC-006 §4.5).
+
+- **Not yet:** rows of different heights, measured as drawn; a grid's
+  keys between cells (the date grid has its own).
+
 **Date picker**: a month as a grid of days, with arrows, Page Up/Down for a
 month and Home/End for a week; the names of days and months and the first
 day of the week from `Intl` and the reader's locale (`./i18n`). On Lynx each
 day is a button. It sits in a layer under a text field that also takes a
 typed date.
+
+*As built (2026-11-25).* `date-grid` and `popover-date` (`./parts/date`).
+
+- **ISO days in UTC.** A value is `YYYY-MM-DD`, and the arithmetic
+  (`addDays`, `addMonths` keeping the month's last day, `weeksOf`) is in
+  UTC, so no clock change moves a day.
+- **Focus stays on the grid**, which names the active day with
+  `aria-activedescendant`, as the menu and the combobox do, rather than
+  moving a roving `tabindex` from day to day.
+- **Words from `Intl` where it formats dates.** The months' and days'
+  names, the title and a day's full name in the language's own order, and
+  the first day of the week (`Intl.Locale`'s week info). Lynx's PrimJS
+  is not known to have `Intl`, and the least of it `./i18n` installs
+  writes a date whole: that is told apart, and then the app's `words`,
+  or English, name them. `first` overrides the week's start.
+- **Days refused** by `min`, `max` or the app's `disabled( iso )` are
+  `aria-disabled`; reached by the keyboard they are not chosen, and a tap
+  on one does nothing.
+- **On Lynx, buttons**: its `lynx` source draws each day as a button
+  named in full, the chosen one selected, and no grid roles.
+- **`popover-date`** is the grid in a popover's layer, a dialog of its
+  `label`, the grid focused when it opens; choosing closes it, and focus
+  goes back to the trigger.
+- **Not yet:** the text field that takes a typed date. Reading a typed
+  date is the reader's language's, as writing one is; it waits for a
+  parser the app may replace, as `match` is the combobox's.
 
 ## 6. Build order
 
@@ -341,8 +385,8 @@ Each is one change to Lips, with its tests, in this order:
 4. Toasts. **Built.**
 5. A region that reveals and folds; icons; blurred backdrop. **Built.**
 6. Combobox. **Built.**
-7. Virtual list and grid on the web.
-8. Date picker.
+7. Virtual list and grid on the web. **Built.**
+8. Date picker. **Built.**
 
 The two last need the most: a virtual list stands on measuring, and a date
 picker on the layer, the grid's keys and `./i18n`.

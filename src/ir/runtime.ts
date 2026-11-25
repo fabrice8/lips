@@ -1594,7 +1594,8 @@ class IRRenderer {
 
     const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
       ...( this.options.expose || {} ),
-      state, input, static: statics, context: benv.context,
+      // There from the start, as its type says: a handler reads `this.refs.x` whether or not the template names one
+      state, input, static: statics, context: benv.context, refs: {},
       /**
        * Overrides the host's global `setContext` (merged in by the
        * spread above): a write goes to the nearest `<context>` layer
@@ -1902,7 +1903,7 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
   const bus = selfBus( h, () => options.i18n?.lang() ?? '' )
 
   const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
-    state, input, static: statics,
+    state, input, static: statics, refs: {},
     /**
      * `options.expose` is what every NESTED component self gets
      * (setContext, setLanguage). The root is a component too, so it
