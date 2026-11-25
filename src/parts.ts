@@ -12,5 +12,9 @@
  * `precompile()` (`@lipsjs/lips/precompile`), as it does its own; on Lynx,
  * with `compileLynxTemplate()`.
  */
+export { layer, LAYER, CENTER, FILL } from './parts/layer'
 export { popover, place, type PopoverApi, type Placement, type Box } from './parts/popover'
 export { menu, move, typed, type MenuItem } from './parts/menu'
+export { dialog, inert } from './parts/dialog'
+export { toast, type Toast } from './parts/toast'
+export { icons, type Icon, type IconSet } from './parts/icon'

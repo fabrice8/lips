@@ -5,6 +5,43 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Added — dialog, toasts, icons and a blurred backdrop (RFC-008)
+
+Four more parts at `@lipsjs/lips/parts`, each a plugin, one template for
+the DOM and Lynx:
+
+- **`layer`**: what floats, taken out of the popover now that a dialog
+  shares it. `page-layer` is one fixed element over the page, a backdrop
+  that takes a tap outside whole, Escape, and `live` once it is laid out,
+  for what sits in it to measure. `center` centres what it holds.
+- **`backdrop-blur`**: what is behind it, blurred: `backdrop-filter` on
+  the web, Lynx's `blur-view` on Lynx, each host drawing what it knows.
+  A layer takes one with `blur` (px), `effect` (iOS's material) and
+  `backdrop` (its class).
+- **`dialog`**: `popover-dialog` and `dialog-title`, on the popover's
+  controller (its `open`, its id, its trigger). A centred panel,
+  `role="dialog"` or the app's, `aria-modal`, labelled by its title or
+  `label`, focused, and `placed` for the app to move focus on. On the
+  web the rest of the page is `inert` and Tab goes round inside; on Lynx
+  `aria-modal` keeps a screen reader inside. However it closes (Escape,
+  the backdrop, the app's own `open`), the page is given back and focus
+  goes back to the trigger.
+- **`toast`**: `toast-region`, a live region always drawn (`status`, or
+  `alert`), over the app's queue of `{ id, text, action?, duration? }`.
+  A toast asks to go (`dismiss`) after its time, held while the pointer
+  or the focus is on it; one with an action never leaves by itself (WCAG
+  2.2.1) and says `act`.
+- **`icons( set )`**: an icon set as data (paths, box, a stroke width for
+  a line icon), drawn as inline svg with its colour bound into the
+  markup. Hidden from a screen reader unless labelled; labelled, it names
+  the button it is in, on both hosts. One set per Lips.
+
+### Fixed — a Lynx spec answered a UI method by the next spec's rule
+
+The Lynx specs' engine stand-in read the answer to a UI method when it
+answered, not when it was asked, so a measure still on its way when one
+spec ended was answered by the next spec's rule, or by none.
+
 ## [0.4.0] — 2026-11-25
 
 Headless parts (`@lipsjs/lips/parts`: popover and menu) and plugins

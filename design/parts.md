@@ -1,7 +1,8 @@
 # RFC-008 — Parts: headless components at `@lipsjs/lips/parts`
 
 **Status:** in progress · 2026-11-25 · home and posture decided by the owner
-(§2) · popover and menu built (§5, "As built")
+(§2) · popover, menu, dialog, toasts, icons and the blurred backdrop
+built (§5, "As built")
 **Depends on:** RFC-001 (template IR), RFC-004 (StyleIR), RFC-005 (scoped
 context), RFC-006 (Lips on Lynx)
 **Tracked in:** [ROADMAP.md](../ROADMAP.md)
@@ -161,9 +162,9 @@ keys, Home/End and typing to find an item; on Lynx an item is a button.
 (`./parts/popover`) and `popover-menu` (`./parts/menu`), for the DOM and
 Lynx from one template each:
 
-- **The layer is the popover's**, not a part of its own: `popover-content`
-  renders, while open, the fixed layer, a backdrop in it and the panel.
-  A dialog will share the layer when it is built, and take it out then.
+- **The layer was the popover's**: `popover-content` rendered, while
+  open, the fixed layer, a backdrop in it and the panel. The dialog
+  shares it, and it is now a part of its own (`page-layer`, below).
 - **A tap outside is the backdrop's**: it takes the tap whole, so the
   panel closes and nothing beneath is reached, as a menu on a phone does.
   `.outside` would not do for a toggle: it listens in the capture phase on
@@ -205,15 +206,57 @@ Lynx from one template each:
   press (INTERFACE's regions show on each), as more of `popover-trigger`'s
   policy; Android's back button (§7).
 
+*As built, the layer (2026-11-25).* `page-layer` (`./parts/layer`): the
+fixed element, a backdrop that takes a tap whole, and Escape, both
+saying `dismiss`; `center` centres what it holds. Once it is in the page
+it says `live` with its element, and what sits in it measures from there:
+the popover's panel is placed then. A parent's `onAttach` runs before its
+children's, so the layer saying it is live, rather than its parent's own
+`onAttach`, is what makes sure the layer is there to measure.
+
 **Dialog**: a layer over the whole page, `aria-modal`, its title as its
 label. On the web it keeps Tab inside it and makes the page behind it inert;
 on Lynx, `accessibility-exclusive-focus` keeps a screen reader inside it.
 Focus goes to its first field, or its title, and back to what opened it.
 
+*As built (2026-11-25).* `popover-dialog` and `dialog-title`
+(`./parts/dialog`), on the popover's controller: the popover holds whether
+it is open, its id and its trigger (`haspopup="dialog"`), and a dialog with
+no trigger is the same with none written.
+
+- **Focus goes to the panel**, which is read by its title, not to its
+  first field: a Lynx ref cannot be searched for one. It says `placed`,
+  and the app moves focus on to a field from there, with its own ref.
+- **The page behind it is `inert`** on the web: every sibling of the
+  layer and of what holds it, up to the body, and given back when it
+  closes; what was inert already is left as it was. Tab and Shift+Tab go
+  round what can be focused in the panel. On Lynx, which has neither
+  `inert` nor Tab, `aria-modal` (`accessibility-exclusive-focus`) keeps a
+  screen reader inside.
+- **However it closes**, focus goes back to the trigger: Escape and the
+  backdrop ask the popover to close, but the app may close it from its
+  own button, by its own `open`. So the dialog's layer gives the page back
+  and focuses the trigger as it is destroyed, the page first, since an
+  inert trigger refuses focus.
+- **Its role is `dialog`**, or the app's (`alertdialog`); its label, its
+  title or `label`. Lynx has no dialog role (`LIPS-L105`, as the menu).
+
 **Toasts**: a queue in a live region (`role="status"`, or `alert` for an
 error), announced on Lynx through `accessibilityAnnounce`. A toast stays
 while the pointer or the focus is on it, and one that offers an action never
 leaves by itself (WCAG 2.2.1).
+
+*As built (2026-11-25).* `toast-region` (`./parts/toast`). The queue is
+the app's, `{ id, text, action?, duration? }`; a toast whose time is up
+asks to go, once (`dismiss`), and the app takes it out. The region is
+always drawn, so what comes into it is announced, on the web as on Lynx;
+an app with errors draws a second region, `role="alert"`. Each toast has
+its own time (`toast-item`), held while the pointer or the focus is on it
+and going on from what was left. On Lynx, where there is no pointer and
+only a field takes focus, a toast is not held. Lynx announces a region's
+whole text on each change, so when one of two toasts goes, the other is
+announced again; one region per toast would be announced on arrival by
+neither host.
 
 **A region that reveals and folds**: a button with `aria-expanded` and the
 region it controls. It may stay rendered while folded (a form keeps what
@@ -224,9 +267,25 @@ was typed) or render only when open.
 not reach inside Lynx's `svg` string (§3). An icon with no label is
 `aria-hidden`; one alone in a button gives the button its label.
 
+*As built (2026-11-25).* `icons( set )` (`./parts/icon`), a plugin made
+from the set, which gives `icon`. Each icon is its paths, its box, and a
+stroke width for a line icon (no fill, round ends). Its colour is `color`,
+or the text's (`currentColor`) on the web; on Lynx the app gives it. The
+set is held by a getter in the component's `static`, so each icon shares
+it rather than copying it (`ir/initial`). One set per Lips: a second
+`icons(…)` is another plugin of the same name, refused.
+
 **Blurred backdrop**: `backdrop-filter: blur()` on the web, `blur-view` on
 Lynx (§3). The part takes a radius; iOS's material is the app's choice
 (`blur-effect`).
+
+*As built (2026-11-25).* `backdrop-blur` (`./parts/layer`): one element,
+`<blur-view blur-radius>` with `backdrop-filter` in its style. Each host
+draws what it knows and passes over the other's: the DOM draws an unknown
+element as a box, and blurs it; Lynx reads `blur-view` and has no
+`backdrop-filter`. A layer takes one with `blur`, `effect` and `backdrop`
+(its class). Tried on Lynx in §3, as `blur-view` alone; with the unknown
+property beside it, the next Explorer run.
 
 **Combobox**: an input, a layer and the options in it, filtered as the
 person types. On the web, `role="combobox"` and `aria-activedescendant`
@@ -254,9 +313,9 @@ Each is one change to Lips, with its tests, in this order:
 1. **What the parts stand on in Lips** (§7): a reference that measures, and
    Lynx attributes that take a number or a boolean.
 2. Layer, popover and menu. **Built** (§5, "As built").
-3. Dialog.
-4. Toasts.
-5. A region that reveals and folds; icons; blurred backdrop.
+3. Dialog. **Built.**
+4. Toasts. **Built.**
+5. A region that reveals and folds; icons and blurred backdrop **built**.
 6. Combobox.
 7. Virtual list and grid on the web.
 8. Date picker.
@@ -281,6 +340,17 @@ picker on the layer, the grid's keys and `./i18n`.
   Lynx sends it to the page, and how, is to find out.
 - **Android's screen reader** (lips#44, `enableA11y`): until the host
   turns it on, none of the accessibility in §5 reaches TalkBack.
+- **What the next parts stand on, read in the binding (2026-11-25).**
+  A live region, `aria-modal` and focus were already Lynx's (RFC-006
+  §4.8): a region's new text is `accessibilityAnnounce`d, `aria-modal`
+  is `accessibility-exclusive-focus`, and a ref's `focus()` is input
+  focus on a field and accessibility focus elsewhere. A ref's `animate`
+  answers on both hosts, so motion (§9) needs no sheet. `Intl` on Lynx's
+  PrimJS is not known to be there: `./i18n` installs the least of it
+  MessageFormat needs, which writes dates plainly and names no month. The
+  date picker takes the names of days and months, and the first day of
+  the week, from real `Intl` where it is, and from words the app gives
+  where it is not.
 - **The L4 gate** (lips#39) still decides whether Lips on Lynx is ready for
   a production app. The parts do not wait on it, since they run on the web
   first, but nothing ships on Lynx before it passes.

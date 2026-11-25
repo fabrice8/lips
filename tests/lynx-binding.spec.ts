@@ -39,7 +39,7 @@ import { createBackgroundHost, connectBackground, type LynxNode, type Background
 import { connectMain } from '../src/lynx/main'
 import * as OP from '../src/lynx/protocol'
 import { WORDS } from '../src/lynx/a11y'
-import { popover, menu } from '../src/parts'
+import { layer, popover, menu, dialog, toast, icons } from '../src/parts'
 
 const G = globalThis as any
 
@@ -73,8 +73,9 @@ beforeEach( () => {
     __RemoveEventListener: ( el: any, name: string, fn: any, o: any ) => el.removeEventListener( name, engine( fn ), phase( o ) ),
     __InvokeUIMethod: ( el: any, method: string, params: any, cb: ( r: any ) => void ) => {
       invoked.push([ el, method, params, flushes ])
-      // Asynchronously, as the engine answers once laid out
-      answer && setTimeout( () => cb( answer!( el, method, params ) ) )
+      // Asynchronously, as the engine answers once laid out; by what the spec said when it was asked, which a later spec resets
+      const a = answer
+      a && setTimeout( () => cb( a( el, method, params ) ) )
     },
     __ElementAnimate: ( el: any, args: any ) => { invoked.push([ el, '__ElementAnimate', args, flushes ]) },
     __FlushElementTree: () => { flushes++ }
@@ -1328,14 +1329,16 @@ describe('background host: an equal write is not sent (#39, L4)', () => {
 })
 
 // ------------------------------------------------------------------- parts
-describe('parts on Lynx: popover and menu (RFC-008)', () => {
+describe('parts on Lynx (RFC-008)', () => {
   /**
    * Each piece compiled as an app compiles it. The only things reported
    * are the DOM's ARIA that Lynx cannot read: a menu's role (L105, until the
    * part says what it is with words the app translates) and the attributes
-   * naming what it controls (L106).
+   * naming what it controls (L106). The dialog, toasts, icons and the
+   * blurred backdrop report nothing.
    */
-  const pieces = () => Object.fromEntries( Object.entries({ ...popover.components, ...menu.components }).map( ( [ name, t ] ) => {
+  const SET = { check: { paths: [ 'M5 12l5 5L20 7' ], stroke: 2 } }
+  const pieces = () => Object.fromEntries( Object.entries({ ...layer.components, ...popover.components, ...menu.components, ...dialog.components, ...toast.components, ...icons( SET ).components }).map( ( [ name, t ] ) => {
     const { ir, diagnostics } = compileLynxTemplate( t.default as string )
     expect( diagnostics.filter( d => d.code !== 'LIPS-L105' && d.code !== 'LIPS-L106' ), name ).toEqual( [] )
     return [ name, { ir, state: t.state, statics: t.static, handlers: t.handler as IRComponentDef['handlers'], deep: true } ]
@@ -1440,5 +1443,69 @@ describe('parts on Lynx: popover and menu (RFC-008)', () => {
     await app.fire('.btn')
     await settle( () => !!panel( app ) )
     expect( app.inst.state.open ).toBe( true )
+  })
+
+  it('a dialog: centred over the page, exclusive to a screen reader, given its focus; closed, focus goes back', async () => {
+    const app = await boot( `<view>
+      <popover open=state.open on-change( setOpen )>
+        <popover-trigger haspopup="dialog" class="open"><text>Rename</text></popover-trigger>
+        <popover-dialog class="sheet" blur=8><dialog-title class="title"><text>Rename the file</text></dialog-title></popover-dialog>
+      </popover>
+    </view>`, { state: { open: false }, handlers: { setOpen( o: boolean ){ ( this as any ).state.open = o } } }, { components: pieces() })
+    await app.fire('.open')
+    await settle( () => !!app.q('.sheet') && focused( app.q('.sheet') ) )
+    app.check()
+
+    const d = app.q('.sheet')
+    expect( d.getAttribute('accessibility-exclusive-focus') ).toBe('true')
+    expect( d.getAttribute('accessibility-label') ).toBe('Rename the file')
+    expect( app.q('.lips-layer').getAttribute('style') ).toContain('justify-content: center')
+    // Nothing on Lynx is made inert: a Lynx node has no parentElement
+    expect( app.page.querySelector('[inert]') ).toBeNull()
+
+    // Lynx's own blur, behind the panel, a tap on it closes the dialog
+    const b = app.q('.lips-backdrop')
+    expect( b.localName ).toBe('blur-view')
+    expect( b.getAttribute('blur-radius') ).toBe('8px')
+    invoked = []
+    await app.fire('.lips-backdrop')
+    await settle( () => !app.q('.sheet') )
+    expect( app.inst.state.open ).toBe( false )
+    expect( calls() ).toEqual( expect.arrayContaining([ [ 'open', 'requestAccessibilityFocus' ] ]) )
+  })
+
+  it('toasts: what comes into the region is announced; an alert region for errors', async () => {
+    const said: string[] = []
+    const bg = createBackgroundHost( () => {}, { announce: t => said.push( t ) })
+    const inst = renderIR<LynxNode>( tree( `<view>
+      <toast-region items=state.ok class="ok" item="toast"/>
+      <toast-region items=state.errors role="alert" class="errors" item="toast"/>
+    </view>` ), { state: { ok: [], errors: [] } }, { host: bg.host, components: pieces() })
+    inst.mount( bg.root )
+    bg.flush()
+    await tick()
+    expect( said ).toEqual( [] )
+
+    inst.state.ok = [ { id: 'a', text: 'Saved', duration: 10000 } ]
+    await tick()
+    bg.flush()
+    expect( said ).toEqual([ 'Saved' ])
+    inst.state.errors = [ { id: 'e', text: 'Offline', action: 'Retry' } ]
+    await tick()
+    bg.flush()
+    expect( said ).toEqual([ 'Saved', 'Offline Retry' ])
+  })
+
+  it('an icon: its markup coloured as given, hidden from a screen reader; labelled, it names the button it is in', async () => {
+    const app = await boot( `<view>
+      <icon name="check" color="red" size=16 class="a"/>
+      <button class="b"><icon name="check" color="red" label="Done"/></button>
+    </view>`, {}, { components: pieces() })
+    const content = app.q('svg.a').getAttribute('content')
+    expect( content ).toContain('stroke="red"')
+    expect( content ).toContain('fill="none"')
+    expect( content ).toContain('d="M5 12l5 5L20 7"')
+    expect( app.q('svg.a').getAttribute('accessibility-elements-hidden') ).toBe('true')
+    expect( app.q('.b').getAttribute('accessibility-label') ).toBe('Done')
   })
 })
