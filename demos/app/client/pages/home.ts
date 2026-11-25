@@ -8,16 +8,12 @@
  * sheet already in `<head>` rather than injecting a second one — so the
  * second page's CSS would silently never appear. Every page here is named.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-home'
 
 type Static = {
   features: { icon: string, title: string, body: string, path: string }[]
-}
-type Context = {
-  online: boolean
-  navigate: ( path: string ) => void
 }
 
 export const _static: Static = {
@@ -39,8 +35,7 @@ export const _static: Static = {
   ]
 }
 
-
-export const handler: Handler<Metavars<{}, {}, Static, Context>> = {
+export const handler: Handlers<Shape<{ static: Static }>> = {
   open( path: string ){
     this.context.navigate?.( path )
   }

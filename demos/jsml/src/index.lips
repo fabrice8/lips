@@ -1,4 +1,4 @@
-import type { Template, Handler, Metavars } from '../src'
+import type { Handlers, Shape } from '../src'
 
 export type Input = {
   person: string
@@ -39,7 +39,7 @@ const static: Static = {
   }
 }
 
-const handler: Handler<Metavars<Input, State, Static>> = {
+const handler: Handlers<Shape<{ input: Input, state: State, static: Static }>> = {
   handleConnect( online: boolean, e: Event ){
     console.log('Connected: ', online, e )
 

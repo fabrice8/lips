@@ -2,17 +2,13 @@
  * Rendered by the shell when `<router>` emits `not-found`. A component,
  * not a route: there is no route to match, which is the whole point.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export type Input = {
   path: string
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
-
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
+export const handler: Handlers<Shape<{ input: Input }>> = {
   go( path: string ){ this.context.navigate?.( path ) }
 }
 

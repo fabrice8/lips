@@ -526,7 +526,7 @@ describe('regressions fixed relative to the legacy engine', () => {
       lips.setContext({ theme: 'dark', other: 1 })
 
       lips.register('p-ctx', {
-        context: [ 'theme' ],
+        watchContext: [ 'theme' ],
         handler: { onContext( this: any ){ hits.push( this.context.theme ) } },
         default: `<i class="ctx">{context.theme}</i>`
       })

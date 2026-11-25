@@ -1,7 +1,7 @@
 /**
  * i18n page — stable keys, `@format` params, and `<i18n lang=…>` scoping.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-i18n'
 
@@ -15,7 +15,7 @@ export const state: State = {
   preview: 'fr-FR'
 }
 
-export const handler: Handler<Metavars<{}, State>> = {
+export const handler: Handlers<Shape<{ state: State }>> = {
   onItems( e: any ){ this.state.items = Number( e.target.value ) }
 }
 

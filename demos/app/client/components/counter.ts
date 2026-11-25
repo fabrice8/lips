@@ -10,7 +10,7 @@
  * Demo type imports come from `src/` because the demo lives in the repo;
  * a published consumer writes `from '@lipsjs/lips'`.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export type Input = {
   initial?: number
@@ -36,9 +36,7 @@ export const state: State = {
   refused: false
 }
 
-type MT = Metavars<Input, State, Static>
-
-export const handler: Handler<MT> = {
+export const handler: Handlers<Shape<{ input: Input, state: State, static: Static }>> = {
   /**
    * `onInput` runs on mount AND on every input change, so the counter
    * re-seeds when the parent hands it a new `initial`. `onCreate` would

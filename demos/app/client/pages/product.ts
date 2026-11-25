@@ -2,7 +2,7 @@
  * Route page — path params. `<router>` places the matched template through
  * a dynamic tag and hands the match down as inputs.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-product'
 
@@ -10,12 +10,8 @@ export type Input = {
   params: { id: string }
   query: Record<string, string>
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
-
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
+export const handler: Handlers<Shape<{ input: Input }>> = {
   go( path: string ){ this.context.navigate?.( path ) }
 }
 

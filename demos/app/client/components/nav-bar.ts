@@ -8,7 +8,7 @@
  * at the component registry — so a component registered under an HTML
  * tag name silently never renders.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export type Link = { path: string, label: string, icon: string }
 
@@ -17,12 +17,8 @@ export type Input = {
   /** Path the router last resolved — drives the active pill */
   current: string
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
-
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
+export const handler: Handlers<Shape<{ input: Input }>> = {
   go( path: string ){
     this.context.navigate?.( path )
   }

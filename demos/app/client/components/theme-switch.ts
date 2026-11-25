@@ -7,26 +7,22 @@
  * READ the theme reactively (see the `styles` page, which colours a
  * declaration off `context.theme`).
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 type State = {
   mode: 'system' | 'light' | 'dark'
-}
-type Context = {
-  theme: string
 }
 
 export const state: State = {
   mode: 'system'
 }
 
-
 const resolve = ( mode: State['mode'] ) =>
   mode !== 'system'
     ? mode
     : window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 
-export const handler: Handler<Metavars<{}, State, {}, Context>> = {
+export const handler: Handlers<Shape<{ state: State }>> = {
   onMount(){ this.apply( this.state.mode ) },
 
   apply( mode: State['mode'] ){

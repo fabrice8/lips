@@ -379,7 +379,7 @@ describe('runtime: reactive declarations', () => {
     const lips = new Lips({ context: { theme: 'dark' } })
     const c = lips.render('chip', {
       _static: { pad: '4px' },
-      context: [ 'theme' ],
+      watchContext: [ 'theme' ],
       default: `<span class="chip">x</span>`,
       stylesheet: `.chip {
         color: {input.accent};
@@ -423,7 +423,7 @@ describe('runtime: reactive declarations', () => {
      */
     const lips = new Lips()
     const c = lips.render('btn', {
-      state: { accent: '#f87171' },
+      state: { accent: '#f87171' as string | undefined },
       default: `<button class="btn">x</button>`,
       stylesheet: `--accent: {state.accent}; .btn { border-color: var(--accent) }`
     })

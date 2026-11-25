@@ -1,6 +1,7 @@
 import { describe, it, expect, expectTypeOf, beforeEach } from 'vitest'
-import Lips, { compileStyle, compileTemplate } from '../src/lips'
-import type { Component, Metavars, Template, Handler, ComponentSelf, LipsConfig } from '../src/lips'
+import Lips, { component, compileStyle, compileTemplate } from '../src/lips'
+import type * as Public from '../src/lips'
+import type { Component, Rendered, Shape, Self, Handlers, Hooks, LipsConfig, Plugin } from '../src/lips'
 import { precompile } from '../src/precompile'
 
 /**
@@ -8,82 +9,266 @@ import { precompile } from '../src/precompile'
  *
  * This file is compiled by `npm run typecheck` (tsconfig.test.json
  * includes tests/), so a type regression fails the build even though
- * the runtime assertions below would still pass. Before this, tsconfig
- * only covered ./src — the exported types were never checked against
- * the API they claim to describe, and `Handler<MT>` had silently
- * drifted out of assignability with what `render()` accepts.
+ * the runtime assertions below would still pass. Each `@ts-expect-error`
+ * is a check too: a line that stops being an error fails the typecheck.
+ *
+ * `SharedContext` is augmented in `tests/types/shared-context.ts`, its own
+ * project: an augmentation here would type the context of every spec.
  */
-
-type CounterMT = Metavars<
-  { tone: string },                  // Input
-  { count: number, label: string },  // State
-  { max: number },                   // Static
-  { theme: 'dark' | 'light' }        // Context
->
-
-const counter: Template<CounterMT> = {
-  state: { count: 0, label: 'Clicks' },
-  _static: { max: 10 },
-  context: [ 'theme' ],
-  default: `<div class="host"><b class="n">{state.count}</b></div>`,
-  stylesheet: `.n { color: {input.tone}; font-size: {state.count}px }`,
-  handler: {
-    increment(){
-      // `this` is ComponentSelf<CounterMT> — every surface typed
-      expectTypeOf( this.state.count ).toEqualTypeOf<number>()
-      expectTypeOf( this.state.label ).toEqualTypeOf<string>()
-      expectTypeOf( this.input.tone ).toEqualTypeOf<string>()
-      expectTypeOf( this.static.max ).toEqualTypeOf<number>()
-      expectTypeOf( this.context.theme ).toEqualTypeOf<'dark' | 'light'>()
-      expectTypeOf( this.node ).toEqualTypeOf<Element[]>()
-
-      this.state.count++
-    },
-    onMount(){ expectTypeOf( this ).toMatchTypeOf<ComponentSelf<CounterMT>>() }
-  }
-}
 
 beforeEach( () => { document.body.innerHTML = '' } )
 
-describe('typed component surface', () => {
-  it('render<MT> gives a typed state handle', () => {
-    const lips = new Lips<{ theme: 'dark' | 'light' }>({ context: { theme: 'dark' } })
-    const c = lips.render<CounterMT>('counter', counter, { tone: 'red' })
+// ---------------------------------------------------------------- inferred
+const counter = component({
+  state: { count: 0, label: 'Clicks' },
+  static: { max: 10 },
+  watchContext: [ 'theme' ],
+  default: `<div class="host"><b class="n">{state.count}</b></div>`,
+  stylesheet: `.n { font-size: {state.count}px }`,
+  handler: {
+    increment(){
+      // `this` is the component, each part read from its value
+      expectTypeOf( this.state.count ).toEqualTypeOf<number>()
+      expectTypeOf( this.state.label ).toEqualTypeOf<string>()
+      expectTypeOf( this.static.max ).toEqualTypeOf<number>()
+      expectTypeOf( this.input ).toEqualTypeOf<{}>()
+      expectTypeOf( this.node ).toEqualTypeOf<Element[]>()
 
-    expectTypeOf( c ).toEqualTypeOf<Component<CounterMT>>()
+      // A sibling handler, with its own signature
+      expectTypeOf( this.add ).toEqualTypeOf<( by: number ) => void>()
+      this.add( 1 )
+      // @ts-expect-error — a sibling the component does not have
+      this.ad( 1 )
+      // @ts-expect-error — a state key it does not have
+      this.state.cont
+      // @ts-expect-error — no input is named, so none is read
+      this.input.tone
+    },
+    add( by: number ){ this.state.count += by },
+    onMount(){
+      // A hook's `this` is the same
+      expectTypeOf( this.state.count ).toEqualTypeOf<number>()
+      expectTypeOf( this.increment ).toEqualTypeOf<() => void>()
+      expectTypeOf( this ).toMatchTypeOf<Self<Shape<{ state: { count: number, label: string }, static: { max: number } }>>>()
+    },
+    onError( error ){ expectTypeOf( error ).toEqualTypeOf<Error>() }
+  }
+})
+
+type Pick = { picked: string | null, items: string[] }
+
+/** What no value shows is named, by part */
+const picker = component<{ input: { tone: string }, state: Pick }>()({
+  state: { picked: null, items: [] },
+  static: { api: '/x' },
+  default: `<i class="p">{input.tone}</i>`,
+  handler: {
+    onInput(){
+      expectTypeOf( this.input.tone ).toEqualTypeOf<string>()
+      expectTypeOf( this.state.picked ).toEqualTypeOf<string | null>()
+      // An unnamed part is still inferred beside the named ones
+      expectTypeOf( this.static.api ).toEqualTypeOf<string>()
+    },
+    pick( item: string ){ this.state.picked = item; this.state.items.push( item ) }
+  }
+})
+
+describe('component() infers a component', () => {
+  it('returns the object it is given, in both forms', () => {
+    const plain = { default: `<i/>`, state: { n: 1 } }
+    expect( component( plain ) ).toBe( plain )
+    expect( component<{ input: { a: number } }>()( plain ) ).toBe( plain )
+  })
+
+  it('render() reads the shape back: state and input typed, no annotation', () => {
+    const lips = new Lips()
+    const c = lips.render('counter', counter )
+
+    expectTypeOf( c ).toEqualTypeOf<Rendered<Shape<{ state: { count: number, label: string }, static: { max: number } }>>>()
     expectTypeOf( c.state.count ).toEqualTypeOf<number>()
-    expectTypeOf( c.node ).toEqualTypeOf<Element[]>()
+    // @ts-expect-error — count is a number, not any
+    const text: string = c.state.count
 
     c.appendTo( document.body )
-    expect( c.state.count ).toBe( 0 )
-
     c.state.count = 5
     expect( document.querySelector('.n')?.textContent ).toBe('5')
+    expect( text ).toBe( 0 )
   })
 
-  it('node returns elements, not range markers', () => {
-    /**
-     * The docs promise "live root elements". The facade used to leak the
-     * block's comment markers, so node[0] was a Comment.
-     */
-    const lips = new Lips()
-    const c = lips.render('plain', { default: `<i class="a">x</i>` }).appendTo( document.body )
+  it('a component with no handler is read back too', () => {
+    // Inferred from the shape the component carries, not from a handler's `this`
+    const plain = component({ state: { n: 1 }, default: `<i class="q">{state.n}</i>` })
+    const c = new Lips().render('plain', plain ).appendTo( document.body )
 
-    expect( c.node ).toHaveLength( 1 )
-    expect( c.node[0] ).toBeInstanceOf( Element )
-    expect( c.node[0].className ).toBe('a')
+    expectTypeOf( c.state.n ).toEqualTypeOf<number>()
+    expect( document.querySelector('.q')?.textContent ).toBe('1')
+
+    // A copy under another scope is no `Component<…>` by name any more: the shape it carries is what is read
+    const copy = new Lips().render('copy', { ...plain, name: 'copy' })
+    expectTypeOf( copy.state.n ).toEqualTypeOf<number>()
   })
 
-  it('stays permissive when metavars are not declared', () => {
-    // No annotation: state reads must still compile, as they always did
+  it('types the input render() is handed', () => {
     const lips = new Lips()
-    const c = lips.render('loose', { state: { n: 1 }, default: `<i>{state.n}</i>` })
+    const c = lips.render('picker', picker, { tone: 'red' }).appendTo( document.body )
 
+    expectTypeOf( c.state.picked ).toEqualTypeOf<string | null>()
+    expect( document.querySelector('.p')?.textContent ).toBe('red')
+
+    // @ts-expect-error — tone is a string
+    lips.render('picker', picker, { tone: 1 })
+    // @ts-expect-error — a state that contradicts what is named
+    component<{ state: Pick }>()({ state: { picked: 1, items: [] } })
+  })
+
+  it('refuses a handler named after a member, as register() does at runtime', () => {
+    // @ts-expect-error — `emit` is the component's own
+    const typed = component({ handler: { emit(){} } })
+    expect( () => new Lips().register( 'bad', typed ) ).toThrow( /reserved/ )
+  })
+
+  it('root() and precompile() keep the shape', () => {
+    document.body.innerHTML = '<div id="app"></div>'
+    const lips = new Lips()
+    const { template } = precompile( counter, { name: 'counter' })
+
+    expectTypeOf( lips.render('pre', template ).state.count ).toEqualTypeOf<number>()
+    expectTypeOf( lips.root( counter, '#app' ).state.label ).toEqualTypeOf<string>()
+
+    // …its named input too, which no value would show
+    const pre = precompile( picker, { name: 'picker' }).template
+    // @ts-expect-error — tone is a string
+    lips.render('pre-picker', pre, { tone: 1 })
+    expect( document.querySelector('#app .n')?.textContent ).toBe('0')
+  })
+
+  it('a typed component goes wherever a component does', () => {
+    const bare: Component = counter
+    const plugin: Plugin = { name: 'p', components: { counter, picker } }
+    const lips = new Lips().register('the-counter', counter ).register('the-picker', picker )
+
+    expect( lips.use( plugin ) ).toBe( lips )
+    expect( bare ).toBe( counter )
+  })
+})
+
+// ------------------------------------------------------ written in the call
+describe('register, render and root infer a component written in the call', () => {
+  it('types `this` in every handler, siblings included, with no wrapper', () => {
+    document.body.innerHTML = '<div id="app"></div>'
+    const lips = new Lips()
+
+    lips.register('inline-counter', {
+      state: { count: 0 },
+      handler: {
+        step( by: number ){ this.state.count += by },
+        reset(){
+          expectTypeOf( this.step ).toEqualTypeOf<( by: number ) => void>()
+          // @ts-expect-error — a sibling the component does not have
+          this.stp( 1 )
+          // @ts-expect-error — a state key it does not have
+          this.state.cont
+        }
+      },
+      default: `<b class="i">{state.count}</b>`
+    })
+
+    const r = lips.root({
+      static: { title: 'T' },
+      handler: { onMount(){ expectTypeOf( this.static.title ).toEqualTypeOf<string>() } },
+      default: `<div><inline-counter/></div>`
+    }, '#app')
+
+    expectTypeOf( r.state ).toEqualTypeOf<{}>()
+    expect( document.querySelector('#app .i')?.textContent ).toBe('0')
+  })
+
+  it('render() reads `input` from what it is handed', () => {
+    const c = new Lips().render('inline', {
+      state: { n: 1 },
+      handler: { onInput(){ expectTypeOf( this.input.tone ).toEqualTypeOf<string>() } },
+      default: `<i class="t">{input.tone}</i>`
+    }, { tone: 'red' }).appendTo( document.body )
+
+    expectTypeOf( c.state.n ).toEqualTypeOf<number>()
+    expect( document.querySelector('.t')?.textContent ).toBe('red')
+  })
+
+  it('refuses a handler named after a member', () => {
+    // @ts-expect-error — `emit` is the component's own
+    expect( () => new Lips().register('bad-inline', { handler: { emit(){} } }) ).toThrow( /reserved/ )
+  })
+
+  it('a component typed elsewhere keeps its own shape', () => {
+    const lips = new Lips()
+
+    // From component(): its named input is checked, not inferred from the argument
+    // @ts-expect-error — tone is a string
+    lips.render('picker', picker, { tone: 1 })
+
+    // Annotated by hand, or a module's exports: read from what they hold
+    const tpl: Component<Shape<{ state: { n: number } }>> = { state: { n: 4 }, default: `<i/>` }
+    expectTypeOf( lips.render('annotated', tpl ).state.n ).toEqualTypeOf<number>()
+
+    // Bare `Component` is untyped, and stays permissive
+    const loose: Component = { state: { n: 1 }, default: `<i/>` }
+    const c = lips.render('loose', loose )
     expectTypeOf( c.state.n ).toBeAny()
     c.state.whatever = 2
     expect( c.state.n ).toBe( 1 )
   })
+})
 
+// -------------------------------------------------------------- by hand
+describe('typed by hand', () => {
+  it('Shape names its parts: what it names is exact, what it leaves out empty', () => {
+    type S = Shape<{ input: { tone: string } }>
+
+    expectTypeOf<S['input']>().toEqualTypeOf<{ tone: string }>()
+    expectTypeOf<S['state']>().toEqualTypeOf<{}>()
+    expectTypeOf<S['context']>().toEqualTypeOf<Record<string, any>>()
+    // Bare, nothing is typed
+    expectTypeOf<Shape['state']>().toBeAny()
+  })
+
+  it('Handlers types a handler written apart, for module exports', () => {
+    type S = Shape<{ state: { count: number } }>
+    const handler: Handlers<S> = {
+      bump(){ this.state.count += 1 },
+      onError( error ){ expectTypeOf( error ).toEqualTypeOf<Error>() },
+      // @ts-expect-error — a hook takes what Hooks says
+      onMount( extra: string ){}
+    }
+    const c = new Lips().render('h', { state: { count: 0 }, handler } as Component<S> )
+
+    expectTypeOf( c.state.count ).toEqualTypeOf<number>()
+    expect( c.state.count ).toBe( 0 )
+  })
+
+  it('Hooks lists the lifecycle', () => {
+    expectTypeOf<keyof Hooks>().toEqualTypeOf<'onCreate' | 'onInput' | 'onMount' | 'onRender' | 'onUpdate' | 'onAttach' | 'onDetach' | 'onContext' | 'onError' | 'onDestroy'>()
+  })
+
+  it('the old names and the old `context` field are gone', () => {
+    // @ts-expect-error — `Shape`, named
+    type A = Public.Metavars
+    // @ts-expect-error — `Component`
+    type B = Public.Template
+    // @ts-expect-error — `Handlers`
+    type C = Public.Handler
+    // @ts-expect-error — `Self`
+    type D = Public.ComponentSelf
+    // @ts-expect-error — `Hooks`
+    type E = Public.LifecycleEvents
+
+    // @ts-expect-error — `watchContext`
+    const old: Component = { context: [ 'theme' ] }
+    expect( old ).toBeTruthy()
+  })
+})
+
+// ---------------------------------------------------------- the instance
+describe('the Lips instance', () => {
   it('types the shared context', () => {
     type Ctx = { theme: 'dark' | 'light', user: { id: number } }
     const lips = new Lips<Ctx>({ context: { theme: 'dark', user: { id: 1 } } })
@@ -110,41 +295,29 @@ describe('typed component surface', () => {
     expect( lips.debug ).toBe( true )
   })
 
-  it('rejects a state shape that contradicts the metavars', () => {
-    const bad: Template<CounterMT> = {
-      // @ts-expect-error — count must be a number
-      state: { count: 'zero', label: 'x' }
-    }
-    expect( bad ).toBeTruthy()
-  })
-
-  it('types Handler independently of the template literal', () => {
+  it('node returns elements, not range markers', () => {
     /**
-     * The regression that motivated this: Handler<MT> was not assignable
-     * to what render() accepted, so the exported type was unusable.
+     * The docs promise "live root elements". The facade used to leak the
+     * block's comment markers, so node[0] was a Comment.
      */
-    const handler: Handler<CounterMT> = {
-      bump(){ this.state.count += 1 },
-      onError( error ){ expectTypeOf( error ).toEqualTypeOf<Error>() }
-    }
-
-    const tpl: Template<CounterMT> = { default: `<i>{state.count}</i>`, state: { count: 0, label: '' }, handler }
     const lips = new Lips()
-    const c = lips.render<CounterMT>('h', tpl )
+    const c = lips.render('plain', { default: `<i class="a">x</i>` }).appendTo( document.body )
 
-    expect( c.state.count ).toBe( 0 )
+    expect( c.node ).toHaveLength( 1 )
+    expect( c.node[0] ).toBeInstanceOf( Element )
+    expect( c.node[0].className ).toBe('a')
   })
 })
 
 describe('precompiled artifacts are typed', () => {
-  it('Template accepts ir and style', () => {
+  it('Component accepts ir and style', () => {
     const { template } = precompile({
       default: `<i class="p">{state.n}</i>`,
       state: { n: 4 },
       stylesheet: `.p { width: {state.n}px }`
     }, { name: 'pre' })
 
-    const tpl: Template<Metavars<{}, { n: number }>> = {
+    const tpl: Component<Shape<{ state: { n: number } }>> = {
       ir: template.ir,
       style: template.style,
       state: { n: 4 }
@@ -161,7 +334,7 @@ describe('precompiled artifacts are typed', () => {
 
 describe('every documented field is in the types', () => {
   it('name, static and watchContext, and precompile() keeps them typed', () => {
-    const page: Template = { name: 'page-home', static: { api: '/x' }, watchContext: [ 'theme' ], default: '<p/>' }
+    const page: Component = { name: 'page-home', static: { api: '/x' }, watchContext: [ 'theme' ], default: '<p/>' }
     const { template } = precompile( page )
 
     expectTypeOf( template.name ).toEqualTypeOf<string | undefined>()
@@ -205,7 +378,7 @@ describe('static constants', () => {
     lips.render('h', {
       static: { api: 'https://x' },
       default: `<i/>`,
-      handler: { onMount( this: any ){ seen.push( this.static.api ) } }
+      handler: { onMount(){ seen.push( this.static.api ) } }
     }).appendTo( document.body )
 
     expect( seen ).toEqual([ 'https://x' ])

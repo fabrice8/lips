@@ -2,7 +2,7 @@
  * Async page — `<async>` with all three arms, and the router's own
  * params/query pages linked from here.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-async'
 
@@ -10,17 +10,13 @@ type State = {
   who: string
   nonce: number
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
 export const state: State = {
   who: 'Ada Lovelace',
   nonce: 0
 }
 
-
-export const handler: Handler<Metavars<{}, State, {}, Context>> = {
+export const handler: Handlers<Shape<{ state: State }>> = {
   onWho( e: any ){ this.state.who = e.target.value },
   refetch(){ this.state.nonce++ },
   go( path: string ){ this.context.navigate?.( path ) }

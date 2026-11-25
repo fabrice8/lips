@@ -1,7 +1,7 @@
 /**
  * Route page — query string only, no path params.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-account'
 
@@ -9,12 +9,8 @@ export type Input = {
   params: Record<string, string>
   query: { userid?: string }
 }
-type Context = {
-  navigate: ( path: string ) => void
-}
 
-
-export const handler: Handler<Metavars<Input, {}, {}, Context>> = {
+export const handler: Handlers<Shape<{ input: Input }>> = {
   go( path: string ){ this.context.navigate?.( path ) }
 }
 

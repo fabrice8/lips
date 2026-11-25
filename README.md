@@ -22,7 +22,7 @@ template string ──parse──▶ AST ──compile──▶ IR ──render�
 - **Precompile + CSP mode** — build templates to IR; run with no `eval`/`Function` under a strict CSP
 - **Hot-swap** — `instance.swap(newIR)` re-renders only what changed, preserving state
 - **Batteries included** — router, i18n, macros, scoped styles, slots, component events
-- **TypeScript** — full type definitions
+- **TypeScript** — a component written in `register`/`render` is inferred: `this` typed in every handler, no wrapper
 
 ## 🚀 Quick start
 
@@ -76,6 +76,46 @@ import Lips from '@lipsjs/lips'
 | `@lipsjs/lips/lynx/background` | Lynx background thread: the host Lips renders into | ~5 KB |
 | `@lipsjs/lips/lynx-plugin` | Rspeedy plugin: `*.lips.css` sheets and the page config Lips needs | — |
 | `@lipsjs/lips/dev` | unminified full build | — |
+
+## 🔷 TypeScript
+
+A component is typed where it is written. Written in a `register`,
+`render` or `root` call, Lips infers it: `state` and `static` from their
+values, each handler from itself, and `this` in every handler from all
+three, sibling handlers included. No annotation, no wrapper.
+
+```ts
+lips.register('counter', {
+  state: { count: 0 },
+  handler: {
+    step( by: number ){ this.state.count += by },
+    reset(){ this.step( -this.state.count ) }   // a typo here is an error
+  },
+  default: `<button on-click(step, 1)>{state.count}</button>`
+})
+
+lips.render('greeting', { default: `<b>{input.name}</b>` }, { name: 'Ada' }).state   // typed
+```
+
+Written apart, in a file of its own, its `this` is fixed where it is
+written, so its handler names the parts it reads:
+
+```ts
+export const handler: Handlers<Shape<{ input: Input, state: typeof state }>> = { … }
+```
+
+or the object is wrapped in `component( … )`, which infers it as the calls
+do. The app's context is typed once, for every component and for
+`new Lips()`:
+
+```ts
+declare module '@lipsjs/lips' {
+  interface SharedContext { theme: 'dark' | 'light' }
+}
+```
+
+The types, and what the template strings do not check, are in the
+[reference](docs/reference.md#types).
 
 ## 🧩 Template syntax
 

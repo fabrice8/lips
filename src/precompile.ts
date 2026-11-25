@@ -19,10 +19,11 @@ import { compileStyle } from './ir/style'
 import type { TemplateIR, CompileOptions } from './ir/compiler'
 import type { StyleIR, StylePreprocessor } from './ir/style'
 import type { TemplateDiagnostic } from './ir/parser'
-import type { Template } from './types'
+import type { Component, TypedComponent, Shape } from './types'
 
 /** What `precompile()` returns: the template it was given, with `ir` (and `style`) for its sources */
-export type PrecompiledTemplate = Omit<Template, 'default' | 'macros' | 'stylesheet'> & { ir: TemplateIR }
+/** A component with its markup and stylesheet compiled: no source ships */
+export type PrecompiledComponent<S extends Shape = Shape> = Omit<TypedComponent<S>, 'default' | 'macros' | 'stylesheet'> & { ir: TemplateIR }
 
 export interface PrecompileOptions {
   /**
@@ -41,8 +42,8 @@ export interface PrecompileOptions {
   target?: CompileOptions['target']
 }
 
-export interface PrecompileResult {
-  template: PrecompiledTemplate
+export interface PrecompileResult<S extends Shape = Shape> {
+  template: PrecompiledComponent<S>
   diagnostics: TemplateDiagnostic[]
 }
 
@@ -52,18 +53,19 @@ export interface PrecompileResult {
  * is compiled to StyleIR, so the `./runtime` build needs no CSS
  * preprocessor either (RFC-004 §1).
  */
-export function precompile( template: Record<string, any>, options: PrecompileOptions = {} ): PrecompileResult {
+export function precompile<S extends Shape = Shape>( template: Component<S>, options: PrecompileOptions = {} ): PrecompileResult<S> {
   const
   copts: CompileOptions = { macros: template.macros, target: options.target },
   { ir, diagnostics } = compileTemplate( template.default || '', copts ),
   { default: _src, macros: _macros, stylesheet, ...rest } = template
 
-  if( !stylesheet ) return { template: { ...rest, ir }, diagnostics }
+  // A precompiled component keeps the shape it was given: the mark is type-only
+  if( !stylesheet ) return { template: { ...rest, ir } as PrecompiledComponent<S>, diagnostics }
 
   const style = compileStyle( stylesheet, { nsp: options.name || 'lips', preprocess: options.preprocess })
 
   return {
-    template: { ...rest, ir, style: style.ir },
+    template: { ...rest, ir, style: style.ir } as PrecompiledComponent<S>,
     diagnostics: [ ...diagnostics, ...style.diagnostics ]
   }
 }
@@ -179,7 +181,6 @@ export default {
 ${styleOut}  ${/\bconst\s+state\b/.test( script ) ? 'state,' : ''}
   ${/\bconst\s+handler\b/.test( script ) ? 'handler,' : ''}
   ${/\bconst\s+_static\b/.test( script ) ? '_static,' : ''}
-  ${/\bconst\s+context\b/.test( script ) ? 'context,' : ''}
   ${/\bconst\s+watchContext\b/.test( script ) ? 'watchContext,' : ''}
   ${hasStyle && !liftable ? 'stylesheet,' : ''}
 };

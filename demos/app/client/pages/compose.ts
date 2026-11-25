@@ -7,7 +7,7 @@
  * own. That also means macro markup lands inside THIS component's scope,
  * which is why the macro classes are styled by this page's sheet.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-compose'
 
@@ -19,9 +19,6 @@ type State = {
 }
 type Static = {
   tiles: { label: string, value: number, max: number, unit: string, tone: string }[]
-}
-type Context = {
-  toast: ( text: string, tone?: string ) => void
 }
 
 export const _static: Static = {
@@ -41,7 +38,6 @@ export const state: State = {
   extra: { 'data-source': 'spread', 'aria-label': 'spread onto the element' }
 }
 
-
 /**
  * `<macro [argv] name="X">` — argv become block-scoped reactive vars at the
  * call site. Reference one macro from another and it inlines recursively.
@@ -60,7 +56,7 @@ export const macros = `
   </macro>
 `
 
-export const handler: Handler<Metavars<{}, State, Static, Context>> = {
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
   bump( id: string ){
     const row = this.state.rows.find( r => r.id === id )
     row && row.count++

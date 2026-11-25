@@ -3,7 +3,7 @@
  * active language and `self.lang` is the reactive reader. Nothing is
  * mirrored into state or context, so the two can never drift.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 type Static = {
   langs: { code: string, flag: string, label: string }[]
@@ -16,7 +16,7 @@ export const _static: Static = {
   ]
 }
 
-export const handler: Handler<Metavars<{}, {}, Static>> = {
+export const handler: Handlers<Shape<{ static: Static }>> = {
   pick( code: string ){
     this.setLanguage( code )
     this.emit('language', code )

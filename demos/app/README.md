@@ -21,6 +21,12 @@ Imports resolve to `../../src`, not to `dist/`, so the demo typechecks and
 runs straight from source with no build of the library first. A published
 consumer writes `from '@lipsjs/lips'`.
 
+Every component and page is a module of plain exports — `state`,
+`_static`, `handler`, `stylesheet` and the markup as `default` — its
+handler typed by the parts it reads (`Handlers<Shape<{ input: Input }>>`).
+The app's context is typed once, in `client/context.ts`. `npm run
+typecheck` at the repo root checks it all.
+
 ## What each route exercises
 
 | route | features |

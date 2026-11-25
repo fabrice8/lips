@@ -6,7 +6,7 @@
  * through `<loading>` and into `<then>`/`<catch>` again. That is the whole
  * retry mechanism — no imperative refetch call anywhere.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export type Input = {
   name?: string
@@ -15,17 +15,13 @@ type State = {
   nonce: number
   fail: boolean
 }
-type Context = {
-  getUser: ( name: string, fail?: boolean ) => Promise<{ name: string, email: string, role: string }>
-}
-
 
 export const state: State = {
   nonce: 0,
   fail: false
 }
 
-export const handler: Handler<Metavars<Input, State, {}, Context>> = {
+export const handler: Handlers<Shape<{ input: Input, state: State }>> = {
   reload(){
     this.state.fail = false
     this.state.nonce++

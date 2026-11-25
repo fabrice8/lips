@@ -15,7 +15,7 @@ import { taken } from './ir/tags'
 import { messageFormat } from './i18n/engine'
 import { compileStyle } from './ir/style'
 import { compileTemplate } from './ir/compiler'
-import type { Metavars } from './types'
+import type { Shape } from './types'
 import { routerTemplate } from './ir/router'
 
 /**
@@ -38,6 +38,7 @@ setNameCheck( taken )
 registerBuiltin( 'router', routerTemplate )
 
 export * from './types'
+export { component } from './component'
 export type { TemplatePolicy, Refusal, Verdict, Untrusted } from './ir/policy'
 
 export {
@@ -75,11 +76,10 @@ export type {
 } from './ir'
 
 /**
- * A rendered component handle. Generic over the same `Metavars` the
- * template declares, so `component.state` is typed, not `any`:
+ * A rendered component: what `render()` and `root()` return, typed by the
+ * component it rendered, so `c.state` is not `any`:
  *
- *   type MT = Metavars<{ tone: string }, { count: number }>
- *   const c: Component<MT> = lips.render<MT>('counter', counter)
+ *   const c = lips.render('counter', counter)
  *   c.state.count++            // number
  *
  * Its event bus runs both ways — `c.on('saved', …)` receives what the
@@ -87,9 +87,9 @@ export type {
  * registered with `this.on(…)`. Inbound events do NOT invoke handler
  * methods by name, so what a component accepts stays explicit.
  */
-export type Component<MT extends Metavars = Metavars> = IRFacadeComponent<MT>
+export type Rendered<S extends Shape = Shape> = IRFacadeComponent<S>
 
 /** The Lips instance, generic over the shared context shape */
-export type Lips<Context extends Object = Record<string, any>> = IRLips<Context>
+export type Lips<Context extends Object = Shape<{}>['context']> = IRLips<Context>
 
 export default IRLips

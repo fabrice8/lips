@@ -2,7 +2,7 @@
  * Reactivity page — signals, keyed lists, component events, `<let>`,
  * and proof that a nested write does not wake the list.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-reactivity'
 
@@ -14,10 +14,6 @@ type State = {
   draft: string
   todos: Todo[]
   renders: number
-}
-type Context = {
-  online: boolean
-  toast: ( text: string, tone?: string ) => void
 }
 
 export const state: State = {
@@ -32,12 +28,9 @@ export const state: State = {
   renders: 0
 }
 
-
 let nextId = 4
 
-type MT = Metavars<{}, State, {}, Context>
-
-export const handler: Handler<MT> = {
+export const handler: Handlers<Shape<{ state: State }>> = {
   /** `on-update(onCount)` on <counter> — the child's `this.emit('update', n)` */
   onCount( value: number ){
     this.state.lastEmit = value

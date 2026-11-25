@@ -10,13 +10,14 @@ checked:
 - `compiles`: a template that compiles with no error;
 - `reports LIPS-…`: a template that reports that diagnostic;
 - `runs`: code run against a fresh `lips`, which must not throw;
-- `from <file>`: copied from that file, which a demo runs.
+- `from <file>`: copied from that file, which a demo runs and
+  `npm run typecheck` checks.
 
 The design behind each part is in the RFCs under [`design/`](../design);
 this page is how it behaves.
 
 **Contents**: [The Lips instance](#the-lips-instance) ·
-[A component](#a-component) · [Lifecycle](#lifecycle) ·
+[A component](#a-component) · [Types](#types) · [Lifecycle](#lifecycle) ·
 [Template syntax](#template-syntax) · [Composition](#composition) ·
 [Context](#context) · [i18n](#i18n) · [Stylesheets](#stylesheets) ·
 [The router](#the-router) · [Hot-swap](#hot-swap) ·
@@ -113,7 +114,7 @@ A component is a plain object. Every field is optional.
 | `handler` | methods, bound to the component (`this`), and the [lifecycle](#lifecycle) hooks |
 | `macros` | `<macro>` definitions, inlined at compile time ([Macros](#macros)) |
 | `stylesheet` | scoped CSS whose values may be `{expressions}` ([Stylesheets](#stylesheets)) |
-| `watchContext` | context fields whose change runs `onContext` ([Context](#context)). `context` is its old name |
+| `watchContext` | context fields whose change runs `onContext` ([Context](#context)) |
 | `name` | the scope of a template placed by value (a route page, `<{state.view}/>`); left out, each template object gets its own |
 | `ir`, `style` | precompiled template and stylesheet, used instead of `default` and `stylesheet` ([Precompile](#precompile-and-csp)) |
 
@@ -138,6 +139,73 @@ component, as `this` is in a handler: its handlers, `node`, `refs`, `lang`,
 timer, a chart instance) that must not cost a re-render. **`input` or
 context?** `input`, almost always: it keeps a component reusable. Context is
 for what a whole subtree shares ([Context](#context)).
+
+---
+
+## Types
+
+A component is typed where it is written. Written in a `register`,
+`render` or `root` call, Lips infers it: `state` and `static` from their
+values, each handler from itself, and `this` in every handler from all
+three, its sibling handlers included. A sibling it does not have, or a
+state key, is a type error, and the handle's `state` is typed with no
+annotation. `render()` reads `input` from what it is handed.
+
+<!-- runs -->
+```js
+lips.register('tripler', {
+  state: { count: 0 },
+  handler: {
+    step( by ){ this.state.count += by },
+    triple(){ this.step( 3 ) }
+  },
+  default: `<button on-click(triple)>{state.count}</button>`
+})
+```
+
+<!-- renders "3" after clicking "button" -->
+```js
+{ default: `<tripler/>` }
+```
+
+Written apart, in a file of its own, a component's `this` is fixed where
+it is written, before any of those calls sees it. Its handler is typed by
+the parts it reads, by name:
+
+<!-- from demos/app/client/components/counter.ts -->
+```ts
+export const handler: Handlers<Shape<{ input: Input, state: State, static: Static }>> = {
+```
+
+An object written apart in a `.ts` file can instead be wrapped in
+`component( … )`, which infers it as the calls above do, naming in a first
+call only what no value shows: `component<{ input: Input }>()({ … })`.
+
+The context is the app's, so it is typed once, for every component and for
+`new Lips()`, by adding to `SharedContext`. `setContext( key, value )` then
+checks the value too. A published app writes `declare module '@lipsjs/lips'`.
+
+<!-- from demos/app/client/context.ts -->
+```ts
+declare module '../../../src/types' {
+  interface SharedContext {
+    online: boolean
+```
+
+| Type | What it is |
+|---|---|
+| `Component<S>` | a component: what `register`, `render`, `root`, a route and `<{…}/>` take |
+| `TypedComponent<S>` | a component whose shape is known, so `render()` reads it back: what `component()` and `precompile()` return |
+| `Shape<{ input?, state?, static?, context? }>` | the four typed parts, by name. A part it names is exact, a part it leaves out is empty, `context` is `SharedContext` unless named. Bare, every part is `any` |
+| `Rendered<S>` | what `render()` and `root()` return |
+| `Self<S, Methods>` | `this` in a handler: the component's members and its handlers |
+| `Handlers<S>` | a `handler` object typed apart from its component |
+| `Hooks` · `HookName` | the lifecycle hooks, their signatures and names |
+| `SharedContext` | the app's context, added to once |
+
+**When not**: a handler typed by `Handlers<…>` reads a sibling handler as
+`any`; only an inferred one knows its siblings. What the template string
+reads is not checked: its expressions are not TypeScript.
 
 ---
 

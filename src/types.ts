@@ -1,61 +1,107 @@
 /**
  * Public types.
  *
- * Component authoring shape — the same plain object the framework has
- * always taken, and the serializable artifact a generator can emit:
+ * A component is a plain object — the same one the framework has always
+ * taken, and the serializable artifact a generator can emit:
  *
- *   { default, state, handler, _static, context, macros, stylesheet }
+ *   { name, default, state, static, handler, watchContext, macros, stylesheet }
  *
- * These are the types `register`/`render`/`root` actually accept: the
- * facade is generic over `Metavars`, so `Template<MT>` here and the
- * argument the engine takes are the same type, not parallel ones.
+ * `component()` writes one with its types inferred: `state` and `static`
+ * from their values, the handlers from themselves, `this` in each of them
+ * from all three. What no value can show, the `input` a parent hands it,
+ * it is told by name:
+ *
+ *   const counter = component<{ input: { initial?: number } }>()({
+ *     state: { count: 0 },
+ *     handler: {
+ *       onInput(){ this.state.count = this.input.initial ?? 0 },
+ *       step( by: number ){ this.state.count += by }
+ *     },
+ *     default: `<button on-click(step, 1)>{state.count}</button>`
+ *   })
+ *
+ *   lips.render('counter', counter, { initial: 2 }).state.count   // number
+ *
+ * The context is the app's, so it is typed once for every component, by
+ * augmenting `SharedContext`. What the template strings read is not
+ * checked: their expressions are not TypeScript.
  */
 import type { MessageFormat, Model } from 'messageformat'
 import type { MessageFunction } from 'messageformat/functions'
 import type { TemplateIR } from './ir/compiler'
 import type { StyleIR } from './ir/style'
 import type { Untrusted } from './ir/policy'
-import type { IRLips } from './ir/facade'
+import type { IRLips, RESERVED } from './ir/facade'
+
+// ------------------------------------------------------------------ shape
+/**
+ * What every component of an app reads as `context`. Empty here, so an
+ * app types it once, for every component and for `new Lips()`:
+ *
+ *   declare module '@lipsjs/lips' {
+ *     interface SharedContext { theme: 'dark' | 'light' }
+ *   }
+ *
+ * Left empty, `context` reads as `Record<string, any>`.
+ */
+export interface SharedContext {}
+
+type Shared = keyof SharedContext extends never ? Record<string, any> : SharedContext
+
+/** The parts a component names; any it leaves out */
+export type Parts = {
+  input?: object
+  state?: object
+  static?: object
+  context?: object
+}
+/** A part `P` names, or `Else` */
+type Part<P, K extends keyof Parts, Else> = P extends { [ k in K ]: infer X extends object } ? X : Else
 
 /**
- * The four typed surfaces of a component. Defaults are permissive on
- * purpose: an untyped `lips.render('x', { state: { n: 0 } })` still
- * gets `c.state.n` without annotation, and a component that declares
- * its metavars gets exact types. Tightening these to `{}` would turn
- * every unannotated read into a compile error.
+ * The four typed parts of a component, by name: what a parent hands it
+ * (`input`), what it changes (`state`), what never re-renders (`static`)
+ * and what the app shares (`context`).
+ *
+ *   Shape<{ input: { tone: string }, state: { count: number } }>
+ *
+ * A part it names is exact, a part it leaves out is empty, and `context`
+ * is the app's `SharedContext` unless named. Bare, `Shape` reads every
+ * part as `any`: the shape of a component nothing typed, and one every
+ * typed component is assignable to.
  */
-export interface Metavars<
-  Input extends Object = Record<string, any>,
-  State extends Object = Record<string, any>,
-  Static extends Object = Record<string, any>,
-  Context extends Object = Record<string, any>
-> {
-  Input: Input
-  State: State
-  Static: Static
-  Context: Context
+export type Shape<P extends Parts = { input: any, state: any, static: any, context: any }> = {
+  input   : Part<P, 'input', {}>
+  state   : Part<P, 'state', {}>
+  static  : Part<P, 'static', {}>
+  context : Part<P, 'context', Shared>
 }
 
-export type LifeCycleEventTypes = 'onCreate'
-                                  | 'onInput'
-                                  | 'onMount'
-                                  | 'onRender'
-                                  | 'onUpdate'
-                                  | 'onAttach'
-                                  | 'onDetach'
-                                  | 'onContext'
-                                  | 'onError'
-                                  | 'onDestroy'
+// ------------------------------------------------------------------- self
+/** The lifecycle, in the order it runs (`onError` and `onContext` when they occur) */
+export interface Hooks {
+  onCreate(): void
+  onInput(): void
+  onMount(): void
+  onRender(): void
+  onUpdate(): void
+  onAttach(): void
+  onDetach(): void
+  onContext(): void
+  onError( error: Error ): void
+  onDestroy(): void
+}
+export type HookName = keyof Hooks
 
-/**
- * `this` inside a handler: reactive stores plus the component's
- * own API (emit/on/off, setContext).
- */
-export interface ComponentSelf<MT extends Metavars = Metavars> {
-  state: MT['State']
-  input: MT['Input']
-  context: MT['Context']
-  static: MT['Static']
+/** Names a handler cannot take: the component's own members */
+export type ReservedName = typeof RESERVED[ number ]
+
+/** The component's own members, in `this` beside its handlers */
+export interface Members<S extends Shape = Shape> {
+  state   : S['state']
+  input   : S['input']
+  context : S['context']
+  static  : S['static']
 
   /** Live root elements of this component */
   readonly node: Element[]
@@ -84,76 +130,109 @@ export interface ComponentSelf<MT extends Metavars = Metavars> {
    * Also the inbound channel: a listener registered here receives
    * `component.emit(…)` calls made by whoever holds the handle.
    */
-  on( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
-  once( event: string, fn: ( ...args: any[] ) => void ): ComponentSelf<MT>
-  off( event: string, fn?: ( ...args: any[] ) => void ): ComponentSelf<MT>
+  on( event: string, fn: ( ...args: any[] ) => void ): this
+  once( event: string, fn: ( ...args: any[] ) => void ): this
+  off( event: string, fn?: ( ...args: any[] ) => void ): this
   setContext( arg: string | Record<string, any>, value?: any ): void
-
-  /** Sibling handlers, reachable as `this.otherMethod()` */
-  [ key: string ]: any
 }
 
-export interface LifecycleEvents<MT extends Metavars> {
-  onCreate( this: ComponentSelf<MT> ): void
-  onInput( this: ComponentSelf<MT> ): void
-  onMount( this: ComponentSelf<MT> ): void
-  onRender( this: ComponentSelf<MT> ): void
-  onUpdate( this: ComponentSelf<MT> ): void
-  onAttach( this: ComponentSelf<MT> ): void
-  onDetach( this: ComponentSelf<MT> ): void
-  onContext( this: ComponentSelf<MT> ): void
-  onError( this: ComponentSelf<MT>, error: Error ): void
-  onDestroy( this: ComponentSelf<MT> ): void
+/**
+ * `this` in a handler: the component's members and its other handlers.
+ * `Methods` are the handlers `component()` saw, so a sibling it does not
+ * have is an error; left out, any name reads as `any`.
+ */
+export type Self<S extends Shape = Shape, Methods = Record<string, any>> = Members<S> & Methods
+
+/**
+ * A component's `handler` object, typed by hand: for a component written
+ * as module exports (`export const handler: Handlers<S> = { … }`), which
+ * `component()` cannot see whole. Its `this` reads siblings as `any`.
+ */
+export type Handlers<S extends Shape = Shape> = {
+  [ K in HookName ]?: ( this: Self<S>, ...args: Parameters<Hooks[ K ]> ) => void
+} & {
+  /** Any other key is a method bound to the component */
+  [ K in string as K extends HookName | ReservedName ? never : K ]?:
+    ( this: Self<S>, ...args: any[] ) => any
 }
 
-export type Handler<MT extends Metavars> = Partial<LifecycleEvents<MT>> & {
-  /** Any other key is a method bound to the component self */
-  [ K in string as K extends keyof LifecycleEvents<MT> ? never : K ]?:
-    ( this: ComponentSelf<MT>, ...args: any[] ) => any
-}
-
-export type Template<MT extends Metavars = Metavars> = {
+// -------------------------------------------------------------- component
+/** What `register`, `render`, `root` and a route take */
+export type Component<S extends Shape = Shape> = {
   /**
-   * The scope of a template placed by value — a route page, or
+   * The scope of a component placed by value — a route page, or
    * `<{state.view}/>` — that no `register()` names: its stylesheet's
-   * `rel`. Left out, each such template object gets one of its own.
+   * `rel`. Left out, each such object gets one of its own.
    */
   name?: string
   /** Template source — the component's markup */
   default?: string
   /** Precompiled template IR — used instead of `default` (see `precompile`) */
   ir?: TemplateIR
-  state?: MT['State']
+  state?: S['state']
   /**
    * Variables that never re-render — read and written as `this.static` in
    * a handler, read as `static.x` in a template, which subscribes to none
    * of them. Each instance has its own copy, as it has of `state`: what
-   * the template declares is where each starts. `_static` is the same
-   * field: a NAMED MODULE EXPORT cannot
-   * be called `static` (it is reserved in strict mode, and ES modules
-   * are always strict), so the underscore exists for that form only.
-   * Object literals should use `static`.
+   * the component declares is where each starts. `_static` is the same
+   * field: a NAMED MODULE EXPORT cannot be called `static` (it is reserved
+   * in strict mode, and ES modules are always strict), so the underscore
+   * exists for that form only. Object literals use `static`.
    */
-  static?: MT['Static']
-  _static?: MT['Static']
+  static?: S['static']
+  _static?: S['static']
   /**
    * Context fields whose change fires this component's `onContext`.
    *
    * It does NOT declare what the component reads: bindings that read
    * `context.x` are tracked individually and update whether or not `x`
-   * is listed here. The old spelling for this was `context`, which read
-   * as "the context this component uses" and misled accordingly.
+   * is listed here.
    */
   watchContext?: string[]
-  /** @deprecated Renamed to `watchContext` — same meaning (RFC-005 §4.3) */
-  context?: string[]
   /** `<macro [argv] name="X">…</macro>` definitions, inlined at compile time */
   macros?: string
-  handler?: Handler<MT>
+  handler?: Handlers<S>
   /** Scoped CSS — declaration values may be `{expr}` (RFC-004) */
   stylesheet?: string
   /** Precompiled StyleIR — used instead of `stylesheet` (see `precompile`) */
   style?: StyleIR
+}
+
+/** Marks a component that carries its shape; type-only, never set */
+declare const SHAPE: unique symbol
+
+/**
+ * A component whose shape is known, so `render()` reads it back: what
+ * `component()` and `precompile()` return.
+ */
+export type TypedComponent<S extends Shape = Shape> = Component<S> & { readonly [ SHAPE ]: S }
+
+/**
+ * A component being written, its state, static and handlers inferred:
+ * what `component()` takes, and what `register`, `render` and `root` take
+ * written in the call. Each handler's `this` is the component's members
+ * and every handler beside it. A `TypedComponent` is not one: its shape is
+ * already known.
+ */
+export type Definition<S extends Shape, Methods> = Omit<Component<S>, 'handler'> & {
+  readonly [ SHAPE ]?: never
+  handler?: Methods
+            & Partial<Hooks>
+            & { [ K in ReservedName ]?: never }
+            & ThisType<Self<S, Methods>>
+}
+
+/**
+ * The shape a `Definition` gives: what `P` names, else what was inferred.
+ * Written in a `register`, `render` or `root` call, nothing names `input`,
+ * so it reads as `Record<string, any>` there (or as what `render()` is
+ * handed).
+ */
+export type Inferred<P extends Parts, State, Static> = {
+  input   : Part<P, 'input', {}>
+  state   : Part<P, 'state', State>
+  static  : Part<P, 'static', Static>
+  context : Part<P, 'context', Shared>
 }
 
 /**
@@ -166,7 +245,7 @@ export interface Plugin<Options = unknown> {
   /** Installed before it, each once */
   readonly requires?: readonly Plugin<any>[]
   /** Registered by name; a name something else holds is refused */
-  readonly components?: Readonly<Record<string, Template<any>>>
+  readonly components?: Readonly<Record<string, Component<any>>>
   /** Anything else it sets up, with what `use()` was given */
   install?( lips: IRLips<any>, options?: Options ): void
 }

@@ -15,17 +15,6 @@ import french from './languages/fr.json'
 import registry from './registry'
 import * as App from './app'
 
-type Context = {
-  online: boolean
-  getUser: ( name: string, fail?: boolean ) => Promise<{ name: string, email: string, role: string }>
-  /** Set below, once the root handle exists */
-  toast: ( text: string, tone?: string ) => void
-  /** Published by <router> on attach */
-  navigate: ( path: string ) => void
-  /** Provided per-subtree by <context lane="…"> on the composition page */
-  lane?: string
-}
-
 const ROLES = [ 'Engineer', 'Mathematician', 'Rear Admiral', 'Analyst' ]
 
 /** `delay` is how long the stand-in fetch takes: a test passes 0 */
@@ -36,7 +25,7 @@ export function boot( target: string, { delay = 900 } = {} ){
    * accessor now, and `self.setLanguage()` switches it. A context copy would
    * just be a second writer that can drift.
    */
-  const lips = new Lips<Context>({ lang: 'en-US' })
+  const lips = new Lips({ lang: 'en-US' })
 
   lips.setContext({
     online: true,
@@ -59,7 +48,7 @@ export function boot( target: string, { delay = 900 } = {} ){
         }, delay )
       })
     }
-  } as Context )
+  })
 
   lips.i18n.setDictionary('en', english )
   lips.i18n.setDictionary('fr', french )

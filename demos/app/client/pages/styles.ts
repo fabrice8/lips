@@ -12,7 +12,7 @@
  * `calc(var(…))` still changes discretely in Chrome. Treat the
  * `transition` declarations here as smoothing, not as interpolation.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-styles'
 
@@ -23,9 +23,6 @@ type State = {
   glow: number
   cols: number
 }
-type Context = {
-  theme: string
-}
 
 export const state: State = {
   hue: 330,
@@ -35,8 +32,7 @@ export const state: State = {
   cols: 3
 }
 
-
-export const handler: Handler<Metavars<{}, State, {}, Context>> = {
+export const handler: Handlers<Shape<{ state: State }>> = {
   set( key: keyof State, e: any ){
     this.state[ key ] = Number( e.target.value )
   }

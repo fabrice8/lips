@@ -9,7 +9,7 @@
  * look. Only `html`/`body` and the design tokens stay in index.html,
  * because no scoped sheet can reach them.
  */
-import type { Handler, Metavars } from '../../../src/types'
+import type { Handlers, Shape } from '../../../src/types'
 import type { Link } from './components/nav-bar'
 
 import * as Home from './pages/home'
@@ -34,9 +34,6 @@ type State = {
   path: string
   toasts: Toast[]
   missing: string | null
-}
-type Context = {
-  online: boolean
 }
 
 export const _static: Static = {
@@ -70,12 +67,9 @@ export const state: State = {
   missing: null
 }
 
-
-type MT = Metavars<{}, State, Static, Context>
-
 let seq = 0
 
-export const handler: Handler<MT> = {
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
   /**
    * The component bus runs both ways: `index.ts` holds the root handle and
    * calls `app.emit('toast', …)`, which reaches THIS listener. Inbound

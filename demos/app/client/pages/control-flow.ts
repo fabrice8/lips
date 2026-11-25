@@ -1,7 +1,7 @@
 /**
  * Control flow — every branching tag Lips ships, plus dynamic tags.
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 
 export const name = 'page-control-flow'
 
@@ -33,7 +33,7 @@ export const state: State = {
   tag: 'mark'
 }
 
-export const handler: Handler<Metavars<{}, State, Static>> = {
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
   pick( id: string ){ this.state.tab = id },
   nextTag(){
     const list = this.static.tags

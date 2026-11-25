@@ -6,7 +6,7 @@
  * text-and-list basics, and each used to be a guess: is `value=` live after
  * the reader types? Does a throw in a branch take the page down?
  */
-import type { Handler, Metavars } from '../../../../src/types'
+import type { Handlers, Shape } from '../../../../src/types'
 import type { MenuItem } from '../../../../src/parts'
 
 export const name = 'page-parts'
@@ -49,9 +49,7 @@ export const _static: Static = {
   ]
 }
 
-type MT = Metavars<{}, State, Static>
-
-export const handler: Handler<MT> = {
+export const handler: Handlers<Shape<{ state: State, static: Static }>> = {
   /** `<popover>` emits `change` with the open state it wants */
   setOpen( open: boolean ){ this.state.open = open },
   /** `<popover-menu>` emits `select` with the item, and closes itself */
