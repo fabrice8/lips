@@ -1,0 +1,4 @@
+<div class="screen">
+  <p class="count" id="count">Pushed · Count: {state.n}</p>
+  <for [row] in=state.rows by="id"><div class="row"><span>{row.label}</span></div></for>
+</div>

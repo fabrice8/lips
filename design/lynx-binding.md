@@ -1296,6 +1296,48 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
 
   Then push a changed template into the running app without a rebuild. Go or
   no-go is recorded here.
+
+  **Emulator half (2026-11-25, lips#39; relative only, no go/no-go).**
+  `demos/lynx-gate`: the same screen in Lips and in ReactLynx 0.129.4, a
+  counter and 100 keyed rows, 20 state changes 400 ms apart, each
+  bumping the counter and relabelling every tenth row. Lynx Explorer
+  4.1.0 on the Android emulator (API 36.1, arm64, on an Apple Silicon
+  Mac). Three runs each; the byte counts were the same in every run:
+
+  | | Lips | ReactLynx |
+  |---|---|---|
+  | First render crossing the threads (JSON bytes) | 9,348 | 43 |
+  | One state change (JSON bytes, median) | 1,525 | 284 |
+  | Step start → main-thread flush (median, three runs) | 3 · 26 · 11 ms | 3 · 15 · 9 ms |
+  | Background (`Lynx_JS`) CPU over the 20 steps | 2 · 11 · 7 ticks | 2 · 11 · 6 ticks |
+  | PSS after the run | 86–99 MB | 79–90 MB |
+  | Bundle | 103.7 KB | 96.4 KB |
+
+  - **What crosses.** ReactLynx renders its first screen on the main
+    thread, so only a 43-byte marker crosses; Lips builds it on the
+    background thread and sends every element (L6's instant first frame
+    is the answer to that). **Per state change Lips sends 5.4× more**,
+    and the cause is found: the rows are new objects, so every row's
+    text binding runs again, and the background host sends `SET_TEXT`
+    for all 100 rows, 89 of them unchanged. ReactLynx's diff sends the
+    11 that changed. Skipping text equal to what was last sent would
+    bring Lips to about the same size; a follow-up, not done here.
+  - **Latency and CPU are the same within the emulator's noise.** The
+    medians move by 3× between runs of the same build, the CPU over
+    the steps is a handful of 10 ms ticks for both, and the main-thread
+    (TASM) script never reaches one tick.
+  - **Memory overlaps.** Lips's range sits about 7 MB higher; one PSS
+    reading per run on an emulator cannot separate that from noise.
+  - **The template push holds.** After the run, Lips fetches a changed
+    template (177 bytes) from the dev server, compiles it on the device
+    and swaps it into the live instance (`inst.swap`): the screen shows
+    the new text with the state kept (`Pushed · Count: 20`), no
+    rebuild, no reload. ReactLynx compiles JSX at build time, so the
+    same change needs a rebuild and a hot reload.
+  - **Not measured:** first-frame time (the two apps do different work
+    before it, and the emulator's numbers would not transfer), and
+    anything absolute. The go/no-go needs a named mid-range phone, with
+    the same screens and `measure.sh`.
 - **L5 — Runtime templates** (the Modela export path, §4.4).
 - **L6 — Optimisations:** element templates for precompiled blocks, instant
   first frame, main-thread gesture handlers.

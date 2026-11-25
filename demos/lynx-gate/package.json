@@ -1,0 +1,18 @@
+{
+  "name": "lips-lynx-gate",
+  "private": true,
+  "type": "module",
+  "description": "RFC-006 L4: one screen in ReactLynx and in Lips, measured on a device",
+  "scripts": {
+    "build": "rspeedy build --config lynx.lips.config.ts && rspeedy build --config lynx.react.config.ts"
+  },
+  "devDependencies": {
+    "@lynx-js/react": "0.129.4",
+    "@lynx-js/react-rsbuild-plugin": "0.22.4",
+    "@lynx-js/rspeedy": "0.18.0",
+    "@lynx-js/types": "4.2.1",
+    "@lynx-js/vanilla-rsbuild-plugin": "0.1.2",
+    "stylis": "4.3.6",
+    "typescript": "5.8.2"
+  }
+}
