@@ -113,13 +113,24 @@ import Lips from '@lipsjs/lips'
 ```
 
 Components compose with **slots** (`<{input.renderer}/>`) and **events**
-(`this.emit('picked', …)` → parent `on-picked(...)`). Full lifecycle:
+(`this.emit('picked', …)` → parent `on-picked(...)`). A slot's expressions
+are where it was written; its context is where it is placed. Full lifecycle:
 `onCreate · onInput · onMount · onRender · onUpdate · onAttach · onDetach · onContext ·
-onError · onDestroy`.
+onError · onDestroy`. `onInput` runs at creation and again each time an
+input changes.
 
-### Constants
+A library of components installs as a plugin, with what it requires:
 
-`static` holds values that never change — reading them creates no subscription:
+```js
+import { menu } from '@lipsjs/lips/parts'
+lips.use( menu )   // and the popover it is built on
+```
+
+### Variables that never re-render
+
+`static` holds what a component keeps without re-rendering: reading it
+creates no subscription, and writing it redraws nothing. Each instance has
+its own copy, as it has of `state`:
 
 ```js
 {

@@ -50,14 +50,24 @@ export function setMessageFormat( engine: MessageFormatEngine ){ MESSAGE_FORMAT 
 const BUILTINS: Record<string, any> = {}
 export function registerBuiltin( name: string, template: any ){ BUILTINS[ name ] = template }
 
+/**
+ * What a name is to the compiler when it is not a component (`./tags`),
+ * INJECTED by the full entry: the tag tables are compile-time knowledge,
+ * which `./runtime` ships none of. A precompiled app's templates were
+ * compiled where the check runs, by an app that registers the same names.
+ */
+let TAKEN: ( ( name: string ) => string | undefined ) | null = null
+export function setNameCheck( fn: ( name: string ) => string | undefined ){ TAKEN = fn }
+
 import type { IRComponentDef, IRInstance, RuntimeOptions } from './runtime'
 import type { Untrusted } from './policy'
 import { renderIR } from './runtime'
 import { reactive, effect, signal } from './signal'
+import { initial } from './initial'
 import Events from '../events'
 import Stylesheet from '../stylesheet'
 import type { StyleIR, StyleCompileResult, StyleCompileOptions } from './style'
-import type { Template, Metavars, LipsConfig, Handler, MessageFormatEngine } from '../types'
+import type { Template, Metavars, LipsConfig, Handler, MessageFormatEngine, Plugin } from '../types'
 import I18N from '../i18n'
 
 /**
@@ -107,7 +117,8 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
     super()
     const handlers = guardHandlers( template.handler )
 
-    this.state = reactive( { ...( template.state || {} ) }, true )
+    // Its own copy of what the template declares, as each nested instance has (`./initial`)
+    this.state = reactive( initial( template.state || {} ), true )
     const inputR = input ? reactive( { ...input }, true ) : undefined
 
     /**
@@ -126,7 +137,7 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
       state: this.state,
       input: inputR,
       context: lips.getContext(),
-      static: template.static ?? template._static,
+      static: initial( template.static ?? template._static ),
       handlers,
       deep: true,
       // Compiled stylesheet — the runtime stamps `rel`, injects, and binds
@@ -212,6 +223,8 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
 export class IRLips<Context extends Object = Record<string, any>> {
   public debug: boolean
   private store = new Map<string, FacadeTemplate>()
+  /** Installed plugins, by name (`use`) */
+  private plugins = new Map<string, Plugin<any>>()
   private irCache = new WeakMap<FacadeTemplate, TemplateIR>()
   private defCache = new WeakMap<FacadeTemplate, IRComponentDef>()
   private styleCache = new WeakMap<FacadeTemplate, StyleIR>()
@@ -279,8 +292,43 @@ export class IRLips<Context extends Object = Record<string, any>> {
   }
 
   // ---- registry
+  /**
+   * A component by name. A name the compiler reads as an element or a
+   * syntax tag is refused: the compiler resolves those tags before it
+   * looks here, so the component would never render, and what fails
+   * instead is whatever its markup reads (`./tags`).
+   */
   register<MT extends Metavars = Metavars>( name: string, template: Template<MT> ){
+    const is = TAKEN?.( name )
+    if( is ) throw new Error(`[lips] <${name}> is ${is}: the compiler reads the tag as one, so a component of that name never renders. Register it under another name`)
+
     this.store.set( name, template )
+    return this
+  }
+  /**
+   * Install a plugin: what it requires first, then its components, then
+   * its own setup. Once per Lips: using it again, or another plugin that
+   * requires it, does nothing. Refused: another plugin of the same name,
+   * and a component name something else holds.
+   *
+   *   lips.use( menu )   // and the popover it is built on
+   */
+  use<O>( plugin: Plugin<O>, options?: O ){
+    const had = this.plugins.get( plugin.name )
+    if( had && had !== plugin ) throw new Error(`[lips] two plugins named <${plugin.name}>: one is installed already`)
+    if( had ) return this
+
+    // Marked before what it requires, so a cycle ends
+    this.plugins.set( plugin.name, plugin )
+    plugin.requires?.forEach( each => this.use( each ) )
+
+    for( const [ name, template ] of Object.entries( plugin.components || {} ) ){
+      const held = this.store.get( name )
+      if( held && held !== template ) throw new Error(`[lips] <${name}> of plugin <${plugin.name}> is registered already, by something else`)
+      this.register( name, template )
+    }
+    plugin.install?.( this, options )
+
     return this
   }
   unregister( name: string ){

@@ -33,6 +33,7 @@ import type { Host } from './host'
 import { domHost } from './host'
 import { pick, type TranslatableName } from '../i18n/lookup'
 import { sameBinds, sameChild, sameLets } from './swap'
+import { initial } from './initial'
 
 // ------------------------------------------------------------------- types
 export interface IRComponentDef {
@@ -196,7 +197,12 @@ const SLOT = Symbol('lips.slot')
 interface SlotRenderer {
   [ SLOT ]: true
   args: string[]
-  render( argvalues?: Record<string, any> ): BlockInstance
+  /**
+   * Each argument as what reads it: the slot's binds read it, so they
+   * follow what it depends on. `at` is where it is placed: its context
+   * and language.
+   */
+  render( args?: Record<string, () => any>, at?: Pick<RunEnv, 'context' | 'lang'> ): BlockInstance
 }
 const isSlot = ( v: any ): v is SlotRenderer => !!v && typeof v === 'object' && v[ SLOT ] === true
 
@@ -210,6 +216,37 @@ interface ComponentHooks {
   onError( error: unknown ): void
   /** Called once the component's first render completes */
   ready(): void
+}
+
+/**
+ * `onInput` again each time what the component is given changes, as the
+ * legacy engine ran it on every new input: once a turn however many
+ * inputs changed, with the input, after the first call at creation. Its
+ * own state is not its input, so its own writes never run it. Returns
+ * what stops it.
+ */
+function watchInput( self: any, input: Record<string, any> | undefined, hooks: ComponentHooks ): () => void {
+  if( !input || typeof self.onInput !== 'function' ) return () => {}
+
+  let first = true, scheduled = false, live = true
+  const { dispose } = effect( () => {
+    for( const k of Object.keys( input ) ) input[ k ] // track each, and which there are
+    if( first ){ first = false; return }
+    if( scheduled ) return
+    scheduled = true
+
+    // A promise job, as `notifyUpdate`'s: Lynx's background engine has no `queueMicrotask`
+    Promise.resolve().then( () => {
+      scheduled = false
+      if( !live ) return
+      untrack( () => {
+        try { self.onInput( input ) }
+        catch( error ){ hooks.onError( error ) }
+      })
+    })
+  })
+
+  return () => { live = false; dispose() }
 }
 
 function makeHooks( self: any ): ComponentHooks {
@@ -334,8 +371,18 @@ function release( h: Host, rec: LiveComp ){
 }
 
 /** Put a rendered block's range right after `ref` */
+/**
+ * Every block reaches the tree here: a branch, a row, a slot, a
+ * component. Placed into a LIVE tree, it settles what its components
+ * queued while it rendered off it: a branch that renders after mount
+ * (an `<if>` turning true, a row added) builds its nodes first and
+ * places them after, so none of its components found itself live when
+ * it was created, and their `onAttach` waited for a root mount that
+ * had already happened.
+ */
 function place( h: Host, ref: N, inst: BlockInstance ){
   h.insertAfter( ref, nodesOf( h, inst ) )
+  PENDING_ATTACH.length && h.connected( ref ) && flushAttach()
   return inst
 }
 
@@ -1174,11 +1221,18 @@ class IRRenderer {
              * the slot's argument values.
              */
             if( isSlot( verb ) ){
-              const argvalues: Record<string, any> = {}
-              for( const [ name, ci ] of Object.entries( child.inputs ) )
-                argvalues[ name ] = 'lit' in ci ? ci.lit : this.runner( ci.e, scopeNames )( benv )
+              /**
+               * Each argument is read where the slot reads it, not once
+               * here: `<{input.renderer} active=( state.active === i )/>`
+               * follows `state.active`.
+               */
+              const args: Record<string, () => any> = {}
+              for( const [ name, ci ] of Object.entries( child.inputs ) ){
+                const run = 'lit' in ci ? undefined : this.runner( ci.e, scopeNames )
+                args[ name ] = run ? () => run( benv ) : () => ( ci as { lit: unknown } ).lit
+              }
 
-              const slotInst = place( h, anchor, verb.render( argvalues ) )
+              const slotInst = place( h, anchor, verb.render( args, benv ) )
               inner.push( () => destroy( h, slotInst ) )
               return
             }
@@ -1403,8 +1457,13 @@ class IRRenderer {
   /**
    * Slotted body → `input.renderer` (old-engine convention):
    * the child template places it with `<{input.renderer}/>`.
-   * Content renders in the PARENT scope — a slot closes over
-   * where it was written, not where it is placed.
+   *
+   * Its expressions close over where it was WRITTEN: the parent's state,
+   * handlers and scope. Its context and language are where it is PLACED,
+   * as a component's are (RFC-005 §4): a component that provides context
+   * around what it places reaches the content it was given, and the
+   * layers around the component itself are still under it, since it was
+   * placed where the content was written.
    */
   private slotRenderer( contents: ArmIR, penv: RunEnv ): SlotRenderer {
     const parent = this
@@ -1412,15 +1471,12 @@ class IRRenderer {
     return {
       [ SLOT ]: true,
       args: contents.args,
-      render( argvalues?: Record<string, any> ){
+      render( args?: Record<string, () => any>, at?: Pick<RunEnv, 'context' | 'lang'> ){
         const scope = Object.create( penv.scope ?? null )
 
-        contents.args.forEach( name => {
-          const [ get ] = signal( argvalues?.[ name ] )
-          defineGetter( scope, name, get )
-        })
+        contents.args.forEach( name => defineGetter( scope, name, args?.[ name ] ?? ( () => undefined ) ) )
 
-        return parent.renderBlock( contents.block, { ...penv, scope } )
+        return parent.renderBlock( contents.block, at ? { ...penv, scope, context: at.context, lang: at.lang } : { ...penv, scope } )
       }
     }
   }
@@ -1499,7 +1555,10 @@ class IRRenderer {
     this.wireInputs( child, benv, scopeNames, input, wiring )
     if( child.contents ) input.renderer = this.slotRenderer( child.contents, benv )
 
-    const state = reactive( { ...( def.state || {} ) }, def.deep ?? false )
+    /** Its own copy of what the template declares: a template is drawn many times, and written by none of them */
+    const
+    state = reactive( initial( def.state || {} ), def.deep ?? false ),
+    statics = initial( def.statics )
 
     /**
      * Component event bus: the child emits, the parent's
@@ -1520,7 +1579,7 @@ class IRRenderer {
 
     const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
       ...( this.options.expose || {} ),
-      state, input, static: def.statics, context: benv.context,
+      state, input, static: statics, context: benv.context,
       /**
        * Overrides the host's global `setContext` (merged in by the
        * spread above): a write goes to the nearest `<context>` layer
@@ -1551,6 +1610,7 @@ class IRRenderer {
     // Handlers receive the input object (Modela: onInput({ host, settings }))
     try { Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
     catch( error ){ hooks.onError( error ) }
+    const unwatchInput = watchInput( self, input, hooks )
 
     /**
      * `context` and `lang` are INHERITED from the call site, not reset:
@@ -1560,7 +1620,7 @@ class IRRenderer {
      */
     const cenv: RunEnv = {
       state, input, context: benv.context, lang: benv.lang,
-      static: def.statics, self, scope: undefined
+      static: statics, self, scope: undefined
     }
     const renderer = new IRRenderer( def.ir, this.options, hooks )
     const inst = renderer.renderBlock( def.ir.root, cenv )
@@ -1659,6 +1719,7 @@ class IRRenderer {
         i > -1 && this.live.splice( i, 1 )
 
         unwatchContext?.()
+        unwatchInput()
         clearStyleBinds?.()
         clearStyles?.()
         destroy( this.h, inst )
@@ -1804,6 +1865,7 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
 
   try { input && Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
   catch( error ){ hooks.onError( error ) }
+  const unwatchInput = watchInput( self, input, hooks )
 
   let renderer = new IRRenderer( ir, options, hooks )
   let current = renderer.renderBlock( ir.root, env )
@@ -1883,6 +1945,7 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
       return { changes, salvaged: renderer.salvaged }
     },
     dispose(){
+      unwatchInput()
       clearStyleBinds?.()
       clearStyles?.()
       destroy( h, current )

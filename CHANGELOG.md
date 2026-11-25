@@ -5,6 +5,44 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Fixed — what the IR engine had dropped from the legacy one
+
+- **Each instance has its own `state` and `static`.** Both were the
+  template's own objects, shared by every instance and written by each:
+  two instances pushing into a declared list pushed into one array, the
+  template's. Each instance now starts from a deep copy of what its
+  template declares (plain objects, arrays, `Map`, `Set`, `Date`, `RegExp`,
+  typed arrays; a getter stays a getter). A class instance, a function or a
+  promise is kept as given, not copied.
+- **`onInput` runs again each time an input changes**, once a turn however
+  many changed, with the input, as it did before the IR engine (it ran at
+  creation only). A component's own state is not its input.
+- **Slot content takes context and language where it is placed.** Its
+  expressions still close over where it was written (the parent's state,
+  handlers and scope); its `context` and `self.lang` are the place's, as a
+  component's are. A component that provides context around what it places
+  now reaches the content it was given (RFC-005 §4.4).
+- **`onAttach` runs for a component a branch renders after mount**: an
+  `<if>` turning true, a row added, a slot under one. Such a branch builds
+  its nodes off the tree and places them after, so none of its components
+  found itself live when created, and `onAttach` never ran.
+- **A slot argument is read where the slot reads it**, so the content
+  follows it (`<{input.renderer} active=( state.active === i )/>`); it was
+  read once, when the slot was placed.
+
+### Added — the registry refuses what can never render, and plugins
+
+- `register()` refuses a name the compiler reads as an HTML or SVG element
+  or a syntax tag (`menu`, `dialog`, `nav`, `if`, …), in any case: the
+  compiler resolves those tags before it looks at the registry, so the
+  component never rendered, and what failed instead was whatever its markup
+  read. The tag tables moved to `src/ir/tags.ts`, so a build with no
+  compiler (`./runtime`) refuses them too.
+- `lips.use( plugin, options? )` installs a plugin: what it `requires`
+  first, then its `components`, then its `install( lips, options )`. Once
+  per Lips; another plugin of the same name, and a component name
+  something else holds, are refused. Chainable. `Plugin` is exported.
+
 ### Added — inline SVG on Lynx (lips#34)
 
 - An `<svg>` in a template renders on Lynx. Lynx draws an svg as one view

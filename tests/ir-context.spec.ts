@@ -156,6 +156,53 @@ describe('<context> scoping', () => {
   })
 })
 
+describe('slot content: written in one place, placed in another', () => {
+  /**
+   * A slot's expressions are where it was written: the app's state and
+   * handlers. Its context is where it is placed, as a component's is where
+   * it is placed: a component that provides context to what it places
+   * reaches the content it was given.
+   */
+  const frame = {
+    default: `<context theme="dark"><div class="frame"><{input.renderer}/></div></context>`
+  }
+
+  it('reads context where it is placed, and state where it was written', async () => {
+    lips.register( 'frame', frame )
+    lips.render( 'app', {
+      state: { who: 'app' },
+      default: `<frame><p class="in">{context.theme} {state.who}</p></frame>`
+    }).appendTo('#app')
+    await settle( () => !!q('.in') )
+    expect( txt('.in') ).toBe('dark app')
+  })
+
+  it('reaches a component in the content too, and falls through to what the place does not provide', async () => {
+    lips.register( 'frame', frame )
+    lips.register( 'badge', { default: `<b class="badge">{context.theme} {context.user}</b>` })
+    lips.render( 'app', { default: `<frame><badge/></frame>` }).appendTo('#app')
+    await settle( () => !!q('.badge') )
+    expect( txt('.badge') ).toBe('dark ada')
+  })
+
+  it('is placed under the layers around the component that places it, nearest first', async () => {
+    lips.register( 'frame', frame )
+    lips.render( 'app', {
+      default: `<context user="grace" theme="sepia"><frame><p class="in">{context.theme} {context.user}</p></frame></context>`
+    }).appendTo('#app')
+    await settle( () => !!q('.in') )
+    expect( txt('.in') ).toBe('dark grace')
+  })
+
+  it('takes the language where it is placed', async () => {
+    lips.register( 'frame', { default: `<i18n lang="fr-FR"><div><{input.renderer}/></div></i18n>` })
+    lips.register( 'x-lang', { default: `<b class="lang">{self.lang}</b>` })
+    lips.render( 'app', { default: `<frame><x-lang/></frame>` }).appendTo('#app')
+    await settle( () => !!q('.lang') )
+    expect( txt('.lang') ).toBe('fr-FR')
+  })
+})
+
 describe('<context> diagnostics', () => {
   it('rejects a spread — provided keys must be known at compile time', () => {
     const { diagnostics } = compileTemplate(`<context ...state.all><i>x</i></context>`)

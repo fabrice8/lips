@@ -39,6 +39,8 @@ jobs:
 
       # The demo builds against Lips as npm publishes it: built and packed (pack.sh)
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       # The one shared library the engine needs beyond glibc
       - name: Engine runtime dependency
@@ -96,6 +98,8 @@ jobs:
 
       # The demo builds against Lips as npm publishes it: built and packed (pack.sh)
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - uses: actions/cache@v4
         with:
@@ -146,6 +150,8 @@ jobs:
 
       # The demo builds against Lips as npm publishes it: built and packed (pack.sh)
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
 
       - uses: actions/cache@v4
         with:

@@ -9,6 +9,7 @@
  */
 import { readFileSync, existsSync } from 'node:fs'
 import { gzipSync } from 'node:zlib'
+import { execSync } from 'node:child_process'
 
 const KB = 1024
 
@@ -277,10 +278,28 @@ const KB = 1024
  * since HarmonyOS reads any text as true: +0.16 (2.62 → 2.78). The 13
  * names are spelled out: a factored pattern measured the same and matched
  * `accessibility-elements`, an iOS text attribute, which a spec now names.
+ *
+ * 2026-11-25d: runtime 15.40→16.05, full 34.45→35.15 — what the IR engine
+ * had dropped from the legacy one, and plugins: +0.63 / +0.69 (15.32 →
+ * 15.95, 34.37 → 35.06), on the bun in `.bun-version`. Measured one by one
+ * (runtime / full): each instance's own copy of state and static, +0.24 /
+ * +0.23; `lips.use`, +0.15 / +0.14; `onInput` on every input change, +0.06
+ * / +0.07; slot content under the context where it is placed and slot
+ * arguments read live, ~+0.1 each entry. The registry's name check is
+ * +0.06 in the full entry and 0 in `./runtime`: its tag tables are
+ * compile-time knowledge, so the full entry injects it (`setNameCheck`)
+ * rather than the runtime importing them, which cost +0.68. This is the
+ * reactivity-core kind of growth the 2026-08-17 note allows, not the
+ * compiler leaking across the seam.
+ *
+ * Sizes are what one minifier makes, so they are measured with one bun:
+ * the version in `.bun-version`, which every workflow installs. CI took
+ * the latest until then, and these budgets, set on a local 1.4.0, failed
+ * on its 1.4.5 by 0.01: 1.4.0 makes the full entry 0.09 smaller.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 15.40,  // precompiled-only: none of the above
+  'dist/lips.min.js': 35.15,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 16.05,  // precompiled-only: none of the above
   'dist/precompile.min.js': 14.25, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
@@ -311,6 +330,10 @@ for( const [ file, budget ] of Object.entries( BUDGETS ) ){
     over ? 'OVER' : 'ok'
   ])
 }
+
+/** The budgets hold for the pinned bun's minifier; another one's numbers differ by a few hundredths */
+const pinned = readFileSync( '.bun-version', 'utf8' ).trim(), built = execSync( 'bun --version' ).toString().trim()
+pinned !== built && console.log(`note: built with bun ${built}; the budgets are measured with ${pinned} (.bun-version), as CI builds\n`)
 
 const w = arr => arr.map( ( s, i ) => String( s ).padEnd([ 24, 9, 9, 6 ][ i ]) ).join('')
 console.log( w([ 'entry', 'gz KB', 'budget', '' ]) )

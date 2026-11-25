@@ -30,6 +30,9 @@ import type {
 } from './parser'
 import { parseTemplate } from './parser'
 import { parseExpression } from './expression'
+// The tag tables live in `./tags`, which the registry reads too
+import { CONTROL_TAGS, ARM_TAGS, HTML_TAGS } from './tags'
+export { CONTROL_TAGS, ARM_TAGS, HTML_TAGS }
 
 // ------------------------------------------------------------------- types
 export type Path = number[]
@@ -154,31 +157,7 @@ interface MacroDef {
 // ------------------------------------------------------------------ tables
 const ANCHOR = '<!--$-->'
 
-export const CONTROL_TAGS = new Set([
-  'if', 'else-if', 'else', 'for', 'switch', 'async', 'let', 'const', 'log',
-  // RFC-005 §4 — scoped context / scoped language
-  'context', 'i18n'
-])
-export const ARM_TAGS = new Set([ 'case', 'default', 'then', 'catch', 'loading' ])
 
-/** Standard HTML + common SVG tags — anything else is a component candidate */
-export const HTML_TAGS = new Set([
-  'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base', 'bdi', 'bdo',
-  'blockquote', 'body', 'br', 'button', 'canvas', 'caption', 'cite', 'code', 'col',
-  'colgroup', 'data', 'datalist', 'dd', 'del', 'details', 'dfn', 'dialog', 'div', 'dl',
-  'dt', 'em', 'embed', 'fieldset', 'figcaption', 'figure', 'footer', 'form', 'h1', 'h2',
-  'h3', 'h4', 'h5', 'h6', 'head', 'header', 'hgroup', 'hr', 'html', 'i', 'iframe', 'img',
-  'input', 'ins', 'kbd', 'label', 'legend', 'li', 'link', 'main', 'map', 'mark', 'menu',
-  'meta', 'meter', 'nav', 'noscript', 'object', 'ol', 'optgroup', 'option', 'output', 'p',
-  'picture', 'pre', 'progress', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'script', 'section',
-  'select', 'slot', 'small', 'source', 'span', 'strong', 'style', 'sub', 'summary', 'sup',
-  'table', 'tbody', 'td', 'template', 'textarea', 'tfoot', 'th', 'thead', 'time', 'title',
-  'tr', 'track', 'u', 'ul', 'var', 'video', 'wbr',
-  // SVG
-  'svg', 'circle', 'clippath', 'defs', 'ellipse', 'foreignobject', 'g', 'image', 'line',
-  'lineargradient', 'marker', 'mask', 'path', 'pattern', 'polygon', 'polyline',
-  'radialgradient', 'rect', 'stop', 'symbol', 'text', 'tspan', 'use'
-])
 
 /** `on-click.stop( … )`: what a host does with an element event besides calling its handler (`Host.listen`) */
 const EVENT_MODS = new Set([ 'stop', 'capture', 'outside' ])
