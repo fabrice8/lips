@@ -306,6 +306,35 @@ tracked individually and update whether or not `x` is listed. The old
 name said the opposite of that. `context` still works and means the same
 thing.
 
+### 4.4 Slot content: written in one place, placed in another
+
+A slot's content is written in one template and placed by another:
+
+```html
+<!-- the app writes it -->
+<frame><p>{state.title} · {context.theme}</p></frame>
+
+<!-- frame places it -->
+<context theme="dark"><div class="frame"><{input.renderer}/></div></context>
+```
+
+Its **expressions** close over where it was written: `state.title` is the
+app's, as are its handlers and the names in scope. Its **context and
+language** are where it is placed: `context.theme` is `dark`, and a
+component in the content renders under the same layers. Context was
+already where a component is placed rather than where it is declared
+(§4); slot content now follows the same rule, where it used to carry the
+written place's context with its expressions. The layers around `frame`
+itself are still beneath the content, since `frame` was placed where the
+content was written: a key `frame` does not provide falls through to them.
+
+This is what lets a component that places content give that content
+something without the app threading it: the pieces of a part finding
+their part (RFC-008). It is not a reason to reach for context. Context is
+for what a whole subtree shares and no one component owns (a theme, a
+service, the part a piece belongs to); what one component needs from its
+parent is an input, which keeps the component usable anywhere.
+
 ---
 
 ## 5. Loading — initial language and dictionaries

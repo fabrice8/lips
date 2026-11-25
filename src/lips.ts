@@ -10,7 +10,8 @@
  * time (see `compileTemplate`) for CSP-safe, parse-free startup.
  */
 
-import { IRLips, IRFacadeComponent, setCompiler, setStyleCompiler, setMessageFormat, registerBuiltin } from './ir/facade'
+import { IRLips, IRFacadeComponent, setCompiler, setStyleCompiler, setMessageFormat, registerBuiltin, setNameCheck } from './ir/facade'
+import { taken } from './ir/tags'
 import { messageFormat } from './i18n/engine'
 import { compileStyle } from './ir/style'
 import { compileTemplate } from './ir/compiler'
@@ -33,6 +34,7 @@ import { routerTemplate } from './ir/router'
 setCompiler( compileTemplate )
 setStyleCompiler( compileStyle )
 setMessageFormat( messageFormat )
+setNameCheck( taken )
 registerBuiltin( 'router', routerTemplate )
 
 export * from './types'

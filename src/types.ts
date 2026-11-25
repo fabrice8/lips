@@ -15,6 +15,7 @@ import type { MessageFunction } from 'messageformat/functions'
 import type { TemplateIR } from './ir/compiler'
 import type { StyleIR } from './ir/style'
 import type { Untrusted } from './ir/policy'
+import type { IRLips } from './ir/facade'
 
 /**
  * The four typed surfaces of a component. Defaults are permissive on
@@ -118,8 +119,11 @@ export type Template<MT extends Metavars = Metavars> = {
   ir?: TemplateIR
   state?: MT['State']
   /**
-   * Constants — read as `this.static` in a handler and `static.x` in a
-   * template. `_static` is the same field: a NAMED MODULE EXPORT cannot
+   * Variables that never re-render — read and written as `this.static` in
+   * a handler, read as `static.x` in a template, which subscribes to none
+   * of them. Each instance has its own copy, as it has of `state`: what
+   * the template declares is where each starts. `_static` is the same
+   * field: a NAMED MODULE EXPORT cannot
    * be called `static` (it is reserved in strict mode, and ES modules
    * are always strict), so the underscore exists for that form only.
    * Object literals should use `static`.
@@ -144,6 +148,21 @@ export type Template<MT extends Metavars = Metavars> = {
   stylesheet?: string
   /** Precompiled StyleIR — used instead of `stylesheet` (see `precompile`) */
   style?: StyleIR
+}
+
+/**
+ * What `lips.use()` installs: a library of components (`@lipsjs/lips/parts`
+ * is one), what it needs installed before it, and its own setup.
+ */
+export interface Plugin<Options = unknown> {
+  /** Installed once per Lips, however many times it is used or required */
+  readonly name: string
+  /** Installed before it, each once */
+  readonly requires?: readonly Plugin<any>[]
+  /** Registered by name; a name something else holds is refused */
+  readonly components?: Readonly<Record<string, Template<any>>>
+  /** Anything else it sets up, with what `use()` was given */
+  install?( lips: IRLips<any>, options?: Options ): void
 }
 
 export type LipsConfig<Context extends Object = {}> = {

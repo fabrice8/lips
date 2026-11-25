@@ -90,6 +90,51 @@ describe('slots', () => {
   })
 })
 
+describe('instances', () => {
+  /** A component that changes what it was given in state and static, as a component may */
+  class Client { #token = 't'; get token(){ return this.#token } }
+  const client = new Client()
+  const box = () => ({
+    state: { list: [ 1 ], at: { n: 0 }, when: new Date( 0 ), tags: new Set([ 'a' ]) },
+    static: { seen: [] as number[], calls: 0, client },
+    handler: {
+      onCreate(){
+        const s = this as any
+        s.state.list.push( 2 ); s.state.at.n++; s.state.tags.add('b')
+        s.static.seen.push( 1 ); s.static.calls++
+      }
+    },
+    default: `<p class="b">{state.list.length} {state.at.n} {state.tags.size} {static.seen.length} {static.calls} {static.client.token}</p>`
+  })
+
+  it('each starts from its own copy of state and static; the template is never written', async () => {
+    const t = box()
+    lips.register( 'box', t )
+    lips.render( 'app', { default: `<div><box/><box/></div>` }).appendTo('#app')
+    await settle( () => qa('.b').length === 2 )
+    expect( qa('.b').map( b => b.textContent ) ).toEqual([ '2 1 2 1 1 t', '2 1 2 1 1 t' ])
+    expect( t.state ).toEqual({ list: [ 1 ], at: { n: 0 }, when: new Date( 0 ), tags: new Set([ 'a' ]) })
+    expect( t.static ).toMatchObject({ seen: [], calls: 0 })
+  })
+
+  it('a root rendered twice from one template is two instances', async () => {
+    const t = box()
+    lips.render( 'r1', t ).appendTo('#app')
+    lips.render( 'r2', t ).appendTo('#app')
+    await settle( () => qa('.b').length === 2 )
+    expect( qa('.b').map( b => b.textContent ) ).toEqual([ '2 1 2 1 1 t', '2 1 2 1 1 t' ])
+    expect( t.state.list ).toEqual([ 1 ])
+    expect( t.static.seen ).toEqual( [] )
+  })
+
+  it('what is not data is kept, not copied: a class instance in static is the one given', async () => {
+    let got: any
+    lips.render( 'r', { static: { client }, handler: { onCreate(){ got = ( this as any ).static.client } }, default: `<p>x</p>` }).appendTo('#app')
+    await settle( () => !!got )
+    expect( got ).toBe( client )
+  })
+})
+
 describe('component events', () => {
   it('delivers emitted arguments to the parent handler', async () => {
     const seen: any[] = []
@@ -155,6 +200,41 @@ describe('lifecycle', () => {
     await settle( () => !!q('.lc') )
 
     expect( order ).toEqual([ 'create', 'input', 'mount', 'render' ])
+  })
+
+  it('runs onInput again each time an input changes: once a turn, with the input, as the legacy engine did', async () => {
+    const seen: any[] = []
+    lips.register('seeded', {
+      state: { count: 0 },
+      handler: {
+        onInput( input: any ){ seen.push({ ...input }); ( this as any ).state.count = Number( input.initial ) },
+        bump(){ ( this as any ).state.count++ }
+      },
+      default: `<p class="seeded" on-click( bump )>{state.count}</p>`
+    })
+    const host = lips.render('seeded-host', {
+      state: { a: 1, b: 'x', other: 0 },
+      default: `<div><seeded initial=state.a label=state.b/><i class="other">{state.other}</i></div>`
+    })
+    host.appendTo('#app')
+    await settle( () => q('.seeded')?.textContent === '1' )
+    expect( seen ).toEqual([ { initial: 1, label: 'x' } ])
+
+    // Its own state is not its input
+    ;( q('.seeded') as HTMLElement ).click()
+    await settle( () => q('.seeded')?.textContent === '2' )
+    // Nor is what the parent changes that it is not given
+    host.state.other = 1
+    await settle( () => q('.other')?.textContent === '1' )
+    await tick()
+    expect( seen ).toHaveLength( 1 )
+
+    // Two inputs changed in one turn: one call, seeing both
+    host.state.a = 5
+    host.state.b = 'y'
+    await settle( () => q('.seeded')?.textContent === '5' )
+    await tick()
+    expect( seen ).toEqual([ { initial: 1, label: 'x' }, { initial: 5, label: 'y' } ])
   })
 
   it('fires onUpdate/onRender after state changes (batched)', async () => {
