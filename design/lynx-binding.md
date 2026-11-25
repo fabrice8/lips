@@ -383,6 +383,27 @@ API calls only on the main thread, serializable patches from the background.
   - Event payloads carry `type` and `detail` only (`value` for inputs is
     L3). *Done in L3: `e.target.value` beside `e.detail.value`.*
 
+**As built, equal writes (2026-11-25).**
+
+- **The cause.** The L4 emulator run (§7) found Lips sending 5.4× more
+  per state change than ReactLynx. A replaced `<for>` array re-runs every
+  kept row's binds: `set` for a new object, `touch()` for the same one,
+  which deep-reactive mode needs. Nothing between the bind and the wire
+  dropped a value equal to the last, so 100 rows' text crossed where 11
+  changed.
+- **As built.** The background host drops an equal write, the one place
+  that sees them all: `setText` against the node's text, `attr` against
+  a mirror of what it last wrote per element, `styleVar` against the
+  element's custom properties. On a 20-row screen with bound text,
+  `data-*`, `class` and a custom property per row, a step sends the 3
+  texts that changed instead of every row's, and re-assigning the same
+  array sends nothing (it sent 200 ops at 100 rows). The DOM host is
+  unchanged: its cost was not measured.
+- **Tests.** Tier A, 2 specs: a replaced and a re-assigned array, and a
+  changed value, a removal and a custom property each sent once. Six
+  deliberate breakages were each caught (each check removed, the mirror
+  not kept, a removal sent twice, a changed attribute dropped).
+
 ### 4.3 Vocabulary
 
 Templates stay HTML-shaped and map onto Lynx elements:
@@ -629,8 +650,10 @@ with `__LoadStyleSheet`, which is internal (§8).
   - Key events do not type: text entry goes through an IME interface the
     runtime does not document. Typing stays tier C, and tier A types for
     real in Chromium.
-- **Protocol: `INVOKE id, method, params`.** The applier runs UI methods
-  after the batch's flush, never before it.
+- **Protocol: `INVOKE id, method, params, call`.** The applier runs UI
+  methods after the batch's flush, never before it. A `call` other than 0
+  asks for the result: the main thread sends `{ call, code, data }` back
+  on the event channel, and the background resolves what waits for it.
 - **Inputs.** The background host sends `value` as the attribute in the
   batch that creates the input, and as `setValue` after that. A value equal
   to what the input last reported is not sent, so state that mirrors the
@@ -817,6 +840,41 @@ with `__LoadStyleSheet`, which is internal (§8).
   natively (the headless runtime lays out `flow` in one column, and the
   sticky question in "As built, cell hints" is still open).
 
+**As built, Lynx's boolean attributes (2026-11-25).**
+
+- **The question.** Lips writes an attribute as text. Which of Lynx's
+  typed attributes ignore text, beyond a list's own (above)? Read in
+  lynx-family/lynx @ f4bd988:
+  - **The core reads `flatten`** as a boolean or as the text `"false"`
+    (`Element::CheckFlattenRelatedProp`): text works.
+  - **Android reads text.** `JavaOnlyMap.getInt` parses `"2"`,
+    `getBoolean` takes `"true"` or `"yes"` in any case, and `overlay`'s
+    `setVisible( Dynamic )` takes a string. So `overlay`'s `visible` and
+    `level` work as text.
+  - **iOS reads text.** `LynxConverter`'s `toBOOL` takes `"true"` or
+    `"YES"`, `toNSInteger` is `integerValue`.
+  - **HarmonyOS does not.** Its props are read with `Value::Bool()`, and
+    any non-empty text is true there (`base_value.h`, `IsFalse`): so
+    `visible="false"` shows an overlay. The same holds for 12 more,
+    in `UIBase::prop_setters_` and `UIOverlay::OnPropUpdate`.
+    HarmonyOS's overlay has no `level` at all.
+- **As built.** The applier sends those 13 as booleans when their value
+  is text (`BOOLS` in `src/lynx/main.ts`), read as Android reads it, with
+  an empty value true as in HTML. Android, iOS and HarmonyOS then agree.
+  The rule runs before a list's own rule. A boolean the background sends
+  (its ARIA) and a removal pass through as they are. Bound booleans were
+  already right: `true` is `""`, and `false` removes the attribute.
+- **Tests.** Tier A, 2 specs: what the applier hands `__SetAttribute` on
+  an `overlay`, a `scroll-view`, a `list` and an ARIA-quiet `div`, in
+  written, empty, mixed-case and bound forms; and every name, with six
+  near misses left as text (`accessibility-elements` among them).
+  Eleven deliberate breakages: ten were caught (no rule, the list rule
+  first, the list flag's reading, an empty value false, `"yes"` dropped,
+  case-sensitive, unanchored, each end of the pattern loose, a name
+  dropped). Converting non-text values too survived, and is equivalent:
+  the pattern reads a boolean as itself.
+- **Not verified.** HarmonyOS itself: no device or runtime here (tier C).
+
 **As built, event data (2026-11-24, lips#35).**
 
 - **What the engine hands a listener.** Read in the engine source
@@ -959,6 +1017,55 @@ with `__LoadStyleSheet`, which is internal (§8).
 - **Not verified.** That `requestAccessibilityFocus` moves the screen
   reader, and that `animate` plays, are tier C. `keepFocus` is
   hot-swap only and has no tier B check.
+
+**As built, a ref that measures (2026-11-25).**
+
+- **The need.** A popover, a menu or a tooltip places itself from where
+  its trigger is (RFC-008 §7). On Lynx a ref's methods ran and nothing
+  came back: the applier passed Lynx's callback a no-op.
+- **What Lynx has.** `__InvokeUIMethod( el, 'boundingClientRect', {}, cb )`
+  calls back `{ code, data: { id, dataset, left, top, right, bottom,
+  width, height } }`. The numbers are in dp/pt, the units of Lynx's CSS
+  pixels, relative to the LynxView by default, as the DOM's are to the
+  viewport. Android answers once layout is done (`LynxBaseUI.
+  boundingClientRect` waits for `uiOwnerDidPerformLayout`). `code` 0 is
+  success (`LynxUIMethodConstants`).
+- **The name is the DOM's.** `getBoundingClientRect()` on the background
+  host's node returns a promise of `{ x, y, width, height, top, right,
+  bottom, left }`, or `null`. On the DOM the ref is the element, whose
+  method returns the box itself; `await` reads both the same, so
+  `await this.refs.anchor.getBoundingClientRect()` is one line on both
+  hosts. No new method on the DOM side, and the core carries no table.
+- **Null, not a throw.** For a node that is no Lynx element (an svg's
+  part: there is nothing to ask), and for any answer other than success
+  with data. A part that places itself falls back to a default place; an
+  error would only make every caller wrap it.
+- **A layout-only box has nothing to measure.** Lynx gives a node with
+  only layout styles, no attribute and no event no native view
+  (`Element::CanBeLayoutOnly`), and answers it `NO_UI_FOR_NODE` (6). "Any
+  attribute will cause has_layout_only_props_ = false"
+  (`MarkHasLayoutOnlyPropsIfNecessary`), and a node that stops being
+  layout-only gets its view at the next flush (`TransitionToNativeView`).
+  So the first measure sets `lips-rect` in the same batch, before the
+  flush the call runs after. It costs one native view per measured box,
+  and only measured boxes pay it; it is sent once (equal writes are not
+  sent again).
+- **Each call its own.** Calls are numbered; an answer resolves its own
+  call and is dropped. A call Lynx never answers leaves one entry behind.
+- **Tests.**
+  - Tier A, 4 specs: the box mapped to the DOM's shape, after the flush,
+    two calls in flight each answered by their own; `lips-rect` set once;
+    `null` for code 6 and for success with no data; `null` at once for an
+    svg's part, with nothing asked; on the DOM, the platform's own. Nine
+    deliberate breakages were each caught (the applier never answering,
+    answering the wrong call, call ids reused, the old INVOKE arity, no
+    `lips-rect`, the box mapped wrong, an error code read as success, the
+    reply not delivered, an svg part asked).
+  - Tier B and Lynx for Web e2e: the demo measures a box with only a width
+    and a height, so a layout-only one, and shows `Rect: 120×30`.
+- **Not verified.** Android and iOS devices (tier C). `relativeTo` and
+  `androidEnableTransformProps` are not passed: a transformed box on
+  Android measures untransformed.
 
 ### 4.6 Expressions
 
@@ -1295,7 +1402,49 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
   - memory.
 
   Then push a changed template into the running app without a rebuild. Go or
-  no-go is recorded here.
+  no-go is recorded here, against the criteria below.
+
+  **Pass criteria (set 2026-11-25, before the phone run).** Numbers alone
+  decide nothing, so the bar is set before anything is measured on the
+  phone. Each criterion compares Lips with ReactLynx on the same phone, the
+  same screen and the same run. Small numbers get an absolute margin, since
+  a ratio of two 3 ms medians is noise.
+
+  - **The run.** A named mid-range Android phone: one Android 13 or later
+    model with 4–6 GB of RAM and a mid-tier system-on-chip. The phone is
+    on charge-off and Wi-Fi only; nothing else is installed or running.
+    Both apps are release bundles in the same Lynx Explorer build. Five runs
+    each, alternating Lips and ReactLynx; every number is the median of the
+    five. The record names the phone, the Android and Lynx versions and the
+    commit.
+  - **The screens.** The gate's screen (a counter and 100 keyed rows, 20
+    state changes), and a scrolling screen: a `list` of 1,000 rows, each a
+    text and an image placeholder, flung end to end for 5 seconds.
+
+  | Measure | Lips passes when |
+  |---|---|
+  | State change → main-thread flush, p50 and p95 | ≤ 1.5× ReactLynx's, or ≤ 5 ms above it |
+  | CPU per thread over the 20 steps (background, main) | ≤ 1.5× ReactLynx's, or ≤ 20 ms above it |
+  | Bytes per state change | ≤ 1.5× ReactLynx's |
+  | First frame (launch → first flush with content) | ≤ 100 ms after ReactLynx's |
+  | Frames while flinging the list | ≥ 99% within 16.7 ms and none over 33 ms; if ReactLynx misses that on the same phone, no worse than ReactLynx |
+  | Memory (PSS after the run) | ≤ ReactLynx's + 15 MB |
+  | Template push | a changed template reaches the running app with no rebuild, the state is kept, and nothing errors |
+  | Errors | no crash and no JS error in any run |
+
+  - **Go** when every row passes. **No-go** names the rows that failed, and
+    the gate is run again after their fix. A row is never waived after the
+    run.
+  - **Why these.** 1.5× keeps Lips in ReactLynx's class without asking it
+    to beat a framework with years of tuning. The first frame gets a fixed
+    margin rather than a ratio, because Lips builds its first screen on the
+    background thread by design; L6's instant first frame is the answer to
+    that, and the margin tightens when L6 lands. 16.7 ms is one frame at
+    60 Hz, and 33 ms is a dropped frame anyone sees. 15 MB is what a second
+    framework runtime and its templates may cost on a 4 GB phone.
+  - **Not yet in `measure.sh`:** frame timing (`dumpsys gfxinfo <package>
+    framestats` around the fling), first-frame time, and the list screen.
+    They come with the phone run.
 
   **Emulator half (2026-11-25, lips#39; relative only, no go/no-go).**
   `demos/lynx-gate`: the same screen in Lips and in ReactLynx 0.129.4, a
@@ -1320,8 +1469,9 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
     and the cause is found: the rows are new objects, so every row's
     text binding runs again, and the background host sends `SET_TEXT`
     for all 100 rows, 89 of them unchanged. ReactLynx's diff sends the
-    11 that changed. Skipping text equal to what was last sent would
-    bring Lips to about the same size; a follow-up, not done here.
+    11 that changed. Since fixed: the background host no longer sends a
+    write equal to the last one (§4.2, "As built, equal writes"), so a step sends the
+    11 `SET_TEXT` ops that changed. Not re-measured on the emulator.
   - **Latency and CPU are the same within the emulator's noise.** The
     medians move by 3× between runs of the same build, the CPU over
     the steps is a handful of 10 ms ticks for both, and the main-thread

@@ -406,6 +406,13 @@ fn main() -> R<()> {
   let jumped = has(&mut page, text("Top: 60"))?;
   check("a ref's scrollTo({ top: 60 }) scrolls the native scroll view", jumped, page.content()?);
 
+  tap(&mut page, "#measure")?;
+  let measured = has(&mut page, text("Rect: 120×30"))?;
+  // On failure, what the page shows: `none` when the engine answered without a box, empty when it never answered
+  let shown = page.content()?;
+  let shown = shown.find("text=\"Rect:").map_or(String::from("no Rect line"), |at| shown[at..].chars().take(40).collect());
+  check("a ref's getBoundingClientRect() answers from the engine, for a layout-only box", measured, shown);
+
   tap(&mut page, "#shuffle")?;
   let shuffled = wait_for(&mut page, "the reorder", |p| Ok(cells(&p.content()?).ends_with(&[40, 39, 38, 37])))?;
   check(

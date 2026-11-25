@@ -19,9 +19,11 @@
  *                                   `name.capture`, `name.stop` bind it so
  *   UNLISTEN   id, name             stop forwarding it
  *   RELEASE    id                   forget the id (the node is gone)
- *   INVOKE     id, method, params   a UI method (`setValue`, `scrollTo`, …),
- *                                   once the batch is flushed; `animate`
- *                                   is `__ElementAnimate( params )`
+ *   INVOKE     id, method, params,  a UI method (`setValue`, `scrollTo`, …),
+ *              call                 once the batch is flushed; `animate`
+ *                                   is `__ElementAnimate( params )`. A
+ *                                   `call` other than 0 asks for its
+ *                                   result, sent back as a `WireReply`
  *
  * A `list` is the exception to "INSERT inserts": Lynx asks for its cells
  * as they scroll into view. The applier keeps each list's order and
@@ -42,7 +44,7 @@ RELEASE = 9,
 INVOKE = 10
 
 /** Operand count per opcode, indexed by opcode */
-export const ARITY = [ 2, 2, 3, 2, 3, 2, 2, 2, 2, 1, 3 ]
+export const ARITY = [ 2, 2, 3, 2, 3, 2, 2, 2, 2, 1, 4 ]
 
 export const PAGE_ID = 1
 
@@ -92,6 +94,16 @@ export interface WireEvent {
     touches?: WirePoint[]
     changedTouches?: WirePoint[]
   }
+}
+
+/**
+ * A UI method's result, for the INVOKE that asked (`call`): what Lynx's
+ * callback was given, `code` 0 for success (`LynxUIMethodConstants`).
+ */
+export interface WireReply {
+  call: number
+  code: number
+  data?: unknown
 }
 
 /** A Lips template tag → the Lynx element it renders as (RFC-006 §4.3) */

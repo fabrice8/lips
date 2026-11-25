@@ -37,8 +37,11 @@ export const TEMPLATE = `
   <div class="row">
     <button class="btn" id="focus" data-k="focus" on-click( focusField )>focus</button>
     <button class="btn" id="jump" data-k="jump" on-click( jump )>jump</button>
+    <button class="btn" id="measure" data-k="measure" on-click( measure )>measure</button>
+    <div style="width: 120px; height: 30px; flex-shrink: 0" @ref="probe"></div>
   </div>
   <p class="echo" id="focused" data-k="focused">Focused: {state.focusN}</p>
+  <p class="echo" id="rect" data-k="rect">Rect: {state.rect}</p>
   <div class="row" id="actions" on-click( onRow ) on-click.outside( onOutside )>
     <button class="btn" id="fill" data-k="fill" on-click.stop( fill )>fill</button>
     <button class="btn" id="shuffle" data-k="shuffle" on-click( shuffle )>shuffle</button>
@@ -73,6 +76,7 @@ export const state = {
   focusN: 0,
   outTaps: 0,
   top: 0,
+  rect: '',
   lines: Array.from({ length: 12 }, ( _, i ) => i + 1 ),
   feed: Array.from({ length: 40 }, ( _, i ) => ({ id: i + 1 }) )
 }
@@ -93,6 +97,11 @@ export const handlers = {
   // lips#37: element references; the input's own focus event says the focus landed
   focusField( this: any ){ this.refs.field.focus() },
   jump( this: any ){ this.refs.scroller.scrollTo({ top: 60 }) },
+  // A box with only layout styles: Lynx gives it no native view unless it is measured
+  async measure( this: any ){
+    const r = await this.refs.probe.getBoundingClientRect()
+    this.state.rect = r ? `${Math.round( r.width )}×${Math.round( r.height )}` : 'none'
+  },
   onFocused( this: any ){ this.state.focusN++ },
   onOutside( this: any ){ this.state.outTaps++ },
   onTouch( this: any, e: any ){ this.state.touched = `${Math.round( e.touches[ 0 ].clientX )} on ${e.currentTarget.dataset.k}` },

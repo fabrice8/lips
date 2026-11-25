@@ -46,10 +46,13 @@ let env: LynxTestingEnv
 /** UI method calls: element, method, params, and how many flushes came first */
 let invoked: [ any, string, any, number ][]
 let flushes = 0
+/** What a UI method answers, when a spec says: by default nothing, as the engine never calls back a method that returns nothing */
+let answer: ( ( el: any, method: string, params: any ) => { code: number, data?: unknown } ) | undefined
 
 beforeEach( () => {
   invoked = []
   flushes = 0
+  answer = undefined
   // vitest's own jsdom window: the environment's elements live in its document
   env = new LynxTestingEnv({ window: window as any })
   // Its Element PAPI looks itself up here, as its vitest preset would install it
@@ -67,7 +70,11 @@ beforeEach( () => {
   Object.assign( env.mainThread.globalThis, {
     __AddEventListener: ( el: any, name: string, fn: any, o: any ) => el.addEventListener( name, engine( fn, o ), phase( o ) ),
     __RemoveEventListener: ( el: any, name: string, fn: any, o: any ) => el.removeEventListener( name, engine( fn ), phase( o ) ),
-    __InvokeUIMethod: ( el: any, method: string, params: any ) => { invoked.push([ el, method, params, flushes ]) },
+    __InvokeUIMethod: ( el: any, method: string, params: any, cb: ( r: any ) => void ) => {
+      invoked.push([ el, method, params, flushes ])
+      // Asynchronously, as the engine answers once laid out
+      answer && setTimeout( () => cb( answer!( el, method, params ) ) )
+    },
     __ElementAnimate: ( el: any, args: any ) => { invoked.push([ el, '__ElementAnimate', args, flushes ]) },
     __FlushElementTree: () => { flushes++ }
   })
@@ -540,6 +547,55 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     for( const n of TEXT ) expect( sent[ n ], n ).toBe('1')
   })
 
+  it('Lynx\'s boolean attributes reach it as booleans: HarmonyOS reads any text as true', async () => {
+    const sent: [ string, string, unknown ][] = []
+    const setAttribute = env.mainThread.globalThis.__SetAttribute
+    env.mainThread.globalThis.__SetAttribute = ( el: any, name: string, v: unknown ) => {
+      sent.push([ el.tagName.toLowerCase(), name, v ])
+      return setAttribute( el, name, v )
+    }
+    const app = await boot(
+      `<overlay visible=state.v events-pass-through="true"><p>x</p></overlay>`
+      + `<scroll-view user-interaction-enabled="false" ignore-focus event-through="FALSE" block-native-event="Yes" skip-redirection="1" native-interaction-enabled="untrue" accessibility-label="false" exposure-scene="true"></scroll-view>`
+      + `<list user-interaction-enabled="false" span-count="2"></list>`
+      + `<div role="none"><p>x</p></div>`,
+      { state: { v: 'false' } } )
+    const of = ( tag: string ) => Object.fromEntries( sent.filter( s => s[ 0 ] === tag && s[ 1 ] !== 'update-list-info' ).map( s => [ s[ 1 ], s[ 2 ] ] ) )
+    expect( of('overlay') ).toEqual({ visible: false, 'events-pass-through': true })
+    // As Android reads them: present, "true" or "yes" in any case; other attributes keep their text
+    expect( of('scroll-view') ).toMatchObject({ 'user-interaction-enabled': false, 'ignore-focus': true, 'event-through': false, 'block-native-event': true,
+      'skip-redirection': false, 'native-interaction-enabled': false, 'accessibility-label': 'false', 'exposure-scene': 'true' })
+    // Before a list's own rule
+    expect( of('list') ).toEqual({ 'user-interaction-enabled': false, 'span-count': 2 })
+    // The background's ARIA sends a boolean, which stays one
+    expect( of('view') ).toMatchObject({ 'accessibility-element': false })
+
+    // Bound: text converts again, true is present, false removes it
+    for( const [ v, want ] of [ [ 'true', true ], [ true, true ], [ false, null ] ] as const ){
+      sent.length = 0
+      await app.act( () => app.inst.state.v = v as any )
+      expect( of('overlay'), String( v ) ).toEqual({ visible: want })
+    }
+  })
+
+  it('every Lynx boolean attribute named is converted', async () => {
+    // Lynx 4.x: `UIBase::prop_setters_` that read `Value::Bool()`, and `UIOverlay::OnPropUpdate`
+    const FLAG = [ 'visible', 'events-pass-through', 'event-through', 'ignore-focus', 'user-interaction-enabled', 'native-interaction-enabled',
+      'block-native-event', 'block-list-event', 'skip-redirection', 'enable-exposure-ui-clip', 'accessibility-element',
+      'accessibility-elements-hidden', 'accessibility-exclusive-focus' ]
+    // Near misses: a prefix or suffix more, and Lynx's text attributes beside them
+    const TEXT = [ 'visible-area', 'is-visible', 'accessibility-elements', 'accessibility-label', 'accessibility-traits', 'exposure-id' ]
+    const sent: Record<string, unknown> = {}
+    const setAttribute = env.mainThread.globalThis.__SetAttribute
+    env.mainThread.globalThis.__SetAttribute = ( el: any, name: string, v: unknown ) => {
+      sent[ name ] = v
+      return setAttribute( el, name, v )
+    }
+    await boot(`<scroll-view ${[ ...FLAG.map( n => `${n}="false"` ), ...TEXT.map( n => `${n}="false"` ) ].join(' ')}></scroll-view>`)
+    for( const n of FLAG ) expect( sent[ n ], n ).toBe( false )
+    for( const n of TEXT ) expect( sent[ n ], n ).toBe('false')
+  })
+
   it('an input value: the attribute first, then setValue after the flush', async () => {
     const app = await boot( `<input data-k="in" value=state.v>`, { state: { v: 'a' } } )
     const input = app.q('[data-k="in"]')
@@ -870,6 +926,45 @@ describe('element references: @ref (#37)', () => {
     expect( refs ).toEqual( {} )
   })
 
+  it('Lynx: getBoundingClientRect() answers with the box Lynx measured, after the flush, and each call its own', async () => {
+    answer = el => ({ code: 0, data: { id: '', dataset: {}, left: +el.dataset.k, top: 20, right: +el.dataset.k + 100, bottom: 70, width: 100, height: 50 } })
+    const app = await boot( `<div data-k="10" @ref="a"></div><div data-k="300" @ref="b"></div>` )
+    const { a, b } = app.inst.self.refs
+    const [ ra, rb ] = await Promise.all([ a.getBoundingClientRect(), b.getBoundingClientRect() ])
+    expect( ra ).toEqual({ x: 10, y: 20, width: 100, height: 50, top: 20, right: 110, bottom: 70, left: 10 })
+    expect( rb ).toMatchObject({ x: 300, left: 300, right: 400 })
+    expect( calls() ).toEqual([ [ 'view', 'boundingClientRect', {}, 2 ], [ 'view', 'boundingClientRect', {}, 2 ] ])
+    // Measured boxes are given a native view, once
+    expect( app.page.querySelectorAll('[lips-rect]') ).toHaveLength( 2 )
+    invoked = []
+    await a.getBoundingClientRect()
+    expect( calls() ).toHaveLength( 1 )
+  })
+
+  it('Lynx: getBoundingClientRect() is null when Lynx cannot measure the box', async () => {
+    answer = () => ({ code: 6, data: 'node does not have a LynxUI' })
+    const app = await boot( `<div @ref="a"></div>` )
+    expect( await app.inst.self.refs.a.getBoundingClientRect() ).toBeNull()
+    answer = () => ({ code: 0 })
+    expect( await app.inst.self.refs.a.getBoundingClientRect() ).toBeNull()
+  })
+
+  it('Lynx: getBoundingClientRect() is null at once for what is no Lynx element: an svg\'s part', async () => {
+    answer = () => ({ code: 0, data: { left: 1, top: 1, right: 2, bottom: 2, width: 1, height: 1 } })
+    const app = await boot( `<svg viewBox="0 0 10 10"><rect @ref="r" width="5" height="5"/></svg>` )
+    expect( await app.inst.self.refs.r.getBoundingClientRect() ).toBeNull()
+    expect( calls() ).toEqual( [] )
+  })
+
+  it('dom: getBoundingClientRect() is the platform\'s, and await reads it as on Lynx', async () => {
+    const box = document.createElement('div')
+    document.body.append( box )
+    const inst = renderIR( compileTemplate(`<div @ref="a"></div>`).ir, {} )
+    inst.mount( box )
+    expect( await inst.self.refs.a.getBoundingClientRect() ).toMatchObject({ x: 0, y: 0, width: 0, height: 0 })
+    box.remove()
+  })
+
   it('dom: the ref is the element, so its methods are the platform\'s', async () => {
     const box = document.createElement('div')
     document.body.append( box )
@@ -1167,5 +1262,66 @@ describe('Lynx bundles', () => {
     const sources = import.meta.glob( '../src/**/*.ts', { query: '?raw', import: 'default', eager: true })
     expect( Object.keys( sources ).length ).toBeGreaterThan( 20 )
     expect( Object.keys( sources ).filter( f => sources[ f ].includes('\0') ) ).toEqual([])
+  })
+})
+
+// ------------------------------------------------------------ equal writes
+describe('background host: an equal write is not sent (#39, L4)', () => {
+  const rows = ( step: number ) => Array.from({ length: 20 }, ( _, i ) => ({ id: i, label: i % 10 ? `row ${i}` : `row ${i} · ${step}` }) )
+  const ops = ( batches: unknown[][] ) => batches.flatMap( b => opsOf( b as any[] ) )
+
+  it('a replaced array sends the rows that changed, and the same array sends nothing', async () => {
+    const batches: unknown[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const inst = renderIR<LynxNode>( tree(`<p>Count: {state.n}</p><for [row] in=state.rows by="id"><div data-k={row.id} class={row.id % 2 ? 'odd' : 'even'} style="--w:{row.id}px"><p>{row.label}</p></div></for>`),
+      { state: { n: 0, rows: rows( 0 ) } }, { host: bg.host })
+    inst.mount( bg.root )
+    await tick()
+
+    batches.length = 0
+    inst.state.n = 1
+    inst.state.rows = rows( 1 )
+    await tick()
+    // The count and rows 0 and 10: nothing else differs
+    expect( ops( batches ).map( o => [ o[ 0 ], o[ 2 ] ] ) ).toEqual([ [ OP.SET_TEXT, 'Count: 1' ], [ OP.SET_TEXT, 'row 0 · 1' ], [ OP.SET_TEXT, 'row 10 · 1' ] ])
+
+    batches.length = 0
+    inst.state.rows = [ ...inst.state.rows ]
+    await tick()
+    expect( ops( batches ) ).toEqual( [] )
+  })
+
+  it('a changed value is still sent, and a removal once', async () => {
+    const batches: unknown[][] = []
+    const bg = createBackgroundHost( ops => batches.push( ops ) )
+    const inst = renderIR<LynxNode>( tree(`<div data-k={state.k} title={state.t} style="--w:{state.w}"><p>{state.k}</p></div>`),
+      { state: { k: 'a', t: 'x', w: '1px' } }, { host: bg.host })
+    inst.mount( bg.root )
+    await tick()
+    batches.length = 0
+
+    inst.state.k = 'b'
+    inst.state.t = null
+    inst.state.w = '2px'
+    await tick()
+    const sent = ops( batches ).map( o => o.slice( 0, 1 ).concat( o.slice( 2 ) ) )
+    expect( sent ).toContainEqual([ OP.ATTR, 'data-k', 'b' ])
+    expect( sent ).toContainEqual([ OP.ATTR, 'title', null ])
+    expect( sent ).toContainEqual([ OP.SET_TEXT, 'b' ])
+    expect( sent.filter( o => o[ 0 ] === OP.STYLES ) ).toEqual([ [ OP.STYLES, '--w:2px' ] ])
+
+    batches.length = 0
+    inst.state.t = undefined
+    await tick()
+    expect( ops( batches ) ).toEqual( [] )
+
+    // A bound custom property (a reactive declaration): sent when it changes, and once when it goes
+    const box = bg.host.element('div')
+    bg.host.insert( bg.root, box, null )
+    await tick()
+    batches.length = 0
+    for( const v of [ '1px', '1px', '2px', null, null ] ) bg.host.styleVar!( box, '--h', v )
+    await tick()
+    expect( ops( batches ).map( o => o[ 2 ] ) ).toEqual([ '--h: 1px', '--h: 2px', '' ])
   })
 })
