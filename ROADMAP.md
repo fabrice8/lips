@@ -126,6 +126,7 @@ Consequences that re-rank the phases:
 
 - [ ] Docs relaunch: formal template-syntax grammar, security page, honest framework comparison, migration notes
 - [ ] Interactive playground; revive the `.lips` single-file component format (`demos/jsml`)
+- [ ] **Editor tooling** — the template highlighted and typed, a component written apart typed with no annotation, Lips's diagnostics as the author types: a grammar, a generator of the TypeScript behind each component, on Volar (language server, TypeScript plugin, `lips-check`). Design doc: [design/editor-tooling.md](design/editor-tooling.md) (RFC-009), proposed
 - [ ] Published js-framework-benchmark results; starter templates
 - [ ] Semver policy, release cadence, second maintainer (bus factor is currently 1)
 - [ ] **Parts** — headless components at `@lipsjs/lips/parts`, for the DOM and Lynx from one template each: layer, popover and menu, dialog, toasts, a region that folds, icons, blurred backdrop, combobox, virtual list and grid on the web, date picker. Design doc: [design/parts.md](design/parts.md) (RFC-008). What they stand on was tried on the iOS Simulator and an Android emulator first (2026-11-25, §3): a grid line from a custom property, `blur-view`, right-to-left hold; an SVG mask draws nothing, so icons are inline `svg`. First: a reference that measures, and typed Lynx attributes (§7)
