@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-25
+
+Parts in an app that ships no compiler: `precompilePlugins()` compiles a
+plugin, and what it requires, in the build, and the page's Lips takes it as
+`precompiled`, so `@lipsjs/lips/runtime` runs the parts under a content
+security policy with no `unsafe-eval`. The combobox takes what a form's
+field needs: its own id, its label, what describes it, required and
+refused. One behaviour changes: text typed in a combobox and left by
+Escape or Tab goes back to the chosen label.
+
 ### Added — parts in a build that ships no compiler (RFC-008 §4)
 
 - **`precompilePlugins( plugins )`** (`@lipsjs/lips/precompile`): `use()`'s
