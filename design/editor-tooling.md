@@ -1,6 +1,6 @@
 # RFC-009 — Editor tooling: the template, highlighted and typed
 
-**Status:** proposed · 2026-11-25
+**Status:** proposed · 2026-11-25 · home decided by the owner (§8.1)
 **Depends on:** RFC-001 (template IR: the parser and its locations), RFC-004
 (StyleIR: `{expr}` in a stylesheet), lips#54 (a component's types: `Shape`,
 `Handlers`, `SharedContext`)
@@ -186,9 +186,10 @@ packages) is the owner's step at the end of phase 1.
 
 ## 8. Open questions
 
-1. **Where the tools live.** A repository of their own (Vue's tools live
-   apart from Vue), or a `tools/` folder here. A repository of their own
-   keeps the library's tests, budgets and releases what they are today.
+1. ~~Where the tools live.~~ **Resolved (owner, 2026-11-25): a repository
+   of their own**, as Vue's tools live apart from Vue. The library's tests,
+   size budgets and releases stay what they are; the tools depend on a
+   published `@lipsjs/lips` (its parser and compiler) like any consumer.
 2. **Templates inside `.ts` files.** Volar's plugin is made for files that
    are a language of their own (`.lips`). Checking a template inside a
    `.ts` file is what lit-analyzer does, from a TypeScript server plugin
