@@ -457,7 +457,8 @@ export function createBackgroundHost( send: ( ops: unknown[] ) => void, { announ
        * the user's next keystroke — so it is not sent.
        */
       else if( name === 'value' && ( el.type === 'input' || el.type === 'textarea' ) && el.batch !== batch ){
-        value !== typed.get( el.id ) && emit( INVOKE, el.id, 'setValue', { value: value ?? '' })
+        // Through `invoke`, as every UI method: an INVOKE is four values, and one short reads every op after it wrong
+        value !== typed.get( el.id ) && invoke( el, 'setValue', { value: value ?? '' })
       }
       /**
        * ARIA is read here, not sent: Lynx has its own attributes (`./a11y`).

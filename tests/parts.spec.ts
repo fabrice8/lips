@@ -1,13 +1,13 @@
 /**
- * RFC-008 — parts: popover, menu, dialog, toasts, icons and the blurred
- * backdrop, on the DOM.
+ * RFC-008 — parts: popover, menu, dialog, toasts, icons, the blurred
+ * backdrop, combobox and a region that folds, on the DOM.
  *
  * Each promise a part makes has a check here: its roles and states, its
  * keys, where focus goes and comes back, and where its panel is placed.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Lips from '../src/lips'
-import { popover, menu, dialog, toast, icons, place, move, typed, type MenuItem, type PopoverApi, type Toast } from '../src/parts'
+import { popover, menu, dialog, toast, icons, combobox, reveal, contains, place, move, typed, type MenuItem, type PopoverApi, type Toast, type Option } from '../src/parts'
 
 const settle = ( check: () => boolean, timeout = 2000 ) => new Promise<void>( ( res, rej ) => {
   const t0 = Date.now()
@@ -672,5 +672,257 @@ describe('icons', () => {
   it('one set per Lips: a second is refused', () => {
     lips.use( icons( SET ) )
     expect( () => lips.use( icons({}) ) ).toThrow( /two plugins named <icons>/ )
+  })
+})
+
+// ------------------------------------------------------------------- combobox
+describe('combobox', () => {
+  const PEOPLE: Option[] = [
+    { id: 'ada', label: 'Ada Lovelace' },
+    { id: 'alan', label: 'Alan Turing', disabled: true },
+    { id: 'grace', label: 'Grace Hopper' },
+    { id: 'edsger', label: 'Edsger Dijkstra' }
+  ]
+  let chosen: string[], queries: string[]
+  async function field( extra = '', slot = '', value: string | null = null ){
+    lips.use( combobox )
+    chosen = []
+    queries = []
+    app = lips.render( 'combo', {
+      state: { open: false, people: PEOPLE, owner: value },
+      static: { starts: ( o: Option, t: string ) => o.label.startsWith( t ) },
+      handler: {
+        setOpen( o: boolean ){ ( this as any ).state.open = o },
+        setOwner( o: Option ){ chosen.push( o.id ); ( this as any ).state.owner = o.id },
+        asked( q: string ){ queries.push( q ) }
+      },
+      default: `<div>
+        <popover open=state.open on-change( setOpen )>
+          <popover-combobox options=state.people value=state.owner class="field" list="options" option="option" label="Owner" ${extra} on-change( setOwner ) on-query( asked )${slot ? ' [option, active, selected]' : ''}>${slot}</popover-combobox>
+        </popover>
+      </div>`
+    })
+    app.appendTo('#app')
+    await settle( () => !!q('.field') )
+    return q('.field') as HTMLInputElement
+  }
+  const list = () => q('[role="listbox"]')
+  const options = () => [ ...document.querySelectorAll('[role="option"]') ] as HTMLElement[]
+  const labels = () => options().map( o => o.textContent!.trim() )
+  const activeId = ( f: HTMLElement ) => f.getAttribute('aria-activedescendant')?.replace( /^lips-popover-\d+-/, '' )
+  const type = async ( f: HTMLInputElement, text: string ) => {
+    f.value = text
+    f.dispatchEvent( new Event( 'input', { bubbles: true } ) )
+  }
+
+  it('closed, the field is a combobox that says so, with a list autocomplete, controlling nothing', async () => {
+    const f = await field()
+    expect( f.getAttribute('role') ).toBe('combobox')
+    expect( f.getAttribute('aria-expanded') ).toBe('false')
+    expect( f.getAttribute('aria-autocomplete') ).toBe('list')
+    expect( f.getAttribute('aria-label') ).toBe('Owner')
+    expect( f.hasAttribute('aria-controls') ).toBe( false )
+    expect( list() ).toBeNull()
+  })
+
+  it('typing opens the list on what matches, the first active; focus stays in the field; it says the query', async () => {
+    const f = await field()
+    f.focus()
+    await type( f, 'gr' )
+    await settle( () => !!list() && labels().length === 1 )
+    expect( labels() ).toEqual([ 'Grace Hopper' ])
+    expect( f.getAttribute('aria-expanded') ).toBe('true')
+    expect( f.getAttribute('aria-controls') ).toBe( list()!.id )
+    expect( activeId( f ) ).toBe('grace')
+    expect( options()[ 0 ].className ).toContain('is-active')
+    expect( document.activeElement ).toBe( f )
+    expect( queries ).toEqual([ 'gr' ])
+  })
+
+  it('matches in any case, anywhere in the label', async () => {
+    const f = await field()
+    await type( f, 'A' )
+    await settle( () => labels().length === 4 )
+    await type( f, 'hop' )
+    await settle( () => labels().length === 1 )
+    expect( labels() ).toEqual([ 'Grace Hopper' ])
+  })
+
+  it('arrows open it and move past disabled options, wrapping; Enter chooses, closes, and shows the label', async () => {
+    const f = await field()
+    f.focus()
+    key( f, 'ArrowDown' )
+    await settle( () => !!list() && activeId( f ) === 'ada' )
+    key( f, 'ArrowDown' )
+    await settle( () => activeId( f ) === 'grace' )
+    key( f, 'ArrowUp' )
+    await settle( () => activeId( f ) === 'ada' )
+    key( f, 'ArrowUp' )
+    await settle( () => activeId( f ) === 'edsger' )
+    key( f, 'Enter' )
+    await settle( () => !list() )
+    expect( chosen ).toEqual([ 'edsger' ])
+    expect( app.state.owner ).toBe('edsger')
+    expect( f.value ).toBe('Edsger Dijkstra')
+    expect( document.activeElement ).toBe( f )
+  })
+
+  it('ArrowUp on a closed field opens it on the last option', async () => {
+    const f = await field()
+    key( f, 'ArrowUp' )
+    await settle( () => !!list() && activeId( f ) === 'edsger' )
+  })
+
+  it('Escape closes it, focus staying in the field; Tab closes it', async () => {
+    const f = await field()
+    f.focus()
+    key( f, 'ArrowDown' )
+    await settle( () => !!list() )
+    key( f, 'Escape' )
+    await settle( () => !list() )
+    expect( document.activeElement ).toBe( f )
+    key( f, 'ArrowDown' )
+    await settle( () => !!list() )
+    key( f, 'Tab' )
+    await settle( () => !list() )
+    expect( chosen ).toEqual( [] )
+  })
+
+  it('Enter with nothing active, or closed, chooses nothing', async () => {
+    const f = await field()
+    key( f, 'Enter' )
+    // Closed with an option still active
+    key( f, 'ArrowDown' )
+    await settle( () => activeId( f ) === 'ada' )
+    key( f, 'Escape' )
+    await settle( () => !list() )
+    key( f, 'Enter' )
+    expect( chosen ).toEqual( [] )
+    await type( f, 'zz' )
+    await settle( () => !!list() )
+    expect( labels() ).toEqual( [] )
+    key( f, 'Enter' )
+    expect( chosen ).toEqual( [] )
+  })
+
+  it('a tap chooses the option tapped; a disabled one does nothing', async () => {
+    const f = await field()
+    key( f, 'ArrowDown' )
+    await settle( () => options().length === 4 )
+    expect( options()[ 1 ].getAttribute('aria-disabled') ).toBe('true')
+    expect( options()[ 1 ].className ).toContain('is-disabled')
+    options()[ 1 ].click()
+    expect( chosen ).toEqual( [] )
+    options()[ 2 ].click()
+    await settle( () => !list() )
+    expect( chosen ).toEqual([ 'grace' ])
+    expect( f.value ).toBe('Grace Hopper')
+  })
+
+  it('the chosen option is selected, and the field shows the label of the app\'s value', async () => {
+    const f = await field( '', '', 'grace' )
+    expect( f.value ).toBe('Grace Hopper')
+    key( f, 'ArrowDown' )
+    await settle( () => options().length === 4 )
+    expect( options().map( o => o.getAttribute('aria-selected') ) ).toEqual([ 'false', 'false', 'true', 'false' ])
+    expect( options()[ 2 ].className ).toContain('is-selected')
+    // Typed over, then the same option chosen again: the app's value does not change, the field shows its label
+    await type( f, 'Gr' )
+    await settle( () => labels().length === 1 )
+    key( f, 'Enter' )
+    await settle( () => !list() )
+    expect( chosen ).toEqual([ 'grace' ])
+    expect( f.value ).toBe('Grace Hopper')
+    // The app changes it: the field follows
+    key( f, 'Escape' )
+    app.state.owner = 'ada'
+    await settle( () => f.value === 'Ada Lovelace' )
+  })
+
+  it('fewer options from the app, past the active one: nothing is active', async () => {
+    const f = await field()
+    key( f, 'ArrowUp' )
+    await settle( () => activeId( f ) === 'edsger' )
+    app.state.people = PEOPLE.slice( 0, 2 )
+    await settle( () => options().length === 2 )
+    expect( f.hasAttribute('aria-activedescendant') ).toBe( false )
+    expect( options().some( o => o.className.includes('is-active') ) ).toBe( false )
+  })
+
+  it('finds by the app\'s own match', async () => {
+    const f = await field( 'match=static.starts' )
+    await type( f, 'Gr' )
+    await settle( () => labels().length === 1 )
+    expect( labels() ).toEqual([ 'Grace Hopper' ])
+    // `contains` would find Grace by "race"; starting with it, nothing does
+    await type( f, 'race' )
+    await settle( () => labels().length === 0 )
+  })
+
+  it('draws each option by the slot when given one, with whether it is active and selected', async () => {
+    const f = await field( '', '<b class="own">{option.label}{active ? \'*\' : \'\'}{selected ? \'!\' : \'\'}</b>', 'ada' )
+    key( f, 'ArrowDown' )
+    await settle( () => q('.own')?.textContent === 'Ada Lovelace*!' )
+    expect( [ ...document.querySelectorAll('.own') ].map( c => c.textContent ) ).toEqual([ 'Ada Lovelace*!', 'Alan Turing', 'Grace Hopper', 'Edsger Dijkstra' ])
+  })
+
+  it('contains: the label holds the text, in any case', () => {
+    expect( contains( PEOPLE[ 0 ], 'LOVE' ) ).toBe( true )
+    expect( contains( PEOPLE[ 0 ], 'x' ) ).toBe( false )
+  })
+})
+
+// ------------------------------------------------------------------- reveal
+describe('a region that reveals and folds', () => {
+  async function details( extra = '' ){
+    lips.use( reveal )
+    app = lips.render( 'reveal', {
+      state: { open: false },
+      handler: { setOpen( o: boolean ){ ( this as any ).state.open = o } },
+      default: `<div>
+        <popover open=state.open on-change( setOpen )>
+          <popover-trigger class="more"><span>Details</span></popover-trigger>
+          <reveal-region class="details" ${extra}><input class="note"/></reveal-region>
+        </popover>
+      </div>`
+    })
+    app.appendTo('#app')
+    await settle( () => !!q('.more') )
+    return q('.more')!
+  }
+
+  it('folded, it is not rendered; a tap reveals it in place, controlled by the button, focus left on it', async () => {
+    const b = await details()
+    expect( q('.details') ).toBeNull()
+    expect( b.getAttribute('aria-expanded') ).toBe('false')
+    b.focus()
+    b.click()
+    await settle( () => !!q('.details') )
+    expect( b.getAttribute('aria-expanded') ).toBe('true')
+    expect( b.getAttribute('aria-controls') ).toBe( q('.details')!.id )
+    expect( q('.details')!.closest('.lips-layer') ).toBeNull()
+    expect( q('.details')!.hasAttribute('style') ).toBe( false )
+    expect( document.activeElement ).toBe( b )
+    b.click()
+    await settle( () => !q('.details') )
+  })
+
+  it('kept, it stays rendered and hidden while folded, and what was typed stays', async () => {
+    const b = await details( 'keep=true' )
+    expect( q('.details')!.getAttribute('style') ).toContain('display: none')
+    b.click()
+    await settle( () => !q('.details')!.hasAttribute('style') )
+    ;( q('.note') as HTMLInputElement ).value = 'kept'
+    b.click()
+    await settle( () => !!q('.details')!.getAttribute('style') )
+    expect( ( q('.note') as HTMLInputElement ).value ).toBe('kept')
+  })
+
+  it('with a role, it is a region named by its button', async () => {
+    const b = await details( 'role="region"' )
+    b.click()
+    await settle( () => !!q('.details') )
+    expect( q('.details')!.getAttribute('role') ).toBe('region')
+    expect( q('.details')!.getAttribute('aria-labelledby') ).toBe( b.id )
   })
 })

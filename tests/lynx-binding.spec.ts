@@ -39,7 +39,7 @@ import { createBackgroundHost, connectBackground, type LynxNode, type Background
 import { connectMain } from '../src/lynx/main'
 import * as OP from '../src/lynx/protocol'
 import { WORDS } from '../src/lynx/a11y'
-import { layer, popover, menu, dialog, toast, icons } from '../src/parts'
+import { layer, popover, menu, dialog, toast, icons, combobox, reveal } from '../src/parts'
 
 const G = globalThis as any
 
@@ -608,6 +608,16 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     await app.act( () => app.inst.state.v = 'b' )
     expect( invoked ).toEqual([ [ input, 'setValue', { value: 'b' }, before + 1 ] ]) // after this batch's flush
     expect( input.getAttribute('value') ).toBe('a') // the attribute is the first value only
+  })
+
+  it('a value set with other changes in one batch: every op after setValue still lands', async () => {
+    const app = await boot( `<view><input data-k="in" value=state.v><if( state.on )><text data-k="t">{state.v}</text></if></view>`, { state: { v: 'a', on: true } } )
+    // setValue first in the batch, then a text and a branch removed
+    await app.act( () => { app.inst.state.v = 'b'; app.inst.state.on = false })
+    expect( app.q('[data-k="t"]') ).toBeNull()
+    await app.act( () => { app.inst.state.v = 'c'; app.inst.state.on = true })
+    expect( app.q('[data-k="t"]').textContent ).toBe('c')
+    expect( invoked.map( i => i.slice( 1, 3 ) ) ).toEqual([ [ 'setValue', { value: 'b' } ], [ 'setValue', { value: 'c' } ] ])
   })
 
   it('what the input reports is not written back; anything else is', async () => {
@@ -1334,11 +1344,12 @@ describe('parts on Lynx (RFC-008)', () => {
    * Each piece compiled as an app compiles it. The only things reported
    * are the DOM's ARIA that Lynx cannot read: a menu's role (L105, until the
    * part says what it is with words the app translates) and the attributes
-   * naming what it controls (L106). The dialog, toasts, icons and the
-   * blurred backdrop report nothing.
+   * naming what it controls (L106); a combobox's and a listbox's, the
+   * same. The dialog, toasts, icons, the blurred backdrop and the region
+   * that folds report nothing.
    */
   const SET = { check: { paths: [ 'M5 12l5 5L20 7' ], stroke: 2 } }
-  const pieces = () => Object.fromEntries( Object.entries({ ...layer.components, ...popover.components, ...menu.components, ...dialog.components, ...toast.components, ...icons( SET ).components }).map( ( [ name, t ] ) => {
+  const pieces = () => Object.fromEntries( Object.entries({ ...layer.components, ...popover.components, ...menu.components, ...dialog.components, ...toast.components, ...icons( SET ).components, ...combobox.components, ...reveal.components }).map( ( [ name, t ] ) => {
     const { ir, diagnostics } = compileLynxTemplate( t.default as string )
     expect( diagnostics.filter( d => d.code !== 'LIPS-L105' && d.code !== 'LIPS-L106' ), name ).toEqual( [] )
     return [ name, { ir, state: t.state, statics: t.static, handlers: t.handler as IRComponentDef['handlers'], deep: true } ]
@@ -1507,5 +1518,56 @@ describe('parts on Lynx (RFC-008)', () => {
     expect( content ).toContain('d="M5 12l5 5L20 7"')
     expect( app.q('svg.a').getAttribute('accessibility-elements-hidden') ).toBe('true')
     expect( app.q('.b').getAttribute('accessibility-label') ).toBe('Done')
+  })
+
+  it('a combobox: what is typed finds the options, each a button, the chosen one selected; a tap chooses, and the field is set', async () => {
+    answer = () => ({ code: 0, data: box( 0, 0, 100, 30 ) })
+    const app = await boot( `<view>
+      <popover open=state.open on-change( setOpen )>
+        <popover-combobox options=state.people value=state.owner class="field" option="option" on-change( setOwner )/>
+      </popover>
+    </view>`, {
+      state: { open: false, owner: 'ada', people: [ { id: 'ada', label: 'Ada' }, { id: 'grace', label: 'Grace' }, { id: 'gus', label: 'Gus' } ] },
+      handlers: {
+        setOpen( o: boolean ){ ( this as any ).state.open = o },
+        setOwner( o: { id: string } ){ ( this as any ).state.owner = o.id }
+      }
+    }, { components: pieces() })
+    expect( app.q('.field').localName ).toBe('input')
+    await app.dispatch( '.field', w => new w.CustomEvent( 'input', { detail: { value: 'g' } }) )
+    await settle( () => app.page.querySelectorAll('.option').length === 2 )
+    app.check()
+    // The field is the trigger: the list is placed under it, from the boxes Lynx measured
+    await settle( () => /top: 30px/.test( app.q('.option').parentElement.parentElement.getAttribute('style') || '' ) )
+    const rows = [ ...app.page.querySelectorAll('.option') ] as any[]
+    expect( rows.map( r => r.getAttribute('accessibility-traits') ) ).toEqual([ 'button', 'button' ])
+    expect( rows[ 0 ].getAttribute('accessibility-label') ).toBe('Grace')
+
+    invoked = []
+    rows[ 1 ].setAttribute( 'data-go', '' )
+    await app.fire('[data-go]')
+    await settle( () => !app.q('.option') )
+    expect( app.inst.state.owner ).toBe('gus')
+    expect( invoked.some( ( [ el, m, params ] ) => el.localName === 'input' && m === 'setValue' && params.value === 'Gus' ) ).toBe( true )
+
+    // Open again: the chosen one says so
+    await app.dispatch( '.field', w => new w.CustomEvent( 'input', { detail: { value: 'Gu' } }) )
+    await settle( () => !!app.q('.option') )
+    expect( app.q('.option').getAttribute('accessibility-value') ).toBe('selected')
+  })
+
+  it('a region that folds: kept, it is hidden by its style, and shown in place', async () => {
+    const app = await boot( `<view>
+      <popover open=state.open on-change( setOpen )>
+        <popover-trigger class="more"><text>More</text></popover-trigger>
+        <reveal-region class="details" keep=true><text>Inside</text></reveal-region>
+      </popover>
+    </view>`, { state: { open: false }, handlers: { setOpen( o: boolean ){ ( this as any ).state.open = o } } }, { components: pieces() })
+    expect( app.q('.details').getAttribute('style') ).toContain('display: none')
+    expect( app.q('.more').getAttribute('accessibility-value') ).toBe('collapsed')
+    await app.fire('.more')
+    await settle( () => !( app.q('.details').getAttribute('style') || '' ).includes('none') )
+    expect( app.q('.more').getAttribute('accessibility-value') ).toBe('expanded')
+    expect( app.q('.lips-layer') ).toBeNull()
   })
 })

@@ -1,8 +1,8 @@
 # RFC-008 — Parts: headless components at `@lipsjs/lips/parts`
 
 **Status:** in progress · 2026-11-25 · home and posture decided by the owner
-(§2) · popover, menu, dialog, toasts, icons and the blurred backdrop
-built (§5, "As built")
+(§2) · popover, menu, dialog, toasts, icons, the blurred backdrop, combobox
+and a region that folds built (§5, "As built")
 **Depends on:** RFC-001 (template IR), RFC-004 (StyleIR), RFC-005 (scoped
 context), RFC-006 (Lips on Lynx)
 **Tracked in:** [ROADMAP.md](../ROADMAP.md)
@@ -262,6 +262,13 @@ neither host.
 region it controls. It may stay rendered while folded (a form keeps what
 was typed) or render only when open.
 
+*As built (2026-11-25).* `reveal-region` (`./parts/reveal`), a popover's:
+its trigger is the button, and the region is in the page's flow, not a
+layer, so it takes no focus and nothing but the button and the app closes
+it. `keep` keeps it rendered and hidden by `display: none`, which a screen
+reader passes over on both hosts. With a `role` (`region`), it is named by
+its button.
+
 **Icons**: a set as data, a name for each markup, drawn as inline `svg`
 (lips#34). Its colour is bound into the markup, since a custom property does
 not reach inside Lynx's `svg` string (§3). An icon with no label is
@@ -294,6 +301,23 @@ neither role exists: options are buttons, the selected one says so
 (`aria-selected` → its value), and the input is described as a combobox. A
 long list of options is a virtual list.
 
+*As built (2026-11-25).* `popover-combobox` (`./parts/combobox`): the
+field is the popover's trigger, so the list is placed under it and focus
+comes back to it, and the list is the popup (`popup="content"`), so the
+field keeps focus. Options are a menu's items, moved through by the same
+`move`. What is typed is the combobox's: `match` finds the options
+(`contains` by default), and `query` tells an app that finds them itself.
+The field shows the chosen option's label, from the app's `value`, until
+the person types.
+
+- **Not yet:** the person cannot tap the field while the list is open: the
+  layer's backdrop takes the tap and closes the list (the non-modal case
+  under the popover, with `.outside` that skips the trigger). Lynx's
+  description of the field as a combobox waits for words the app
+  translates, as the menu's does (`LIPS-L105`). Built on it, Lynx's
+  `setValue` was found sent one value short, which misread every op after
+  it in its batch; fixed in the binding.
+
 **Virtual list and grid on the web**: only the rows in view and a margin are
 rendered, from each row's measured or estimated height. A grid keeps
 `aria-rowcount` and each row's `aria-rowindex`, so a screen reader knows
@@ -315,8 +339,8 @@ Each is one change to Lips, with its tests, in this order:
 2. Layer, popover and menu. **Built** (§5, "As built").
 3. Dialog. **Built.**
 4. Toasts. **Built.**
-5. A region that reveals and folds; icons and blurred backdrop **built**.
-6. Combobox.
+5. A region that reveals and folds; icons; blurred backdrop. **Built.**
+6. Combobox. **Built.**
 7. Virtual list and grid on the web.
 8. Date picker.
 
