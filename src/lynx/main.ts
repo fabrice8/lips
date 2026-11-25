@@ -92,6 +92,20 @@ const HINTS: Record<string, ( v: string | null ) => unknown> = {
   'estimated-height-px': size, 'estimated-main-axis-size-px': size
 }
 
+/**
+ * A list's own props (lips#47), which Lynx reads only as JSON too
+ * (`ListContainerImpl::ResolveAttribute`): `span-count` counts only if
+ * `IsNumber()`, `sticky` only if `IsBool()`. Every prop `@lynx-js/types`
+ * declares `number` on `list`, and every typed one the engine reads beyond
+ * them, matches `NUMBERS`; every `boolean` one matches `FLAGS`, which
+ * is read first (`enable-dynamic-span-count`), and no string prop matches. A name list measured 0.25 KB
+ * larger. A flag follows the cell hints' rule, and text that is not a
+ * number goes as written. Lynx for Web gets the same attribute text.
+ */
+const NUMBERS = /-(count|offset|index|throttle|level|strategy)$|^layout-id$/
+const FLAGS = /^(sticky$|bounces$|enable-|needs?-|should-|experimental-(?!.*strategy$)|scroll-bar-enable$|harmony-)/
+const listProp = ( name: string, v: string ) => FLAGS.test( name ) ? flag( v ) : NUMBERS.test( name ) ? size( v ) ?? v : v
+
 /** A list's cells: in Lips's order, and in the order the list was last told */
 interface ListState {
   order: number[]
@@ -200,7 +214,7 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
     : tag === 'list' ? list( id )
     : __CreateElement( tag, pageId )
 
-  const attr = ( el: Ref, name: string, value: string | null ) => {
+  const attr = ( el: Ref, name: string, value: any ) => {
     if( name === 'class' ) __SetClasses( el, value || undefined )
     else if( name === 'id' ) __SetID( el, value )
     else if( name.startsWith('data-') ) __AddDataset( el, datasetKey( name ), value ?? undefined )
@@ -275,7 +289,8 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent ) => void )
           else __RemoveElement( els.get( a )!, els.get( b )! )
           break
         case ATTR:
-          attr( els.get( a )!, b, c )
+          // A removed prop is still removed
+          attr( els.get( a )!, b, c !== null && lists.has( a ) ? listProp( b, c ) : c )
           if( b in HINTS ){
             const h = hints.get( a ) || {}, list = listOf.get( a ), v = HINTS[ b ]( c )
             if( h[ b ] === v ) break

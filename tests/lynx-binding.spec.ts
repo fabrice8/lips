@@ -484,6 +484,62 @@ describe('Lynx L3: inputs, lists, attributes', () => {
   })
   const first = ( list: any ) => told( list )[ 0 ]
 
+  it('a list\'s own numeric and boolean props reach Lynx as numbers and booleans (#47)', async () => {
+    // The environment writes a number and its text alike: read what the applier hands Element PAPI
+    const sent: [ string, string, unknown ][] = []
+    const setAttribute = env.mainThread.globalThis.__SetAttribute
+    env.mainThread.globalThis.__SetAttribute = ( el: any, name: string, v: unknown ) => {
+      name === 'update-list-info' || sent.push([ el.tagName.toLowerCase(), name, v ])
+      return setAttribute( el, name, v )
+    }
+    const app = await boot(
+      `<list span-count=state.cols sticky-offset="12" sticky="false" experimental-recycle-sticky-item list-type="flow" scroll-event-throttle="fast" accessibility-label="2" exposure-id="7" sticky-top>`
+      + `<list-item span-count="2" sticky="false">x</list-item></list>`
+      + `<view span-count="2"></view><list bounces=state.b></list>`,
+      { state: { cols: 2, b: true } } )
+    const of = ( tag: string ) => Object.fromEntries( sent.filter( s => s[ 0 ] === tag ).map( s => [ s[ 1 ], s[ 2 ] ] ) )
+    // Lynx reads these only if `IsNumber()` / `IsBool()`
+    expect( of('list') ).toEqual({
+      'span-count': 2, 'sticky-offset': 12, sticky: false, 'experimental-recycle-sticky-item': true,
+      // a string prop, and text that is not a number, as written
+      'list-type': 'flow', 'scroll-event-throttle': 'fast', 'accessibility-label': '2', 'exposure-id': '7', 'sticky-top': true, bounces: true
+    })
+    // The same names elsewhere are text
+    expect( of('list-item') ).toEqual({ 'span-count': '2', sticky: 'false' })
+    expect( of('view') ).toEqual({ 'span-count': '2' })
+
+    // A bound change converts again; a removed prop is removed
+    sent.length = 0
+    await app.act( () => { app.inst.state.cols = 3; app.inst.state.b = null as any } )
+    expect( of('list') ).toEqual({ 'span-count': 3, bounces: null })
+    // Lynx for Web reads the attribute's text: unchanged
+    expect( app.q('list').getAttribute('span-count') ).toBe('3')
+  })
+
+  it('every typed list prop is converted, and no string one (#47)', async () => {
+    // `@lynx-js/types` 4.2.1 `ListProps`, then the typed reads of Lynx 4.1's
+    // `ListContainerImpl::ResolveAttribute` and Clay's list beyond it
+    const NUMBER = [ 'span-count', 'sticky-offset', 'initial-scroll-index', 'lower-threshold-item-count', 'upper-threshold-item-count',
+      'scroll-event-throttle', 'layout-id', 'preload-buffer-count', 'experimental-search-ref-anchor-strategy',
+      'sticky-buffer-count', 'list-debug-info-level', 'experimental-batch-render-strategy' ]
+    const FLAG = [ 'sticky', 'bounces', 'enable-scroll', 'enable-nested-scroll', 'need-visible-item-info', 'need-layout-complete-info',
+      'scroll-bar-enable', 'experimental-recycle-sticky-item', 'enable-insert-platform-view-operation', 'harmony-scroll-edge-effect',
+      'enable-dynamic-span-count', 'needs-visible-cells', 'should-request-state-restore', 'experimental-enable-preload-section',
+      'experimental-recycle-available-item-before-layout', 'experimental-update-sticky-for-diff' ]
+    const TEXT = [ 'scroll-orientation', 'list-type', 'custom-list-name', 'update-animation', 'anchor-priority', 'anchor-align',
+      'anchor-visibility', 'item-snap', 'list-main-axis-gap', 'list-cross-axis-gap', 'vertical-orientation', 'exposure-id' ]
+    const sent: Record<string, unknown> = {}
+    const setAttribute = env.mainThread.globalThis.__SetAttribute
+    env.mainThread.globalThis.__SetAttribute = ( el: any, name: string, v: unknown ) => {
+      sent[ name ] = v
+      return setAttribute( el, name, v )
+    }
+    await boot(`<list ${[ ...NUMBER.map( n => `${n}="3"` ), ...FLAG.map( n => `${n}="false"` ), ...TEXT.map( n => `${n}="1"` ) ].join(' ')}></list>`)
+    for( const n of NUMBER ) expect( sent[ n ], n ).toBe( 3 )
+    for( const n of FLAG ) expect( sent[ n ], n ).toBe( false )
+    for( const n of TEXT ) expect( sent[ n ], n ).toBe('1')
+  })
+
   it('an input value: the attribute first, then setValue after the flush', async () => {
     const app = await boot( `<input data-k="in" value=state.v>`, { state: { v: 'a' } } )
     const input = app.q('[data-k="in"]')

@@ -726,7 +726,8 @@ with `__LoadStyleSheet`, which is internal (§8).
   numbers or booleans too (`ListContainerImpl::ResolveAttribute`), and a
   Lips attribute is text, so `span-count="2"` is ignored. Cell hints are
   converted here; the list's own props are not yet. Recorded as a
-  follow-up, not part of lips#43.
+  follow-up, not part of lips#43. *Built in lips#47: "As built, list
+  props" below.*
 - **Cost.** +233 bytes gzipped on `lynx-main` (2.21 → 2.44; budget
   2.3 → 2.5). A single converter table and a shared action object
   measured 12 bytes larger, so the plainer form stays.
@@ -775,6 +776,46 @@ with `__LoadStyleSheet`, which is internal (§8).
   beyond it was not found. Recorded as open, with the raw-PAPI probe as
   the reproduction to take upstream.
 
+
+
+**As built, list props (2026-11-25, lips#47).**
+
+- **What Lynx reads.** `ListContainerImpl::ResolveAttribute` (Lynx 4.1,
+  `core/list/decoupled_list_container_impl.cc`) takes `span-count`,
+  `sticky-offset` and the other counts only if `IsNumber()`, and `sticky`
+  and the `experimental-*` flags only if `IsBool()`; Clay's list reads
+  them as typed values too. Text is dropped without an error, so
+  `<list span-count="2">` was one column and `sticky="false"` was nothing.
+- **The applier converts a `list`'s attribute text by the prop's name**,
+  as it converts cell hints: a flag is set when present unless `"false"`,
+  a number is a number, text that is not one goes as written, and a
+  removed prop is still removed. Other elements are unchanged, and Lynx
+  for Web gets the same text as before.
+- **The names are two patterns**, not a table: the numbers end in
+  `-count`, `-offset`, `-index`, `-throttle`, `-level` or `-strategy`, or
+  are `layout-id`; the flags are `sticky`, `bounces`, `scroll-bar-enable`
+  and `enable-*`, `need-*`, `needs-*`, `should-*`, `harmony-*` and
+  `experimental-*` (but `-strategy`), read first. They cover every prop
+  `@lynx-js/types` 4.2.1 types `number` or `boolean` on `list` and the
+  typed ones the engine reads beyond them, 28 names, and no string prop.
+  A table of those names measured 0.25 KB larger.
+- **Cost.** +0.15 KB gzipped on `lynx-main` (2.44 → 2.59; budget 2.5 →
+  2.65).
+- **Tests.** Tier A, 2 specs in `tests/lynx-binding.spec.ts`: what the
+  applier hands `__SetAttribute` for a list (numbers, flags, `"false"`, a
+  string prop, text that is not a number, a bound change, a removal) and
+  for the same names on a `list-item` and a `view`; and every one of the
+  28 typed names, with 12 string props (and `exposure-id`) left as text.
+  The second spec found that `enable-dynamic-span-count` ends in
+  `-count`, so flags are read first. Fourteen deliberate breakages were
+  each caught: no conversion, a removal converted, every element
+  converted, a non-number dropped, numbers or flags left as text, every
+  other prop a flag, numbers read first, `-strategy` read as a flag, each
+  pattern too wide, a number or a flag name missing, and `"false"` read
+  as set.
+- **Not verified.** That a two-column list lays out in two columns
+  natively (the headless runtime lays out `flow` in one column, and the
+  sticky question in "As built, cell hints" is still open).
 
 **As built, event data (2026-11-24, lips#35).**
 
