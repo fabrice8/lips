@@ -262,6 +262,27 @@ describe('lifecycle', () => {
     expect( renders ).toBe( 2 )
   })
 
+  it('fires onAttach for a component a branch renders after mount: in an if, a new row, a slot under one', async () => {
+    const attached: string[] = []
+    lips.register('late', { handler: { onAttach(){ attached.push( ( this as any ).input.k ) } }, default: `<i class="late">{input.k}</i>` })
+    lips.register('holder', { default: `<div><{input.renderer}/></div>` })
+    const host = lips.render('late-host', {
+      state: { on: false, rows: [ 'r1' ] },
+      default: `<div>
+        <if( state.on )><late k="if"/><holder><late k="slot"/></holder></if>
+        <for [r] in=state.rows><late k=r/></for>
+      </div>`
+    })
+    host.appendTo('#app')
+    await settle( () => attached.includes('r1') )
+
+    host.state.on = true
+    host.state.rows = [ 'r1', 'r2' ]
+    await settle( () => qa('.late').length === 4 )
+    await tick()
+    expect( attached.sort() ).toEqual([ 'if', 'r1', 'r2', 'slot' ])
+  })
+
   it('fires onAttach on mount and onDetach on destroy', async () => {
     const order: string[] = []
 

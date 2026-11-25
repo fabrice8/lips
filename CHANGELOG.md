@@ -22,6 +22,10 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   handlers and scope); its `context` and `self.lang` are the place's, as a
   component's are. A component that provides context around what it places
   now reaches the content it was given (RFC-005 §4.4).
+- **`onAttach` runs for a component a branch renders after mount**: an
+  `<if>` turning true, a row added, a slot under one. Such a branch builds
+  its nodes off the tree and places them after, so none of its components
+  found itself live when created, and `onAttach` never ran.
 - **A slot argument is read where the slot reads it**, so the content
   follows it (`<{input.renderer} active=( state.active === i )/>`); it was
   read once, when the slot was placed.

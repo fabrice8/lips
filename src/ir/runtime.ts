@@ -371,8 +371,18 @@ function release( h: Host, rec: LiveComp ){
 }
 
 /** Put a rendered block's range right after `ref` */
+/**
+ * Every block reaches the tree here: a branch, a row, a slot, a
+ * component. Placed into a LIVE tree, it settles what its components
+ * queued while it rendered off it: a branch that renders after mount
+ * (an `<if>` turning true, a row added) builds its nodes first and
+ * places them after, so none of its components found itself live when
+ * it was created, and their `onAttach` waited for a root mount that
+ * had already happened.
+ */
 function place( h: Host, ref: N, inst: BlockInstance ){
   h.insertAfter( ref, nodesOf( h, inst ) )
+  PENDING_ATTACH.length && h.connected( ref ) && flushAttach()
   return inst
 }
 
