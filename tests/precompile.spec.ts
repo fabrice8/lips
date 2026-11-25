@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import Lips from '../src/lips'
-import { precompile, serializeIR, lipsPlugin } from '../src/precompile'
+import { precompile, precompilePlugins, serializeIR, lipsPlugin } from '../src/precompile'
+import { popover, combobox, dialog } from '../src/parts'
 
 function settle( check: () => boolean, timeout = 3000 ){
   return new Promise<void>( ( resolve, reject ) => {
@@ -319,6 +320,79 @@ describe('runtime-only entry (@lipsjs/lips/runtime)', () => {
     expect( root.getAttribute('rel') ).toBe('pre')
     expect( root.style.getPropertyValue('--pre-0') ).toBe('9')
 
+    vi.resetModules()
+  })
+})
+
+describe('precompilePlugins: plugins compiled in a build, as lips.use installs them (RFC-008 §4)', () => {
+  const leaf = { name: 'leaf', components: { 'a-leaf': { default: `<i class="leaf">leaf</i>`, stylesheet: `.leaf { color: red }` } } }
+  const tree = { name: 'tree', requires: [ leaf ], components: { 'a-tree': { default: `<b><a-leaf/></b>` } } }
+
+  it('each component of each plugin and what it requires, as JSON, what is required first', () => {
+    const { components, diagnostics } = precompilePlugins([ tree, leaf, tree ])
+    expect( Object.keys( components ) ).toEqual([ 'a-leaf', 'a-tree' ])
+    expect( diagnostics ).toEqual({ 'a-leaf': [], 'a-tree': [] })
+    expect( JSON.parse( JSON.stringify( components ) ) ).toEqual( components )
+    // The sheet is scoped by the component's name, as register() scopes it
+    expect( components[ 'a-leaf' ].style ).toEqual( precompile( leaf.components[ 'a-leaf' ], { name: 'a-leaf' }).template.style )
+    expect( components[ 'a-tree' ].style ).toBeUndefined()
+  })
+
+  it('a component carrying IR is taken as it is', () => {
+    const ir = precompile({ default: `<p>pre</p>` }).template.ir
+    expect( precompilePlugins([ { name: 'pre', components: { 'a-pre': { ir } } } ]).components[ 'a-pre' ] ).toEqual({ ir })
+  })
+
+  it('refuses what use() refuses', () => {
+    expect( () => precompilePlugins([ leaf, { ...leaf } ]) ).toThrow( /two plugins named <leaf>/ )
+    expect( () => precompilePlugins([ leaf, { name: 'other', components: { 'a-leaf': { default: `<i/>` } } } ]) ).toThrow( /<a-leaf> of plugin <other> is compiled already/ )
+  })
+
+  it('parts run on the runtime-only entry, with the IR their build made', async () => {
+    // Made where the compiler is, carried as JSON, as a build writes it
+    const precompiled = JSON.parse( JSON.stringify( precompilePlugins([ combobox, dialog ]).components ) )
+    const page = JSON.parse( JSON.stringify( precompile({ default: `<div>
+      <popover open=state.open on-change( setOpen )>
+        <popover-combobox options=state.people value=state.owner class="field" label="Owner" on-change( setOwner )/>
+      </popover>
+    </div>` }).template.ir ) )
+
+    vi.resetModules()
+    const { default: RuntimeLips } = await import('../src/runtime')
+    const parts = await import('../src/parts')
+
+    // Without its IR, a part's source cannot run here
+    expect( () => new RuntimeLips({ mode: 'interpreted' }).use( parts.combobox ).render( 'bare', { ir: page }) ).toThrow( /precompiled/ )
+
+    const rt: any = new RuntimeLips({ mode: 'interpreted', precompiled })
+    // The popover both require is the same component, registered once
+    rt.use( parts.combobox ).use( parts.dialog )
+    const app = rt.render( 'page', {
+      ir: page,
+      state: { open: false, owner: 'ada', people: [ { id: 'ada', label: 'Ada' }, { id: 'grace', label: 'Grace' } ] },
+      handler: { setOpen( o: boolean ){ ( this as any ).state.open = o }, setOwner( o: any ){ ( this as any ).state.owner = o.id } }
+    })
+    app.appendTo('#app')
+    await settle( () => ( q('.field') as HTMLInputElement )?.value === 'Ada' )
+    const f = q('.field') as HTMLInputElement
+    f.value = 'gr'
+    f.dispatchEvent( new Event( 'input', { bubbles: true } ) )
+    await settle( () => qa('[role="option"]').length === 1 )
+    expect( q('[role="option"]')!.textContent!.trim() ).toBe('Grace')
+    app.destroy()
+    vi.resetModules()
+  })
+
+  it('one component two plugins bring is one component, with its IR', async () => {
+    const shared = { default: `<i class="shared">shared</i>` }
+    const precompiled = JSON.parse( JSON.stringify( precompilePlugins([ { name: 'one', components: { 'a-shared': shared } } ]).components ) )
+    const page = JSON.parse( JSON.stringify( precompile({ default: `<p><a-shared/></p>` }).template.ir ) )
+    vi.resetModules()
+    const { default: RuntimeLips } = await import('../src/runtime')
+    const rt: any = new RuntimeLips({ mode: 'interpreted', precompiled })
+    rt.use({ name: 'one', components: { 'a-shared': shared } }).use({ name: 'two', components: { 'a-shared': shared } })
+    rt.render( 'page', { ir: page }).appendTo('#app')
+    await settle( () => q('.shared')?.textContent === 'shared' )
     vi.resetModules()
   })
 })

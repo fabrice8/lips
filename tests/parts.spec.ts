@@ -789,6 +789,54 @@ describe('combobox', () => {
     expect( chosen ).toEqual( [] )
   })
 
+  it('in a form, the field is the app\'s: its id, its label, what describes it, required and refused', async () => {
+    const f = await field( 'id="owner-field" labelledby="owner-label" describedby="owner-note" required=true invalid=true' )
+    expect( f.id ).toBe('owner-field')
+    expect( f.getAttribute('aria-labelledby') ).toBe('owner-label')
+    expect( f.getAttribute('aria-label') ).toBeNull()
+    expect( f.getAttribute('aria-describedby') ).toBe('owner-note')
+    expect( f.getAttribute('aria-required') ).toBe('true')
+    expect( f.getAttribute('aria-invalid') ).toBe('true')
+    f.focus()
+    key( f, 'ArrowDown' )
+    await settle( () => !!list() )
+    expect( list()!.getAttribute('aria-labelledby') ).toBe('owner-label')
+    expect( list()!.getAttribute('aria-label') ).toBeNull()
+  })
+
+  it('none of it given, the field is the popover\'s and named by its label', async () => {
+    const f = await field()
+    expect( f.id ).toMatch( /^lips-popover-\d+-trigger$/ )
+    expect( f.getAttribute('aria-label') ).toBe('Owner')
+    for( const a of [ 'aria-labelledby', 'aria-describedby', 'aria-required', 'aria-invalid' ] ) expect( f.getAttribute( a ) ).toBeNull()
+  })
+
+  it('text typed and left by Escape or Tab goes back to the chosen label', async () => {
+    const f = await field( '', '', 'grace' )
+    f.focus()
+    await type( f, 'ad' )
+    await settle( () => !!list() )
+    key( f, 'Escape' )
+    await settle( () => !list() && f.value === 'Grace Hopper' )
+    await type( f, 'ed' )
+    await settle( () => !!list() )
+    key( f, 'Tab' )
+    await settle( () => !list() && f.value === 'Grace Hopper' )
+    // Every option is offered again: nothing typed is left to match
+    key( f, 'ArrowDown' )
+    await settle( () => options().length === PEOPLE.length )
+    expect( chosen ).toEqual( [] )
+  })
+
+  it('with nothing chosen, text typed and left is cleared', async () => {
+    const f = await field()
+    f.focus()
+    await type( f, 'ad' )
+    await settle( () => !!list() )
+    key( f, 'Tab' )
+    await settle( () => !list() && f.value === '' )
+  })
+
   it('Enter with nothing active, or closed, chooses nothing', async () => {
     const f = await field()
     key( f, 'Enter' )

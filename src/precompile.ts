@@ -19,7 +19,8 @@ import { compileStyle } from './ir/style'
 import type { TemplateIR, CompileOptions } from './ir/compiler'
 import type { StyleIR, StylePreprocessor } from './ir/style'
 import type { TemplateDiagnostic } from './ir/parser'
-import type { Component, TypedComponent, Shape } from './types'
+import type { Component, TypedComponent, Shape, Plugin } from './types'
+import { installed } from './plugins'
 
 /** What `precompile()` returns: the template it was given, with `ir` (and `style`) for its sources */
 /** A component with its markup and stylesheet compiled: no source ships */
@@ -68,6 +69,54 @@ export function precompile<S extends Shape = Shape>( template: Component<S>, opt
     template: { ...rest, ir, style: style.ir } as PrecompiledComponent<S>,
     diagnostics: [ ...diagnostics, ...style.diagnostics ]
   }
+}
+
+/** A plugin's component as its build made it: plain JSON, its handlers left in the plugin */
+export interface PrecompiledPart {
+  ir: TemplateIR
+  style?: StyleIR
+}
+
+export interface PrecompiledPlugins {
+  /** Each component's IR, and its sheet's, by the name it is registered under */
+  components: Record<string, PrecompiledPart>
+  /** What each component's template and sheet reported, by its name */
+  diagnostics: Record<string, TemplateDiagnostic[]>
+}
+
+/**
+ * Plugins precompiled (RFC-008 §4): each component of each plugin, and of
+ * what it requires, compiled as `use()` would install it, for a build that
+ * ships no compiler. What comes back is data, so a build writes it beside
+ * its own templates' IR; the app hands it to its Lips and uses the plugins
+ * as ever, each component taking the IR made for its name:
+ *
+ *   // in the build
+ *   const { components } = precompilePlugins([ combobox, dialog ])
+ *   // in the page, on `@lipsjs/lips/runtime`
+ *   const lips = new Lips({ mode: 'interpreted', precompiled: components })
+ *   lips.use( combobox ).use( dialog )
+ *
+ * Walked by the same rules as `use()` and `lynxComponents()` (`./plugins`).
+ * A component that carries `ir` already is taken as it is. Its sheet is
+ * scoped by its name, as `register()` scopes it.
+ */
+export function precompilePlugins( plugins: readonly Plugin<any>[], options: Omit<PrecompileOptions, 'name'> = {} ): PrecompiledPlugins {
+  const out: PrecompiledPlugins = { components: {}, diagnostics: {} }
+
+  for( const { components } of installed( plugins ) )
+    for( const [ name, t ] of components ){
+      if( t.ir ){
+        out.components[ name ] = t.style ? { ir: t.ir, style: t.style } : { ir: t.ir }
+        out.diagnostics[ name ] = []
+        continue
+      }
+      const { template, diagnostics } = precompile( t, { ...options, name })
+      out.components[ name ] = template.style ? { ir: template.ir, style: template.style } : { ir: template.ir }
+      out.diagnostics[ name ] = diagnostics
+    }
+
+  return out
 }
 
 /** Serialize an IR for embedding in generated source */

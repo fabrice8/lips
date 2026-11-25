@@ -5,6 +5,43 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-25
+
+Parts in an app that ships no compiler: `precompilePlugins()` compiles a
+plugin, and what it requires, in the build, and the page's Lips takes it as
+`precompiled`, so `@lipsjs/lips/runtime` runs the parts under a content
+security policy with no `unsafe-eval`. The combobox takes what a form's
+field needs: its own id, its label, what describes it, required and
+refused. One behaviour changes: text typed in a combobox and left by
+Escape or Tab goes back to the chosen label.
+
+### Added — parts in a build that ships no compiler (RFC-008 §4)
+
+- **`precompilePlugins( plugins )`** (`@lipsjs/lips/precompile`): `use()`'s
+  counterpart for an app that runs `@lipsjs/lips/runtime` alone, under a
+  content security policy with no `unsafe-eval`. It compiles each
+  component of each plugin, and of what it requires, as `use()` installs
+  them, into plain JSON by component name, which a build writes beside its
+  own templates' IR. Refused as `use()` refuses: another plugin of the
+  same name, a component name something else holds.
+- **`precompiled`** (a Lips option): that JSON, given to the page's Lips.
+  `use()` registers each component of a plugin with the IR made for its
+  name; a component with none is registered as it is. The walk is the one
+  `lynxComponents()` uses, now shared (`src/plugins.ts`).
+
+### Added — the combobox as a form's field
+
+- `popover-combobox` takes `id` (the field's own, for a `<label for>` and
+  for the app to focus it), `labelledby` (the app's label, for the field
+  and its list, in place of `label`), `describedby`, `required` and
+  `invalid`, each said with its ARIA attribute.
+
+### Changed
+
+- Text typed in a combobox and left by Escape or Tab goes back to the
+  chosen option's label (empty where none is chosen). It used to stay in
+  the field, as though chosen.
+
 ## [0.5.0] — 2026-11-25
 
 Every part RFC-008 plans, at `@lipsjs/lips/parts`: the layer taken out of

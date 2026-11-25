@@ -15,7 +15,8 @@
  */
 import { describe, it, expect, vi } from 'vitest'
 import Lips, { compileTemplate, signal, effect, untrack, reactive, batch } from '../src/lips'
-import { precompile } from '../src/precompile'
+import { precompile, precompilePlugins } from '../src/precompile'
+import { combobox, dialog } from '../src/parts'
 import { untrusted, untrustedPolicy } from '../src/untrusted'
 
 const DOC = Object.values( import.meta.glob( '../docs/reference.md', { query: '?raw', import: 'default', eager: true }) )[ 0 ] as string
@@ -46,7 +47,7 @@ const unmarked: number[] = []
 
 const squash = ( s: string ) => s.replace( /\s+/g, ' ' ).trim()
 const objectOf = ( code: string ) => new Function( `return (${code})` )()
-const scope = { Lips, compileTemplate, precompile, untrusted, untrustedPolicy, signal, effect, untrack, reactive, batch, document }
+const scope = { Lips, compileTemplate, precompile, precompilePlugins, combobox, dialog, untrusted, untrustedPolicy, signal, effect, untrack, reactive, batch, document }
 
 describe('docs/reference.md: every example runs as it says', () => {
   it('has examples, and every one says how it is checked', () => {

@@ -319,7 +319,8 @@ export class IRLips<Context extends Object = Shape<{}>['context']> {
    * Install a plugin: what it requires first, then its components, then
    * its own setup. Once per Lips: using it again, or another plugin that
    * requires it, does nothing. Refused: another plugin of the same name,
-   * and a component name something else holds.
+   * and a component name something else holds. A component the config's
+   * `precompiled` holds IR for is registered with it.
    *
    *   lips.use( menu )   // and the popover it is built on
    */
@@ -332,8 +333,8 @@ export class IRLips<Context extends Object = Shape<{}>['context']> {
     this.plugins.set( plugin.name, plugin )
     plugin.requires?.forEach( each => this.use( each ) )
 
-    for( const [ name, template ] of Object.entries( plugin.components || {} ) ){
-      const held = this.store.get( name )
+    for( const [ name, source ] of Object.entries( plugin.components || {} ) ){
+      const template = this.built( name, source ), held = this.store.get( name )
       if( held && held !== template ) throw new Error(`[lips] <${name}> of plugin <${plugin.name}> is registered already, by something else`)
       this.register( name, template )
     }
@@ -341,6 +342,21 @@ export class IRLips<Context extends Object = Shape<{}>['context']> {
 
     return this
   }
+  /**
+   * A plugin's component with the IR its build made for `name`, where the
+   * config holds one (`precompiled`); one copy per component, so two
+   * plugins that bring the same component still hold the same one.
+   */
+  private built( name: string, source: FacadeTemplate ): FacadeTemplate {
+    const made = !source.ir && this.config?.precompiled?.[ name ]
+    if( !made ) return source
+
+    let template = this.withIR.get( source )
+    !template && this.withIR.set( source, template = { ...source, ...made })
+    return template
+  }
+  private withIR = new WeakMap<FacadeTemplate, FacadeTemplate>()
+
   unregister( name: string ){
     this.store.delete( name )
     return this
