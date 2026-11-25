@@ -73,6 +73,21 @@ describe('slots', () => {
     await settle( () => qa('.cell').length === 2 )
     expect( qa('.cell').map( e => e.textContent ) ).toEqual([ '[a]', '[b]' ])
   })
+
+  it('follows a slot argument when what it reads changes', async () => {
+    lips.register('picks', {
+      state: { items: [ 'a', 'b' ], at: 0 },
+      handler: { pick( i: number ){ ( this as any ).state.at = i } },
+      default: `<ul><for [item, i] in=state.items><li on-click( pick, i )><{input.renderer} entry=item on=( state.at === i )/></li></for></ul>`
+    })
+    lips.render('slot-live', {
+      default: `<picks [entry, on]><span class="cell">{entry}{on ? '*' : ''}</span></picks>`
+    }).appendTo('#app')
+
+    await settle( () => qa('.cell').map( e => e.textContent ).join() === 'a*,b' )
+    ;( qa('li')[ 1 ] as HTMLElement ).click()
+    await settle( () => qa('.cell').map( e => e.textContent ).join() === 'a,b*' )
+  })
 })
 
 describe('component events', () => {

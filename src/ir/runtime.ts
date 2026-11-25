@@ -196,7 +196,8 @@ const SLOT = Symbol('lips.slot')
 interface SlotRenderer {
   [ SLOT ]: true
   args: string[]
-  render( argvalues?: Record<string, any> ): BlockInstance
+  /** Each argument as what reads it: the slot's binds read it, so they follow what it depends on */
+  render( args?: Record<string, () => any> ): BlockInstance
 }
 const isSlot = ( v: any ): v is SlotRenderer => !!v && typeof v === 'object' && v[ SLOT ] === true
 
@@ -1174,11 +1175,18 @@ class IRRenderer {
              * the slot's argument values.
              */
             if( isSlot( verb ) ){
-              const argvalues: Record<string, any> = {}
-              for( const [ name, ci ] of Object.entries( child.inputs ) )
-                argvalues[ name ] = 'lit' in ci ? ci.lit : this.runner( ci.e, scopeNames )( benv )
+              /**
+               * Each argument is read where the slot reads it, not once
+               * here: `<{input.renderer} active=( state.active === i )/>`
+               * follows `state.active`.
+               */
+              const args: Record<string, () => any> = {}
+              for( const [ name, ci ] of Object.entries( child.inputs ) ){
+                const run = 'lit' in ci ? undefined : this.runner( ci.e, scopeNames )
+                args[ name ] = run ? () => run( benv ) : () => ( ci as { lit: unknown } ).lit
+              }
 
-              const slotInst = place( h, anchor, verb.render( argvalues ) )
+              const slotInst = place( h, anchor, verb.render( args ) )
               inner.push( () => destroy( h, slotInst ) )
               return
             }
@@ -1412,13 +1420,10 @@ class IRRenderer {
     return {
       [ SLOT ]: true,
       args: contents.args,
-      render( argvalues?: Record<string, any> ){
+      render( args?: Record<string, () => any> ){
         const scope = Object.create( penv.scope ?? null )
 
-        contents.args.forEach( name => {
-          const [ get ] = signal( argvalues?.[ name ] )
-          defineGetter( scope, name, get )
-        })
+        contents.args.forEach( name => defineGetter( scope, name, args?.[ name ] ?? ( () => undefined ) ) )
 
         return parent.renderBlock( contents.block, { ...penv, scope } )
       }
