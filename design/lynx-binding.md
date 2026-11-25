@@ -1402,7 +1402,49 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
   - memory.
 
   Then push a changed template into the running app without a rebuild. Go or
-  no-go is recorded here.
+  no-go is recorded here, against the criteria below.
+
+  **Pass criteria (set 2026-11-25, before the phone run).** Numbers alone
+  decide nothing, so the bar is set before anything is measured on the
+  phone. Each criterion compares Lips with ReactLynx on the same phone, the
+  same screen and the same run. Small numbers get an absolute margin, since
+  a ratio of two 3 ms medians is noise.
+
+  - **The run.** A named mid-range Android phone: one Android 13 or later
+    model with 4–6 GB of RAM and a mid-tier system-on-chip. The phone is
+    on charge-off and Wi-Fi only; nothing else is installed or running.
+    Both apps are release bundles in the same Lynx Explorer build. Five runs
+    each, alternating Lips and ReactLynx; every number is the median of the
+    five. The record names the phone, the Android and Lynx versions and the
+    commit.
+  - **The screens.** The gate's screen (a counter and 100 keyed rows, 20
+    state changes), and a scrolling screen: a `list` of 1,000 rows, each a
+    text and an image placeholder, flung end to end for 5 seconds.
+
+  | Measure | Lips passes when |
+  |---|---|
+  | State change → main-thread flush, p50 and p95 | ≤ 1.5× ReactLynx's, or ≤ 5 ms above it |
+  | CPU per thread over the 20 steps (background, main) | ≤ 1.5× ReactLynx's, or ≤ 20 ms above it |
+  | Bytes per state change | ≤ 1.5× ReactLynx's |
+  | First frame (launch → first flush with content) | ≤ 100 ms after ReactLynx's |
+  | Frames while flinging the list | ≥ 99% within 16.7 ms and none over 33 ms; if ReactLynx misses that on the same phone, no worse than ReactLynx |
+  | Memory (PSS after the run) | ≤ ReactLynx's + 15 MB |
+  | Template push | a changed template reaches the running app with no rebuild, the state is kept, and nothing errors |
+  | Errors | no crash and no JS error in any run |
+
+  - **Go** when every row passes. **No-go** names the rows that failed, and
+    the gate is run again after their fix. A row is never waived after the
+    run.
+  - **Why these.** 1.5× keeps Lips in ReactLynx's class without asking it
+    to beat a framework with years of tuning. The first frame gets a fixed
+    margin rather than a ratio, because Lips builds its first screen on the
+    background thread by design; L6's instant first frame is the answer to
+    that, and the margin tightens when L6 lands. 16.7 ms is one frame at
+    60 Hz, and 33 ms is a dropped frame anyone sees. 15 MB is what a second
+    framework runtime and its templates may cost on a 4 GB phone.
+  - **Not yet in `measure.sh`:** frame timing (`dumpsys gfxinfo <package>
+    framestats` around the fling), first-frame time, and the list screen.
+    They come with the phone run.
 
   **Emulator half (2026-11-25, lips#39; relative only, no go/no-go).**
   `demos/lynx-gate`: the same screen in Lips and in ReactLynx 0.129.4, a
@@ -1427,8 +1469,9 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
     and the cause is found: the rows are new objects, so every row's
     text binding runs again, and the background host sends `SET_TEXT`
     for all 100 rows, 89 of them unchanged. ReactLynx's diff sends the
-    11 that changed. Skipping text equal to what was last sent would
-    bring Lips to about the same size; a follow-up, not done here.
+    11 that changed. Since fixed: the background host no longer sends a
+    write equal to the last one (§4.2, "As built, equal writes"), so a step sends the
+    11 `SET_TEXT` ops that changed. Not re-measured on the emulator.
   - **Latency and CPU are the same within the emulator's noise.** The
     medians move by 3× between runs of the same build, the CPU over
     the steps is a handful of 10 ms ticks for both, and the main-thread
