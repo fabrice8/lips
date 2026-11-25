@@ -840,6 +840,41 @@ with `__LoadStyleSheet`, which is internal (§8).
   natively (the headless runtime lays out `flow` in one column, and the
   sticky question in "As built, cell hints" is still open).
 
+**As built, Lynx's boolean attributes (2026-11-25).**
+
+- **The question.** Lips writes an attribute as text. Which of Lynx's
+  typed attributes ignore text, beyond a list's own (above)? Read in
+  lynx-family/lynx @ f4bd988:
+  - **The core reads `flatten`** as a boolean or as the text `"false"`
+    (`Element::CheckFlattenRelatedProp`): text works.
+  - **Android reads text.** `JavaOnlyMap.getInt` parses `"2"`,
+    `getBoolean` takes `"true"` or `"yes"` in any case, and `overlay`'s
+    `setVisible( Dynamic )` takes a string. So `overlay`'s `visible` and
+    `level` work as text.
+  - **iOS reads text.** `LynxConverter`'s `toBOOL` takes `"true"` or
+    `"YES"`, `toNSInteger` is `integerValue`.
+  - **HarmonyOS does not.** Its props are read with `Value::Bool()`, and
+    any non-empty text is true there (`base_value.h`, `IsFalse`): so
+    `visible="false"` shows an overlay. The same holds for 12 more,
+    in `UIBase::prop_setters_` and `UIOverlay::OnPropUpdate`.
+    HarmonyOS's overlay has no `level` at all.
+- **As built.** The applier sends those 13 as booleans when their value
+  is text (`BOOLS` in `src/lynx/main.ts`), read as Android reads it, with
+  an empty value true as in HTML. Android, iOS and HarmonyOS then agree.
+  The rule runs before a list's own rule. A boolean the background sends
+  (its ARIA) and a removal pass through as they are. Bound booleans were
+  already right: `true` is `""`, and `false` removes the attribute.
+- **Tests.** Tier A, 2 specs: what the applier hands `__SetAttribute` on
+  an `overlay`, a `scroll-view`, a `list` and an ARIA-quiet `div`, in
+  written, empty, mixed-case and bound forms; and every name, with six
+  near misses left as text (`accessibility-elements` among them).
+  Eleven deliberate breakages: ten were caught (no rule, the list rule
+  first, the list flag's reading, an empty value false, `"yes"` dropped,
+  case-sensitive, unanchored, each end of the pattern loose, a name
+  dropped). Converting non-text values too survived, and is equivalent:
+  the pattern reads a boolean as itself.
+- **Not verified.** HarmonyOS itself: no device or runtime here (tier C).
+
 **As built, event data (2026-11-24, lips#35).**
 
 - **What the engine hands a listener.** Read in the engine source

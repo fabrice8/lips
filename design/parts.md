@@ -196,17 +196,17 @@ picker on the layer, the grid's keys and `./i18n`.
 
 ## 7. What Lips needs first
 
-- **A reference that measures.** A ref calls UI methods on Lynx, but
-  nothing comes back: the main thread runs them and answers no one. A layer
-  needs its anchor's rectangle. `await this.refs.x.rect()` would answer from
-  `getBoundingClientRect()` on the DOM, and from Lynx's `boundingClientRect`
-  UI method on Lynx, through a reply the protocol does not have yet.
-- **Typed Lynx attributes.** Lips writes an attribute as text. Lynx reads
-  some only as numbers or booleans. A `list`'s own props (`span-count`,
-  `sticky-offset`, `sticky`, the `experimental-*` flags) are converted by
-  name in lips#48. An `overlay`'s `visible` and `level`, and likely
-  `flatten`, are not yet: the same conversion, extended to them, closes
-  them.
+- **A reference that measures.** Built (RFC-006 §4.5, "As built, a ref
+  that measures"): `await this.refs.x.getBoundingClientRect()` answers
+  on the DOM and, from Lynx's `boundingClientRect` UI method, on Lynx.
+- **Typed Lynx attributes.** Lips writes an attribute as text. A `list`'s
+  own props (`span-count`, `sticky-offset`, `sticky`, the `experimental-*`
+  flags) are read only as numbers and booleans, and are converted by name
+  (lips#48). An `overlay`'s `visible` and `level` and `flatten` were
+  thought to be the same; read in the engine, Android, iOS and the core
+  take them as text. Only HarmonyOS reads text as true, so `visible="false"`
+  showed an overlay there. Its 13 boolean attributes are now sent as
+  booleans (RFC-006 §4.5, "As built, Lynx's boolean attributes").
 - **Android's back button**, which should close the topmost layer: whether
   Lynx sends it to the page, and how, is to find out.
 - **Android's screen reader** (lips#44, `enableA11y`): until the host

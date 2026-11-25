@@ -547,6 +547,55 @@ describe('Lynx L3: inputs, lists, attributes', () => {
     for( const n of TEXT ) expect( sent[ n ], n ).toBe('1')
   })
 
+  it('Lynx\'s boolean attributes reach it as booleans: HarmonyOS reads any text as true', async () => {
+    const sent: [ string, string, unknown ][] = []
+    const setAttribute = env.mainThread.globalThis.__SetAttribute
+    env.mainThread.globalThis.__SetAttribute = ( el: any, name: string, v: unknown ) => {
+      sent.push([ el.tagName.toLowerCase(), name, v ])
+      return setAttribute( el, name, v )
+    }
+    const app = await boot(
+      `<overlay visible=state.v events-pass-through="true"><p>x</p></overlay>`
+      + `<scroll-view user-interaction-enabled="false" ignore-focus event-through="FALSE" block-native-event="Yes" skip-redirection="1" native-interaction-enabled="untrue" accessibility-label="false" exposure-scene="true"></scroll-view>`
+      + `<list user-interaction-enabled="false" span-count="2"></list>`
+      + `<div role="none"><p>x</p></div>`,
+      { state: { v: 'false' } } )
+    const of = ( tag: string ) => Object.fromEntries( sent.filter( s => s[ 0 ] === tag && s[ 1 ] !== 'update-list-info' ).map( s => [ s[ 1 ], s[ 2 ] ] ) )
+    expect( of('overlay') ).toEqual({ visible: false, 'events-pass-through': true })
+    // As Android reads them: present, "true" or "yes" in any case; other attributes keep their text
+    expect( of('scroll-view') ).toMatchObject({ 'user-interaction-enabled': false, 'ignore-focus': true, 'event-through': false, 'block-native-event': true,
+      'skip-redirection': false, 'native-interaction-enabled': false, 'accessibility-label': 'false', 'exposure-scene': 'true' })
+    // Before a list's own rule
+    expect( of('list') ).toEqual({ 'user-interaction-enabled': false, 'span-count': 2 })
+    // The background's ARIA sends a boolean, which stays one
+    expect( of('view') ).toMatchObject({ 'accessibility-element': false })
+
+    // Bound: text converts again, true is present, false removes it
+    for( const [ v, want ] of [ [ 'true', true ], [ true, true ], [ false, null ] ] as const ){
+      sent.length = 0
+      await app.act( () => app.inst.state.v = v as any )
+      expect( of('overlay'), String( v ) ).toEqual({ visible: want })
+    }
+  })
+
+  it('every Lynx boolean attribute named is converted', async () => {
+    // Lynx 4.x: `UIBase::prop_setters_` that read `Value::Bool()`, and `UIOverlay::OnPropUpdate`
+    const FLAG = [ 'visible', 'events-pass-through', 'event-through', 'ignore-focus', 'user-interaction-enabled', 'native-interaction-enabled',
+      'block-native-event', 'block-list-event', 'skip-redirection', 'enable-exposure-ui-clip', 'accessibility-element',
+      'accessibility-elements-hidden', 'accessibility-exclusive-focus' ]
+    // Near misses: a prefix or suffix more, and Lynx's text attributes beside them
+    const TEXT = [ 'visible-area', 'is-visible', 'accessibility-elements', 'accessibility-label', 'accessibility-traits', 'exposure-id' ]
+    const sent: Record<string, unknown> = {}
+    const setAttribute = env.mainThread.globalThis.__SetAttribute
+    env.mainThread.globalThis.__SetAttribute = ( el: any, name: string, v: unknown ) => {
+      sent[ name ] = v
+      return setAttribute( el, name, v )
+    }
+    await boot(`<scroll-view ${[ ...FLAG.map( n => `${n}="false"` ), ...TEXT.map( n => `${n}="false"` ) ].join(' ')}></scroll-view>`)
+    for( const n of FLAG ) expect( sent[ n ], n ).toBe( false )
+    for( const n of TEXT ) expect( sent[ n ], n ).toBe('false')
+  })
+
   it('an input value: the attribute first, then setValue after the flush', async () => {
     const app = await boot( `<input data-k="in" value=state.v>`, { state: { v: 'a' } } )
     const input = app.q('[data-k="in"]')

@@ -106,6 +106,20 @@ const NUMBERS = /-(count|offset|index|throttle|level|strategy)$|^layout-id$/
 const FLAGS = /^(sticky$|bounces$|enable-|needs?-|should-|experimental-(?!.*strategy$)|scroll-bar-enable$|harmony-)/
 const listProp = ( name: string, v: string ) => FLAGS.test( name ) ? flag( v ) : NUMBERS.test( name ) ? size( v ) ?? v : v
 
+/**
+ * Lynx's boolean attributes, on any element and on `overlay`.
+ * Android and iOS read the text `"false"` as false; HarmonyOS reads them
+ * with `Value::Bool()`, where any text but `""` is true (`UIBase::
+ * prop_setters_`, `UIOverlay::OnPropUpdate`), so `visible="false"` would
+ * show an overlay there. Written text goes as a boolean, read as Android
+ * reads it (`JavaOnlyMap.getBoolean`: `"true"` or `"yes"`, any case) and
+ * present-is-true as in HTML, so all three agree. Bound booleans were
+ * already right (`true` is `""`, `false` removes it), and the
+ * background's own ARIA sends booleans.
+ */
+const BOOLS = /^(visible|events-pass-through|event-through|ignore-focus|user-interaction-enabled|native-interaction-enabled|block-native-event|block-list-event|skip-redirection|enable-exposure-ui-clip|accessibility-(element|elements-hidden|exclusive-focus))$/
+const on = ( v: string ) => v === '' || /^(true|yes)$/i.test( v )
+
 /** A list's cells: in Lips's order, and in the order the list was last told */
 interface ListState {
   order: number[]
@@ -289,8 +303,8 @@ export function createApplier( page: Ref, forward: ( wire: WireEvent | WireReply
           else __RemoveElement( els.get( a )!, els.get( b )! )
           break
         case ATTR:
-          // A removed prop is still removed
-          attr( els.get( a )!, b, c !== null && lists.has( a ) ? listProp( b, c ) : c )
+          // Only text is converted: a removed prop is still removed, a boolean stays one
+          attr( els.get( a )!, b, typeof c !== 'string' ? c : BOOLS.test( b ) ? on( c ) : lists.has( a ) ? listProp( b, c ) : c )
           if( b in HINTS ){
             const h = hints.get( a ) || {}, list = listOf.get( a ), v = HINTS[ b ]( c )
             if( h[ b ] === v ) break

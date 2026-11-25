@@ -271,6 +271,12 @@ const KB = 1024
  * that gives a layout-only box a native view: +0.16 (4.85 → 5.01). The
  * rect is mapped field by field: spreading Lynx's answer would carry its
  * `id` and `dataset` into what the DOM gives as a plain box.
+ *
+ * 2026-11-25c: lynx-main 2.65→2.85 — the reply a ref's measure needs
+ * (+0.03, 2.59 → 2.62), and Lynx's boolean attributes sent as booleans,
+ * since HarmonyOS reads any text as true: +0.16 (2.62 → 2.78). The 13
+ * names are spelled out: a factored pattern measured the same and matched
+ * `accessibility-elements`, an iOS text attribute, which a spec now names.
  */
 const BUDGETS = {
   'dist/lips.min.js': 34.45,     // full: runtime + parser/compiler + style compiler + router
@@ -280,7 +286,7 @@ const BUDGETS = {
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
   'dist/untrusted.min.js': 9.35, // opt-in policy for templates you did not write (RFC-007) — no entry carries it
   'dist/lynx.min.js': 18.05,     // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
-  'dist/lynx-main.min.js': 2.65, // Lynx main thread: the applier over Element PAPI
+  'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 5.1 // Lynx background thread: the host the runtime renders into
 }
 
