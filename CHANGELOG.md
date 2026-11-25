@@ -13,16 +13,22 @@ State, Static, Context>`, written apart from the values they described;
 sibling, real or not, as `any`. At runtime only the removed `context`
 field changes.
 
-- **`component( definition )`** returns the object it is given and infers
-  its types: `state` and `static` from their values, each handler from
-  itself, and `this` in every handler from all three. A sibling handler it
-  does not have, a state key, or a handler named after a member of the
-  component (`emit`, `state`…, which `register()` refuses) is a type error.
-  What no value shows is named by part, in a first call:
-  `component<{ input: Props }>()({ … })`.
-- **`render()` and `root()` read the types back**: the handle's `state`,
-  and the `input` `render()` is handed, are typed with no annotation.
-  `precompile()` keeps them.
+- **`register`, `render` and `root` infer a component written in the
+  call**: `state` and `static` from their values, each handler from
+  itself, and `this` in every handler from all three, with no annotation
+  and no wrapper. A sibling handler it does not have, a state key, or a
+  handler named after a member of the component (`emit`, `state`…, which
+  `register()` refuses) is a type error. Such an object's `state` was
+  `any`; it is now what its values say, so code that writes a key the
+  component never declared stops compiling.
+- **The handle is typed**: `render()` and `root()` return the component's
+  `state`, and `render()` reads `input` from what it is handed.
+- **A component written apart** is typed where it is written, since its
+  handlers' `this` is fixed there: by `Handlers<Shape<{ … }>>` on its
+  handler, or by wrapping it in `component( … )`, which infers it as the
+  calls do (`component<{ input: Props }>()({ … })` names what no value
+  shows). `component()` and `precompile()` return a `TypedComponent`,
+  whose shape `render()` reads back, `input` included.
 - **`SharedContext`** is the app's context, typed once by augmenting it,
   for every component and for `new Lips()`. `setContext( key, value )`
   checks the value against the key.
@@ -37,6 +43,7 @@ field changes.
   | `ComponentSelf<MT>` | `Self<S, Methods>` |
   | `LifecycleEvents<MT>`, `LifeCycleEventTypes` | `Hooks`, `HookName` |
   | `PrecompiledTemplate` | `PrecompiledComponent<S>` |
+  | — | `TypedComponent<S>`, a component whose shape is known |
 
   `Component` now names the definition: an annotation that meant the
   handle fails to compile, rather than meaning something else silently.

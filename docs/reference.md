@@ -144,16 +144,16 @@ for what a whole subtree shares ([Context](#context)).
 
 ## Types
 
-`component( definition )` returns the object it is given, so it goes
-wherever a component does, and types it: `state` and `static` from their
+A component is typed where it is written. Written in a `register`,
+`render` or `root` call, Lips infers it: `state` and `static` from their
 values, each handler from itself, and `this` in every handler from all
 three, its sibling handlers included. A sibling it does not have, or a
-state key, is a type error. `render()` and `root()` read the types back, so
-the handle's `state` is typed with no annotation.
+state key, is a type error, and the handle's `state` is typed with no
+annotation. `render()` reads `input` from what it is handed.
 
-<!-- renders "3" after clicking "button" -->
+<!-- runs -->
 ```js
-component({
+lips.register('tripler', {
   state: { count: 0 },
   handler: {
     step( by ){ this.state.count += by },
@@ -163,25 +163,23 @@ component({
 })
 ```
 
-What no value shows is named, by part, in a first call: the `input` a
-parent hands it, a `state` whose start says too little (`null`, `[]`, one
-member of a union), or a `static` of a type from elsewhere. A part not named
-is still inferred.
+<!-- renders "3" after clicking "button" -->
+```js
+{ default: `<tripler/>` }
+```
+
+Written apart, in a file of its own, a component's `this` is fixed where
+it is written, before any of those calls sees it. Its handler is typed by
+the parts it reads, by name:
 
 <!-- from demos/app/client/components/counter.ts -->
 ```ts
-export type Input = {
-  initial?: number
-  limit?: number
-  /** Slot body, handed over by the parent — placed with <{input.renderer}/> */
-  renderer?: any
-}
-
-export default component<{ input: Input }>()({
-  static: {
-    fallbackLimit: 12
-  },
+export const handler: Handlers<Shape<{ input: Input, state: State, static: Static }>> = {
 ```
+
+An object written apart in a `.ts` file can instead be wrapped in
+`component( … )`, which infers it as the calls above do, naming in a first
+call only what no value shows: `component<{ input: Input }>()({ … })`.
 
 The context is the app's, so it is typed once, for every component and for
 `new Lips()`, by adding to `SharedContext`. `setContext( key, value )` then
@@ -197,6 +195,7 @@ declare module '../../../src/types' {
 | Type | What it is |
 |---|---|
 | `Component<S>` | a component: what `register`, `render`, `root`, a route and `<{…}/>` take |
+| `TypedComponent<S>` | a component whose shape is known, so `render()` reads it back: what `component()` and `precompile()` return |
 | `Shape<{ input?, state?, static?, context? }>` | the four typed parts, by name. A part it names is exact, a part it leaves out is empty, `context` is `SharedContext` unless named. Bare, every part is `any` |
 | `Rendered<S>` | what `render()` and `root()` return |
 | `Self<S, Methods>` | `this` in a handler: the component's members and its handlers |
@@ -204,11 +203,9 @@ declare module '../../../src/types' {
 | `Hooks` · `HookName` | the lifecycle hooks, their signatures and names |
 | `SharedContext` | the app's context, added to once |
 
-**When not**: `component()` sees one object whole. A `.lips` file, or a
-module that exports its parts one by one, types its handler by hand instead,
-as `Handlers<Shape<{ input: Input, state: typeof state }>>`; there a
-sibling handler reads as `any`. What the template string reads is not
-checked: its expressions are not TypeScript.
+**When not**: a handler typed by `Handlers<…>` reads a sibling handler as
+`any`; only an inferred one knows its siblings. What the template string
+reads is not checked: its expressions are not TypeScript.
 
 ---
 

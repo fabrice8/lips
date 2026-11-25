@@ -22,7 +22,7 @@ template string ──parse──▶ AST ──compile──▶ IR ──render�
 - **Precompile + CSP mode** — build templates to IR; run with no `eval`/`Function` under a strict CSP
 - **Hot-swap** — `instance.swap(newIR)` re-renders only what changed, preserving state
 - **Batteries included** — router, i18n, macros, scoped styles, slots, component events
-- **TypeScript** — `component()` infers state, static and handlers; `this` is typed in every handler
+- **TypeScript** — a component written in `register`/`render` is inferred: `this` typed in every handler, no wrapper
 
 ## 🚀 Quick start
 
@@ -79,30 +79,34 @@ import Lips from '@lipsjs/lips'
 
 ## 🔷 TypeScript
 
-`component()` returns the object it is given and infers its types: `state`
-and `static` from their values, each handler from itself, and `this` in
-every handler from all three, sibling handlers included. `render()` reads
-them back, so the handle is typed with no annotation.
+A component is typed where it is written. Written in a `register`,
+`render` or `root` call, Lips infers it: `state` and `static` from their
+values, each handler from itself, and `this` in every handler from all
+three, sibling handlers included. No annotation, no wrapper.
 
 ```ts
-import Lips, { component } from '@lipsjs/lips'
-
-const counter = component<{ input: { initial?: number } }>()({
+lips.register('counter', {
   state: { count: 0 },
   handler: {
-    onInput(){ this.state.count = this.input.initial ?? 0 },
     step( by: number ){ this.state.count += by },
     reset(){ this.step( -this.state.count ) }   // a typo here is an error
   },
   default: `<button on-click(step, 1)>{state.count}</button>`
 })
 
-new Lips().render('counter', counter, { initial: 2 }).state.count   // number
+lips.render('greeting', { default: `<b>{input.name}</b>` }, { name: 'Ada' }).state   // typed
 ```
 
-Only what no value shows is named, by part: the `input` a parent hands it,
-or a `state` whose start says too little (`null`, `[]`). The app's context
-is typed once, for every component and for `new Lips()`:
+Written apart, in a file of its own, its `this` is fixed where it is
+written, so its handler names the parts it reads:
+
+```ts
+export const handler: Handlers<Shape<{ input: Input, state: typeof state }>> = { … }
+```
+
+or the object is wrapped in `component( … )`, which infers it as the calls
+do. The app's context is typed once, for every component and for
+`new Lips()`:
 
 ```ts
 declare module '@lipsjs/lips' {
