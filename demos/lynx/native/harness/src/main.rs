@@ -212,6 +212,14 @@ fn main() -> R<()> {
     }
   };
 
+  // lips#44: pluginLips encodes Android's accessibility path into the page config
+  let encoded = std::fs::read(&bundle)?;
+  check(
+    "the bundle's page config selects Android's accessibility path (enableA11y)",
+    { let flag = b"\"enableA11y\":true"; encoded.windows(flag.len()).any(|w| w == flag) },
+    String::new(),
+  );
+
   // First render: produced on the background thread, applied by the main thread
   let dom = wait_dom(&mut page, "first render", |c| c.contains(&text("Count: 0")))?;
   check("first render from the background thread", true, String::new());

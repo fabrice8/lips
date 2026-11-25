@@ -146,6 +146,11 @@ describe('pluginLips (@lipsjs/lips/lynx-plugin)', () => {
     expect( encode( args ) ).toBe( args )
     expect( args.encodeData.sourceContent.config ).toEqual({ mine: 1, ...LYNX_PAGE_CONFIG })
 
+    // An app's own enableA11y stands (lips#44); the CSS flags the pipeline needs do not
+    const own = { encodeData: { sourceContent: { config: { enableA11y: false, enableCSSRule: false } } } }
+    encode( own )
+    expect( own.encodeData.sourceContent.config ).toEqual({ ...LYNX_PAGE_CONFIG, enableA11y: false })
+
     // Without a Lynx build plugin there is nothing to encode: said, not skipped
     expect( () => new PageConfig().apply( compilerWith( {} ).compiler ) ).toThrow( /pluginVanillaLynx or pluginReactLynx/ )
   })

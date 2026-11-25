@@ -726,7 +726,8 @@ with `__LoadStyleSheet`, which is internal (§8).
   numbers or booleans too (`ListContainerImpl::ResolveAttribute`), and a
   Lips attribute is text, so `span-count="2"` is ignored. Cell hints are
   converted here; the list's own props are not yet. Recorded as a
-  follow-up, not part of lips#43.
+  follow-up, not part of lips#43. *Built in lips#47: "As built, list
+  props" below.*
 - **Cost.** +233 bytes gzipped on `lynx-main` (2.21 → 2.44; budget
   2.3 → 2.5). A single converter table and a shared action object
   measured 12 bytes larger, so the plainer form stays.
@@ -775,6 +776,46 @@ with `__LoadStyleSheet`, which is internal (§8).
   beyond it was not found. Recorded as open, with the raw-PAPI probe as
   the reproduction to take upstream.
 
+
+
+**As built, list props (2026-11-25, lips#47).**
+
+- **What Lynx reads.** `ListContainerImpl::ResolveAttribute` (Lynx 4.1,
+  `core/list/decoupled_list_container_impl.cc`) takes `span-count`,
+  `sticky-offset` and the other counts only if `IsNumber()`, and `sticky`
+  and the `experimental-*` flags only if `IsBool()`; Clay's list reads
+  them as typed values too. Text is dropped without an error, so
+  `<list span-count="2">` was one column and `sticky="false"` was nothing.
+- **The applier converts a `list`'s attribute text by the prop's name**,
+  as it converts cell hints: a flag is set when present unless `"false"`,
+  a number is a number, text that is not one goes as written, and a
+  removed prop is still removed. Other elements are unchanged, and Lynx
+  for Web gets the same text as before.
+- **The names are two patterns**, not a table: the numbers end in
+  `-count`, `-offset`, `-index`, `-throttle`, `-level` or `-strategy`, or
+  are `layout-id`; the flags are `sticky`, `bounces`, `scroll-bar-enable`
+  and `enable-*`, `need-*`, `needs-*`, `should-*`, `harmony-*` and
+  `experimental-*` (but `-strategy`), read first. They cover every prop
+  `@lynx-js/types` 4.2.1 types `number` or `boolean` on `list` and the
+  typed ones the engine reads beyond them, 28 names, and no string prop.
+  A table of those names measured 0.25 KB larger.
+- **Cost.** +0.15 KB gzipped on `lynx-main` (2.44 → 2.59; budget 2.5 →
+  2.65).
+- **Tests.** Tier A, 2 specs in `tests/lynx-binding.spec.ts`: what the
+  applier hands `__SetAttribute` for a list (numbers, flags, `"false"`, a
+  string prop, text that is not a number, a bound change, a removal) and
+  for the same names on a `list-item` and a `view`; and every one of the
+  28 typed names, with 12 string props (and `exposure-id`) left as text.
+  The second spec found that `enable-dynamic-span-count` ends in
+  `-count`, so flags are read first. Fourteen deliberate breakages were
+  each caught: no conversion, a removal converted, every element
+  converted, a non-number dropped, numbers or flags left as text, every
+  other prop a flag, numbers read first, `-strategy` read as a flag, each
+  pattern too wide, a number or a flag name missing, and `"false"` read
+  as set.
+- **Not verified.** That a two-column list lays out in two columns
+  natively (the headless runtime lays out `flow` in one column, and the
+  sticky question in "As built, cell hints" is still open).
 
 **As built, event data (2026-11-24, lips#35).**
 
@@ -1155,6 +1196,50 @@ list takes its first token, as ARIA does with the first role it knows.
     handler and for the page-level `.outside` one alike.
 - **Not verified.** What a screen reader says for it is tier C.
 
+**As built, Android's accessibility path (2026-11-25, lips#44).**
+
+- **`LYNX_PAGE_CONFIG` sets `enableA11y: true`**, so `pluginLips` encodes
+  it into every bundle (§9.4 decided). An app whose own page config sets
+  `enableA11y` keeps its value: the plugin writes the CSS flags over the
+  app's, since the pipeline needs them, but not this one.
+- **Device check** (Android emulator, API 36.1 arm64, Lynx Explorer
+  4.1.0, TalkBack 16.0; kept apart from tier B). The demo built twice
+  from one source, with the flag forced on and off, each loaded from a
+  local server; TalkBack on, then `uiautomator dump` (without a running
+  accessibility service the dump has none of Lynx's virtual nodes):
+
+  | | Flag off (default path) | Flag on (helper path) |
+  |---|---|---|
+  | A `<button>` (`#inc`, `#off`, …) | `com.lynx.tasm.behavior.ui.LynxFlattenUI` | `android.widget.Button` |
+  | Its label's `text` | `com.lynx.tasm.behavior.ui.text.FlattenUIText` | `android.view.View` |
+  | A `p` | `…text.FlattenUIText` | `android.view.View` |
+  | Name (`content-desc`) | `+1`, `off`, … | the same |
+  | The input | `android.widget.EditText` | the same |
+
+  TalkBack takes the spoken role from the class: `android.widget.Button`
+  is read with "button", and Lynx's own classes with none. So the flag is
+  what makes a button a button on Android.
+- **Not verified on the device.**
+  - The spoken words themselves: the image's Google TTS engine crashes
+    (native fault in `libgoogle_speech_sbg_tts_jni.so`), and without root
+    TalkBack's focus cannot be moved by injected input, which activates
+    instead of exploring. The class is the input TalkBack speaks from.
+  - Role descriptions (`accessibility-role-description`) and the
+    `disabled` value: `uiautomator` does not show them, and the demo has
+    no checkbox or switch.
+  - Both paths expose a button and its label's text as two nodes, so
+    TalkBack stops twice per button. Lips could hide the label from the
+    tree under a named button; not done here.
+- **Tests.**
+  - Tier A: `tests/lynx-style.spec.ts` (the config) and
+    `tests/lynx-package.spec.ts` (the plugin writes it into the encoded
+    config, and keeps an app's own value but not an app's CSS flags).
+    Five deliberate breakages were each caught: the flag `false`, the
+    flag left out, the plugin dropping it, the app's value overwritten,
+    and every app value kept.
+  - Tier B: `run.sh` reads the encoded bundle and finds
+    `"enableA11y":true` in it (the off build has none).
+
 ## 5. Engine APIs: allowed and refused
 
 **Allowed** (public types and official guidance): page/view/text/raw-text/
@@ -1211,6 +1296,48 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
 
   Then push a changed template into the running app without a rebuild. Go or
   no-go is recorded here.
+
+  **Emulator half (2026-11-25, lips#39; relative only, no go/no-go).**
+  `demos/lynx-gate`: the same screen in Lips and in ReactLynx 0.129.4, a
+  counter and 100 keyed rows, 20 state changes 400 ms apart, each
+  bumping the counter and relabelling every tenth row. Lynx Explorer
+  4.1.0 on the Android emulator (API 36.1, arm64, on an Apple Silicon
+  Mac). Three runs each; the byte counts were the same in every run:
+
+  | | Lips | ReactLynx |
+  |---|---|---|
+  | First render crossing the threads (JSON bytes) | 9,348 | 43 |
+  | One state change (JSON bytes, median) | 1,525 | 284 |
+  | Step start → main-thread flush (median, three runs) | 3 · 26 · 11 ms | 3 · 15 · 9 ms |
+  | Background (`Lynx_JS`) CPU over the 20 steps | 2 · 11 · 7 ticks | 2 · 11 · 6 ticks |
+  | PSS after the run | 86–99 MB | 79–90 MB |
+  | Bundle | 103.7 KB | 96.4 KB |
+
+  - **What crosses.** ReactLynx renders its first screen on the main
+    thread, so only a 43-byte marker crosses; Lips builds it on the
+    background thread and sends every element (L6's instant first frame
+    is the answer to that). **Per state change Lips sends 5.4× more**,
+    and the cause is found: the rows are new objects, so every row's
+    text binding runs again, and the background host sends `SET_TEXT`
+    for all 100 rows, 89 of them unchanged. ReactLynx's diff sends the
+    11 that changed. Skipping text equal to what was last sent would
+    bring Lips to about the same size; a follow-up, not done here.
+  - **Latency and CPU are the same within the emulator's noise.** The
+    medians move by 3× between runs of the same build, the CPU over
+    the steps is a handful of 10 ms ticks for both, and the main-thread
+    (TASM) script never reaches one tick.
+  - **Memory overlaps.** Lips's range sits about 7 MB higher; one PSS
+    reading per run on an emulator cannot separate that from noise.
+  - **The template push holds.** After the run, Lips fetches a changed
+    template (177 bytes) from the dev server, compiles it on the device
+    and swaps it into the live instance (`inst.swap`): the screen shows
+    the new text with the state kept (`Pushed · Count: 20`), no
+    rebuild, no reload. ReactLynx compiles JSX at build time, so the
+    same change needs a rebuild and a hot reload.
+  - **Not measured:** first-frame time (the two apps do different work
+    before it, and the emulator's numbers would not transfer), and
+    anything absolute. The go/no-go needs a named mid-range phone, with
+    the same screens and `measure.sh`.
 - **L5 — Runtime templates** (the Modela export path, §4.4).
 - **L6 — Optimisations:** element templates for precompiled blocks, instant
   first frame, main-thread gesture handlers.
@@ -1258,14 +1385,14 @@ Each phase ends with an exit check. ROADMAP.md Phase 5 tracks them.
      runtime entry per thread, each with its budget) and `./lynx-plugin`.
    - Cost: an app on Lynx installs the DOM entries too. They are files in
      the package, not code in its bundles.
-4. **Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
-   set `enableA11y: true`?
+4. ~~**Android's accessibility path (§3.8, §4.8).** Should `LYNX_PAGE_CONFIG`
+   set `enableA11y: true`?~~ **Decided 2026-11-25: set it** (lips#44, §4.8
+   "As built, Android's accessibility path").
    - Without it, Android reads labels, hidden subtrees, values and headings,
      but no traits or role descriptions: a button is not called a button.
-   - With it, Android switches to the helper path for the whole page, which
-     the host app may not expect.
-   - Recommended: set it. Not set yet, because it changes the host app's
-     Android behaviour and only tier C can check it.
+   - With it, Android switches to the helper path for the whole page. An
+     app that wants the default path sets `enableA11y: false` in its own
+     page config.
 5. **States: words, or iOS's own traits.**
    - As built: words in `accessibility-value`, the same on every
      platform, translated through `connectBackground( words )`.

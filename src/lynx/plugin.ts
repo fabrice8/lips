@@ -79,7 +79,9 @@ class PageConfig {
 
     compiler.hooks.thisCompilation.tap( 'lips:page-config', ( compilation: any ) => {
       Template.getLynxTemplatePluginHooks( compilation ).beforeEncode.tap( 'lips:page-config', ( args: any ) => {
-        Object.assign( args.encodeData.sourceContent.config, LYNX_PAGE_CONFIG )
+        const config = args.encodeData.sourceContent.config
+        // The pipeline needs the CSS flags; Android's accessibility path is the app's to turn off (lips#44)
+        Object.assign( config, LYNX_PAGE_CONFIG, 'enableA11y' in config && { enableA11y: config.enableA11y } )
         return args
       })
     })
