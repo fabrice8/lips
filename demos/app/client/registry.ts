@@ -10,6 +10,7 @@
  * every key really does compile to a component.
  */
 import type Lips from '../../../src/lips'
+import { menu } from '../../../src/parts'
 
 import * as Counter from './components/counter'
 import * as Profile from './components/profile'
@@ -36,4 +37,7 @@ export const COMPONENTS: Record<string, any> = {
 export default ( lips: Lips ) => {
   for( const [ name, template ] of Object.entries( COMPONENTS ) )
     lips.register( name, template )
+
+  // A part is a plugin: the menu, and the popover it is built on
+  lips.use( menu )
 }

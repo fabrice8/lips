@@ -5,6 +5,87 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Fixed — an audit of every surface against what the docs say
+
+Each item below was a documented behaviour Lips did not have, found by a
+test that states the claim. Each fix ships with its test and a mutation that
+test catches.
+
+- **One error boundary over everything a template evaluates.** Only text and
+  attribute binds were inside it: a throw in an `<if>` condition, a `<for>`
+  source, a `<switch>` head, an awaited value, a dynamic tag, a component
+  input, a macro argument, a `<let>`, a `<context>` key or a `<log>` took
+  the whole render down. Now each reaches the component's `onError` (or the
+  console), and the rest renders; a branch that threw shows once what it
+  reads is there.
+- **A handler that throws, or whose promise rejects, reaches `onError`**,
+  as the docs said; it reached the host's event loop. A child's event runs
+  the parent's handler inside the parent's boundary.
+- **`onUpdate` and `onRender` follow every change the template shows**: a
+  branch shown, a row added, a case switched, an input passed down. They
+  ran only when a text or attribute bind re-ran (the legacy engine ran them
+  on any update).
+- **What an awaited expression throws is the `<catch>` arm's error**, as
+  `await` has it.
+- **`input` and `static` are always objects**, as the legacy engine had
+  them: a root rendered with no input crashed on `{input.title ?? '…'}`,
+  and a handler could not keep `this.static.x` without a declared `static`.
+- **`onInput` runs again when a spread brings a key the input did not
+  have.** A top-level reactive store now has a key-set channel, as nested
+  objects do, so `Object.keys( store )` follows keys added and deleted.
+- **`value=`, `checked=` and `selected=` write the element's property**, not
+  only the attribute: once the reader typed, `state.query = ''` changed
+  nothing on screen, and `<select value=…>` / `<textarea value=…>` took no
+  value at all. A `value` bind runs after its block's children, so a
+  `<select>` has the options a `<for>` renders. **DOM output**: the property
+  follows the bind.
+- **`@text`, `@html` and `@format` on a tag no component claims** (Lynx's
+  `scroll-view`, any custom tag) write its content; the attribute name threw.
+- **A bare handler name is the component's handler**: `on-click(open)` ran
+  `window.open` in compiled mode and the handler in interpreted mode.
+  `open`, `close`, `print`, `focus`, `scroll`, `stop`… all hit it. A name a
+  template variable holds is still that variable.
+- **The two execution modes mean what JS means.** Compiled mode
+  parenthesized each link of a member chain, so `state.u?.p.name` threw when
+  `u` was null; interpreted mode read `state.u.name` as `undefined` where JS
+  throws. Both now end a chain at `?.` and throw on `.` of nothing.
+- **A template placed by value with no `name` has a scope of its own.** Every
+  such template shared `dynamic`: two live at once shared one `<style>`, and
+  the second one's CSS never injected.
+- **`register()` refuses a reserved handler name**, as documented; it threw
+  at the first render.
+- **`<router global>`**: the first navigation replaces the entry the page
+  loaded on (it pushed a duplicate, which left Back on the same page), and a
+  destroyed router removes its `popstate` listener and its `window.navigate`.
+- **Character references**: every numeric one decodes (`&#169;`, `&#x2014;`);
+  only six named ones did, and `&#169;` reached the page as text. A named
+  reference outside HTML's five and `&nbsp;` is now LIPS-P013 and stays as
+  written.
+- **`<for>` attributes are values**: `in="{state.items}"` (a lone slot) is
+  the value, as on a component. It was dropped, and the loop rendered a
+  range of one, a single row reading `0`. Any other quoted form of `in`,
+  `from`, `to` or `by` is LIPS-C004.
+- **The `.lips` plugin inlines `const macros`** (a macro there never
+  expanded) and exports `const watchContext`.
+- **Types**: `Template` has `name`; `precompile()` returns the template it
+  was given (`static`, `watchContext`, `name` included), typed.
+
+### Added — what a template wrote and nothing said
+
+- `LIPS-C023`: an `on-*` on a macro call site (there is no element for the
+  listener). `LIPS-C024`: content inside a macro call (a macro has no place
+  for it). Both were dropped without a word.
+- `LIPS-P013` (warning): a named character reference Lips does not decode.
+- `tests/diagnostics.spec.ts` triggers every template diagnostic by the
+  smallest source that makes it, and fails when a code in `src/` has no
+  test (21 had none).
+- [`docs/reference.md`](docs/reference.md): every part of Lips, when to use
+  it and when not, with an example `tests/reference.spec.ts` runs.
+- `tests/demo-render.spec.ts` renders `demos/app` and clicks through every
+  page. It found the reactivity page's "Re-seed both to 5" re-seeding one
+  counter. `demos/app` gains `/parts`: a menu from `lips.use()`, `@ref`, a
+  field state resets, `.stop`, `onError`.
+
 ### Fixed — what the IR engine had dropped from the legacy one
 
 - **Each instance has its own `state` and `static`.** Both were the

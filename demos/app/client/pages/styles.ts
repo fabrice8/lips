@@ -35,7 +35,6 @@ export const state: State = {
   cols: 3
 }
 
-export const context = ['theme']
 
 export const handler: Handler<Metavars<{}, State, {}, Context>> = {
   set( key: keyof State, e: any ){

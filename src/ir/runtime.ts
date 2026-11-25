@@ -623,8 +623,11 @@ class IRRenderer {
   }
 
   /**
-   * Bind effects run inside the component's error boundary and
-   * report post-initial re-runs as component updates.
+   * Every effect a template creates runs here: a bind, a branch, a list,
+   * an input, a `<let>`. Inside the component's error boundary, so what
+   * throws reaches its `onError` and the render goes on; and a re-run is
+   * an update of the component, so `onUpdate` and `onRender` follow it,
+   * whether what changed was a text or which branch is shown.
    */
   private guarded( fn: () => void ){
     let first = true
@@ -733,7 +736,7 @@ class IRRenderer {
           const [ get, set ] = signal<any>( undefined )
           defineGetter( scope, name, get )
           const run = this.runner( input.e, block.scope )
-          letDisposers.push( effect( () => set( run( benv ) ) ).dispose )
+          letDisposers.push( this.guarded( () => set( run( benv ) ) ).dispose )
         }
       }
 
@@ -743,9 +746,14 @@ class IRRenderer {
       }
     })
 
-    // Binds — one effect each
+    /**
+     * Binds — one effect each. A `value` waits for the blocks: a
+     * `<select>` takes the value of an option it has, and its options are
+     * often a `<for>`, which renders below.
+     */
+    const late = ( b: BindIR ) => b.t === 'attr' && b.name === 'value'
     inst.bindHandles = block.binds.map( ( bind, i ) =>
-      this.bindOne( bind, bindNodes[ i ], benv, block.scope ) )
+      late( bind ) ? null! : this.bindOne( bind, bindNodes[ i ], benv, block.scope ) )
 
     // Control-flow / component blocks
     block.blocks.forEach( ( child, i ) => {
@@ -754,6 +762,10 @@ class IRRenderer {
         child, exprs: this.ir.exprs, anchor: anchorNodes[ i ],
         dispose: this.execBlock( child, anchorNodes[ i ], benv, block.scope )
       }
+    })
+
+    block.binds.forEach( ( bind, i ) => {
+      if( late( bind ) ) inst.bindHandles[ i ] = this.bindOne( bind, bindNodes[ i ], benv, block.scope )
     })
 
     return inst
@@ -942,7 +954,7 @@ class IRRenderer {
         let current: BlockInstance | null = null
         let activeIdx = -2
 
-        const eff = effect( () => {
+        const eff = this.guarded( () => {
           let idx = -1
           for( let i = 0; i < child.branches.length; i++ ){
             const run = runs[ i ]
@@ -971,7 +983,7 @@ class IRRenderer {
         let current: BlockInstance | null = null
         let activeIdx = -2
 
-        const eff = effect( () => {
+        const eff = this.guarded( () => {
           const value = onRun( benv )
           let idx = -1, defaultIdx = -1
 
@@ -1039,7 +1051,7 @@ class IRRenderer {
 
         let prevKeys = new Set<string>()
 
-        disposers.push( effect( () => {
+        disposers.push( this.guarded( () => {
           // Evaluate every set in order into one flat view
           const next: Record<string, any> = {}
 
@@ -1094,8 +1106,11 @@ class IRRenderer {
           current = place( h, anchor, this.renderBlock( isArm ? arm.block : arm, { ...benv, scope: scope2 } ) )
         }
 
-        const eff = effect( () => {
-          const p = awaitRun( benv )
+        const eff = this.guarded( () => {
+          let p: unknown
+          // What throws as it is awaited rejects, as `await` has it: the `<catch>` arm shows it
+          try { p = awaitRun( benv ) }
+          catch( error ){ p = Promise.reject( error ) }
           const my = ++token
 
           untrack( () => {
@@ -1156,7 +1171,7 @@ class IRRenderer {
            */
           if( 'lit' in input ) continue
           const run = this.runner( input.e, scopeNames )
-          disposers.push( effect( () => set( run( benv ) ) ).dispose )
+          disposers.push( this.guarded( () => set( run( benv ) ) ).dispose )
         }
 
         /**
@@ -1174,7 +1189,7 @@ class IRRenderer {
           else {
             const [ get, set ] = signal<any>( undefined )
             const run = this.runner( child.lang.e, scopeNames )
-            disposers.push( effect( () => set( run( benv ) ) ).dispose )
+            disposers.push( this.guarded( () => set( run( benv ) ) ).dispose )
             // Nullish falls back to the enclosing language, not to ''
             lang = () => get() ?? benv.lang?.()
           }
@@ -1187,7 +1202,7 @@ class IRRenderer {
 
       case 'log': {
         const segs = splitTopLevel( this.ir.exprs[ child.e ] ).map( s => this.srcRunner( s, scopeNames ) )
-        disposers.push( effect( () => console.log( ...segs.map( run => run( benv ) ) ) ).dispose )
+        disposers.push( this.guarded( () => console.log( ...segs.map( run => run( benv ) ) ) ).dispose )
         break
       }
 
@@ -1204,7 +1219,7 @@ class IRRenderer {
         let inner: ( () => void )[] = []
         let activeVerb: any = Symbol('init')
 
-        const eff = effect( () => {
+        const eff = this.guarded( () => {
           const verb = tagRun( benv )
           if( verb === activeVerb ) return
           activeVerb = verb
@@ -1328,7 +1343,7 @@ class IRRenderer {
       return []
     }
 
-    const eff = effect( () => {
+    const eff = this.guarded( () => {
       const next = tuples() // tracked reads
       untrack( () => {
         const seen = new Set<any>()
@@ -1424,12 +1439,12 @@ class IRRenderer {
       if( 'lit' in ci ) input[ name ] = ci.lit
       else {
         const run = this.runner( ci.e, scopeNames )
-        wiring.push( effect( () => input[ name ] = run( benv ) ).dispose )
+        wiring.push( this.guarded( () => input[ name ] = run( benv ) ).dispose )
       }
     }
     for( const e of child.spreads ){
       const run = this.runner( e, scopeNames )
-      wiring.push( effect( () => {
+      wiring.push( this.guarded( () => {
         const obj = run( benv ) || {}
         untrack( () => Object.entries( obj ).forEach( ( [ k, v ] ) => {
           written?.add( k )
@@ -1558,7 +1573,7 @@ class IRRenderer {
     /** Its own copy of what the template declares: a template is drawn many times, and written by none of them */
     const
     state = reactive( initial( def.state || {} ), def.deep ?? false ),
-    statics = initial( def.statics )
+    statics = initial( def.statics ?? {} )
 
     /**
      * Component event bus: the child emits, the parent's
@@ -1762,12 +1777,18 @@ class IRRenderer {
       // A tag no component claims renders as an element (Lynx's own: `scroll-view`, `list`), so `@ref` names it too
       if( name === '@ref' ){
         const run = 'lit' in ci ? () => ci.lit : this.runner( ci.e, scopeNames )
-        disposers.push( refTo( benv, el, () => run( benv ), effect ) )
+        disposers.push( refTo( benv, el, () => run( benv ), fn => this.guarded( fn ) ) )
       }
+      /**
+       * The other `@`-props are what they are on any element: the
+       * element's content. Written as attributes, as they were, the
+       * name alone threw (`@` cannot start an attribute name).
+       */
+      else if( name[ 0 ] === '@' ) disposers.push( this.contentOf( el, name, ci, benv, scopeNames ) )
       else if( 'lit' in ci ) applyAttr( h, el, name, ci.lit )
       else {
         const run = this.runner( ci.e, scopeNames )
-        disposers.push( effect( () => applyAttr( h, el, name, run( benv ) ) ).dispose )
+        disposers.push( this.guarded( () => applyAttr( h, el, name, run( benv ) ) ).dispose )
       }
     }
     for( const ev of child.events )
@@ -1784,6 +1805,31 @@ class IRRenderer {
   }
 
   /**
+   * `@text`, `@html` and `@format` on an element no component claims. The
+   * compiler cannot tell such a tag from a component, so these reach the
+   * runtime as inputs; `@format` carries its reference and params as the
+   * compiler split them (`Compiler.compLike`).
+   */
+  private contentOf( el: N, name: string, ci: CompInput, benv: RunEnv, scopeNames: string[] ): () => void {
+    const h = this.h
+
+    if( name === '@format' ){
+      const { ref, e } = ( 'lit' in ci ? ci.lit : {} ) as { ref?: string, e?: E }
+      const run = e === undefined ? () => ({}) : this.runner( e, scopeNames )
+      return this.guarded( () => {
+        const text = this.options.i18n?.format( ref || '', run( benv ), benv.lang?.() )
+        h.content( el, text == null ? '' : String( text ) )
+      }).dispose
+    }
+
+    const run = 'lit' in ci ? () => ci.lit : this.runner( ci.e, scopeNames )
+    return this.guarded( () => {
+      const v = run( benv ), s = v == null ? '' : String( v )
+      name === '@html' && h.html ? h.html( el, s ) : h.content( el, s )
+    }).dispose
+  }
+
+  /**
    * Event instruction dispatch (lazy — evaluated per event):
    *  - `on-click( expr )` → value must be a function, called with (…params)
    *  - `on-click( name, ...args )` → resolves `name` (expression, then
@@ -1795,16 +1841,24 @@ class IRRenderer {
    * Scope getters read live values at dispatch — no stale memos.
    */
   private eventDispatcher( instruction: string, scopeNames: string[], benv: RunEnv ){
-    const segs = splitTopLevel( instruction )
+    const
+    segs = splitTopLevel( instruction ),
+    /**
+     * A bare name that no scope variable holds is the component's handler
+     * before it is an expression. Read as an expression first, `open`,
+     * `close`, `print` or `focus` was the window's own function in
+     * compiled mode, called instead of the handler (interpreted mode, with
+     * no such globals, called the handler: the modes disagreed).
+     */
+    named = /^[A-Za-z_$][\w$]*$/.test( segs[ 0 ] || '' ) && !scopeNames.includes( segs[ 0 ] )
 
     return ( ...params: any[] ) => untrack( () => {
       const resolveFn = ( src: string ) => {
-        let v: any
-        try { v = this.srcRunner( src, scopeNames )( benv ) }
-        catch( e ){ v = undefined }
-        if( typeof v !== 'function' && benv.self && !this.options.guard?.self( src ) && typeof benv.self[ src ] === 'function' )
-          v = benv.self[ src ]
-        return v
+        if( named && benv.self && !this.options.guard?.self( src ) && typeof benv.self[ src ] === 'function' )
+          return benv.self[ src ]
+
+        try { return this.srcRunner( src, scopeNames )( benv ) }
+        catch( e ){ return undefined }
       }
 
       if( !segs.length ) return
@@ -1812,8 +1866,18 @@ class IRRenderer {
       const fn = resolveFn( segs[0] )
       if( typeof fn !== 'function' ) return
 
-      const args = segs.slice( 1 ).map( src => this.srcRunner( src, scopeNames )( benv ) )
-      fn( ...args, ...params )
+      /**
+       * A handler is the component's code as much as a bind is: what it
+       * throws, and what the promise it returns rejects with, reach the
+       * component's `onError` rather than the host's event loop.
+       */
+      const failed = ( error: unknown ) => this.hooks ? this.hooks.onError( error ) : console.error('[lips:ir]', error )
+      try {
+        const args = segs.slice( 1 ).map( src => this.srcRunner( src, scopeNames )( benv ) )
+        const out = fn( ...args, ...params )
+        out && typeof out.then === 'function' && out.then( undefined, failed )
+      }
+      catch( error ){ failed( error ) }
     })
   }
 }
@@ -1823,7 +1887,14 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
   const
   h = options.host || domHost,
   state = reactive( setup.state || {}, setup.deep ?? false ),
-  input = setup.input ? reactive( setup.input, setup.deep ?? false ) : undefined
+  /**
+   * `input` and `static` are always objects, as a nested component's are
+   * and as the legacy engine had them: a root rendered with no input still
+   * reads `input.title ?? 'Untitled'`, and a handler still keeps
+   * `this.static.cache` when the template declared none.
+   */
+  input = reactive( setup.input || {}, setup.deep ?? false ),
+  statics = setup.static || {}
 
   /** Set after the first render — backs `self.node` */
   let rootInst: BlockInstance | null = null
@@ -1831,7 +1902,7 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
   const bus = selfBus( h, () => options.i18n?.lang() ?? '' )
 
   const self: any = bus.bind( Object.assign( Object.create( bus.proto ), {
-    state, input, static: setup.static,
+    state, input, static: statics,
     /**
      * `options.expose` is what every NESTED component self gets
      * (setContext, setLanguage). The root is a component too, so it
@@ -1849,7 +1920,7 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
     state,
     input,
     context: setup.context,
-    static: setup.static,
+    static: statics,
     self,
     scope: undefined
   }
@@ -1863,7 +1934,7 @@ export function renderIR<T = Node>( ir: TemplateIR, setup: RenderSetup = {}, opt
   try { typeof self.onCreate === 'function' && self.onCreate() }
   catch( error ){ hooks.onError( error ) }
 
-  try { input && Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
+  try { Object.keys( input ).length && typeof self.onInput === 'function' && self.onInput( input ) }
   catch( error ){ hooks.onError( error ) }
   const unwatchInput = watchInput( self, input, hooks )
 

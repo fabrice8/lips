@@ -808,11 +808,25 @@ class Compiler {
           t: 'for', p, args,
           block: this.block( node.children, [ ...scope, ...args ] )
         }
-        if( inAttr && inAttr.k === 'expr' ) child.of = this.expr( inAttr.source, inAttr.loc )
+        /**
+         * `in` is a value, never text: `in="state.items"` iterated nothing,
+         * and fell through to a range of one, `0`. A lone slot,
+         * `in="{state.items}"`, is the value, as it is on a component.
+         */
+        if( inAttr ){
+          const source = this.valueOf( inAttr )
+          source === undefined
+            ? this.report( 'LIPS-C004', 'error', `<for in=…> takes an expression: in=state.items`, inAttr.loc.offset, inAttr.loc.length )
+            : child.of = this.expr( source, inAttr.loc )
+        }
         if( fromAttr ) child.from = this.numInput( fromAttr )
         if( toAttr ) child.to = this.numInput( toAttr )
-        if( byAttr && ( byAttr.k === 'literal' || byAttr.k === 'expr' ) )
-          child.by = byAttr.k === 'literal' ? { lit: byAttr.value } : { e: this.expr( byAttr.source, byAttr.loc ) }
+        if( byAttr ){
+          const source = byAttr.k === 'literal' ? undefined : this.valueOf( byAttr )
+          byAttr.k === 'literal' ? child.by = { lit: byAttr.value }
+            : source === undefined ? this.report( 'LIPS-C004', 'error', `<for by=…> takes a key path or an expression`, byAttr.loc.offset, byAttr.loc.length )
+            : child.by = { e: this.expr( source, byAttr.loc ) }
+        }
 
         block.blocks.push( child )
         break
@@ -991,8 +1005,17 @@ class Compiler {
   }
   private numInput( attr: AttrNode ): CompInput {
     if( attr.k === 'literal' ) return { lit: isNumeric( attr.value ) ? Number( attr.value ) : attr.value }
-    if( attr.k === 'expr' ) return isNumeric( attr.source ) ? { lit: Number( attr.source ) } : { e: this.expr( attr.source, attr.loc ) }
+
+    const source = this.valueOf( attr )
+    if( source !== undefined ) return isNumeric( source ) ? { lit: Number( source ) } : { e: this.expr( source, attr.loc ) }
+
+    'name' in attr && this.report( 'LIPS-C004', 'error', `<for ${attr.name}=…> takes a number or an expression`, attr.loc.offset, attr.loc.length )
     return { lit: undefined }
+  }
+  /** An attribute's value as ONE expression: unquoted, braced, or a lone `"{slot}"` */
+  private valueOf( attr: AttrNode ): string | undefined {
+    if( attr.k === 'expr' ) return attr.source
+    if( attr.k === 'interp' && attr.parts.length === 1 && typeof attr.parts[ 0 ] !== 'string' ) return attr.parts[ 0 ].expr
   }
 
   /**
@@ -1026,7 +1049,20 @@ class Compiler {
         sets.push({ name: attr.name, ci: this.compInput( attr ) })
       else if( attr.k === 'spread' )
         sets.push({ spread: this.expr( attr.source, attr.loc ) })
+      /**
+       * A macro is markup, not an element: there is nothing at the call
+       * site for a listener to be on, so the instruction was dropped
+       * without a word. The body says where it goes.
+       */
+      else if( attr.k === 'event' )
+        this.report( 'LIPS-C023', 'error', `on-${attr.name}( … ) on the macro <${node.tag}> wires no listener`,
+                     attr.loc.offset, attr.loc.length, 'Pass the handler as an argument (fn=self.pick) and wire it in the body' )
     }
+
+    // Nor is there a place in the body for content: a component with a slot takes it
+    node.children.length
+      && this.report( 'LIPS-C024', 'error', `<${node.tag}> is a macro: what it encloses is not rendered`,
+                      node.loc.offset, node.loc.length, 'A component takes content: <{input.renderer}/>' )
 
     this.macroStack.push( macro.name )
     const block = this.block( macro.children, [ ...scope, ...macro.argv ] )
@@ -1081,6 +1117,16 @@ class Compiler {
 
       switch( attr.k ){
         case 'literal': case 'bool': case 'expr': case 'interp':
+          /**
+           * A tag no component claims renders as an element, where
+           * `@format` is what it is on any element: split here, where
+           * its braces are still data and not interpolation.
+           */
+          if( attr.name === '@format' && attr.k !== 'bool' ){
+            const { ref, e } = this.formatBind( p, attr ) as { ref: string, e: E }
+            inputs[ attr.name ] = { lit: { ref, e } }
+            break
+          }
           inputs[ attr.name ] = this.compInput( attr )
           break
         case 'event':

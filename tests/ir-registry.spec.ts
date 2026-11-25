@@ -43,6 +43,20 @@ describe('register: a name the compiler reads as something else is refused', () 
   })
 })
 
+describe('register: a handler named after a member of the component is refused there', () => {
+  it('at registration, not at its first render', () => {
+    for( const name of [ 'state', 'emit', 'node', 'setContext', 'swap' ] )
+      expect( () => lips.register('has-reserved', { default: '<p/>', handler: { [ name ](){} } }), name ).toThrow( /reserved/ )
+
+    expect( lips.has('has-reserved') ).toBe( false )
+  })
+
+  it('and by a plugin, which installs nothing of it', () => {
+    expect( () => lips.use({ name: 'bad', components: { 'bad-part': { default: '<p/>', handler: { on(){} } } } }) ).toThrow( /reserved/ )
+    expect( lips.has('bad-part') ).toBe( false )
+  })
+})
+
 describe('use: a plugin installs what it requires, its components and its setup', () => {
   const base: Plugin = { name: 'base', components: { 'x-base': { default: `<i class="base">{input.v}</i>` } } }
   const top: Plugin<{ tone: string }> = {

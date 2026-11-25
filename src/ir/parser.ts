@@ -87,11 +87,32 @@ const VOID_ELEMENTS = new Set([
 const RAW_WHITESPACE_TAGS = new Set([ 'pre', 'textarea' ])
 const HEAD_SUGAR_TAGS = new Set([ 'if', 'else-if', 'switch', 'log' ])
 
+/**
+ * Character references the parser decodes: every numeric one, and HTML's
+ * five plus `&nbsp;` by name. Any other name is reported (LIPS-P013) and
+ * left as written, rather than shipped as text that reads `&copy;`: the
+ * full table is two thousand names, and a template can always write the
+ * character itself, or its number.
+ */
 const NAMED_ENTITIES: Record<string, string> = {
-  '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&nbsp;': ' '
+  __proto__: null as any,
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0'
 }
-function decodeEntities( text: string ){
-  return text.replace( /&(?:amp|lt|gt|quot|#39|nbsp);/g, m => NAMED_ENTITIES[ m ] )
+
+const REFERENCE = /&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([A-Za-z][A-Za-z0-9]*));/g
+
+/** `unknown` is told each named reference the table lacks, with where it sits in `text` */
+function decodeEntities( text: string, unknown?: ( name: string, index: number ) => void ){
+  return text.replace( REFERENCE, ( m, dec, hex, name, index ) => {
+    if( name === undefined ){
+      const code = dec !== undefined ? parseInt( dec, 10 ) : parseInt( hex, 16 )
+      return code > 0 && code <= 0x10FFFF ? String.fromCodePoint( code ) : m
+    }
+    if( name in NAMED_ENTITIES ) return NAMED_ENTITIES[ name ]
+
+    unknown?.( name, index )
+    return m
+  })
 }
 
 // ------------------------------------------------------------------- parser
@@ -122,6 +143,12 @@ class TemplateParser {
   private report( code: string, severity: 'error' | 'warning', message: string, offset: number, length = 1, hint?: string ){
     const { line, col } = this.locate( offset )
     this.diagnostics.push({ code, severity, message, hint, loc: { line, col, offset, length } })
+  }
+
+  /** Decode character references in text that starts at `at` (where an unknown one is reported) */
+  private decode( text: string, at: number ){
+    return decodeEntities( text, ( name, index ) =>
+      this.report( 'LIPS-P013', 'warning', `&${name}; is not decoded`, at + index, name.length + 2, 'Write the character, or its number: &#169;' ) )
   }
 
   // ---- scanning helpers
@@ -261,7 +288,7 @@ class TemplateParser {
     if( parts.some( p => typeof p !== 'string' ) )
       return {
         t: 'interp',
-        parts: parts.map( p => typeof p === 'string' ? decodeEntities( p ) : p ),
+        parts: parts.map( p => typeof p === 'string' ? this.decode( p, start ) : p ),
         loc
       }
 
@@ -272,7 +299,7 @@ class TemplateParser {
     const inRaw = stack.some( tag => RAW_WHITESPACE_TAGS.has( tag ) )
     if( !raw || ( !inRaw && !raw.trim() ) ) return null
 
-    return { t: 'text', value: decodeEntities( raw ), loc }
+    return { t: 'text', value: this.decode( raw, start ), loc }
   }
 
   // ---- tags
@@ -541,8 +568,8 @@ class TemplateParser {
       const loc: Loc = { offset: attrStart, length: this.pos - attrStart }
 
       parts.some( p => typeof p !== 'string' )
-        ? el.attrs.push({ k: 'interp', name, parts: parts.map( p => typeof p === 'string' ? decodeEntities( p ) : p ), loc })
-        : el.attrs.push({ k: 'literal', name, value: decodeEntities( ( parts[0] as string ) ?? '' ), loc })
+        ? el.attrs.push({ k: 'interp', name, parts: parts.map( p => typeof p === 'string' ? this.decode( p, valueStart ) : p ), loc })
+        : el.attrs.push({ k: 'literal', name, value: this.decode( ( parts[0] as string ) ?? '', valueStart ), loc })
       return
     }
 

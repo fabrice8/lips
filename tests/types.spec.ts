@@ -159,6 +159,17 @@ describe('precompiled artifacts are typed', () => {
   })
 })
 
+describe('every documented field is in the types', () => {
+  it('name, static and watchContext, and precompile() keeps them typed', () => {
+    const page: Template = { name: 'page-home', static: { api: '/x' }, watchContext: [ 'theme' ], default: '<p/>' }
+    const { template } = precompile( page )
+
+    expectTypeOf( template.name ).toEqualTypeOf<string | undefined>()
+    expectTypeOf( template.watchContext ).toEqualTypeOf<string[] | undefined>()
+    expect( template ).toMatchObject({ name: 'page-home', static: { api: '/x' }, watchContext: [ 'theme' ] })
+  })
+})
+
 describe('static constants', () => {
   it('accepts `static` in an object literal, and `_static` from module exports', () => {
     /**

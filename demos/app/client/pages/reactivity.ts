@@ -32,7 +32,6 @@ export const state: State = {
   renders: 0
 }
 
-export const context = [ 'online', 'toast' ]
 
 let nextId = 4
 
@@ -133,7 +132,7 @@ export default `
 
       <div class="counters">
         <counter initial=state.seed limit=8 on-update(onCount)>Slotted label</counter>
-        <counter initial=0 limit=4 on-update(onCount)>Second instance, own state</counter>
+        <counter initial=state.seed limit=8 on-update(onCount)>Second instance, own state</counter>
       </div>
 
       <p class="emit">

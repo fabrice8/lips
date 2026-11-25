@@ -119,7 +119,7 @@ export class IRFacadeComponent<MT extends Metavars = Metavars> extends Events {
 
     // Its own copy of what the template declares, as each nested instance has (`./initial`)
     this.state = reactive( initial( template.state || {} ), true )
-    const inputR = input ? reactive( { ...input }, true ) : undefined
+    const inputR = reactive( { ...input }, true )
 
     /**
      * The runtime owns the whole lifecycle (create → input →
@@ -301,6 +301,8 @@ export class IRLips<Context extends Object = Record<string, any>> {
   register<MT extends Metavars = Metavars>( name: string, template: Template<MT> ){
     const is = TAKEN?.( name )
     if( is ) throw new Error(`[lips] <${name}> is ${is}: the compiler reads the tag as one, so a component of that name never renders. Register it under another name`)
+    // A handler named after a member of the component is refused here, not at its first render
+    guardHandlers( template.handler )
 
     this.store.set( name, template )
     return this
@@ -389,6 +391,20 @@ export class IRLips<Context extends Object = Record<string, any>> {
     return style
   }
 
+  /**
+   * The scope of a template placed by value with no `name` (a route page,
+   * `<{state.view}/>`): one per template object. A name it shared with
+   * every other unnamed template made their sheets one `<style>`, the
+   * first one's, so the second never injected while the first lived.
+   */
+  private unnamed( template: object ){
+    let name = this.anonymous.get( template )
+    !name && this.anonymous.set( template, name = `dynamic-${++this.anonymousCount}` )
+    return name
+  }
+  private anonymous = new WeakMap<object, string>()
+  private anonymousCount = 0
+
   private defFor( name: string, template: FacadeTemplate ): IRComponentDef {
     let def = this.defCache.get( template )
     if( !def ){
@@ -418,7 +434,7 @@ export class IRLips<Context extends Object = Record<string, any>> {
        */
       resolveTemplate: ( value: any ) =>
         value && ( typeof value.default === 'string' || value.ir )
-          ? this.defFor( value.name || 'dynamic', value as FacadeTemplate )
+          ? this.defFor( value.name || this.unnamed( value ), value as FacadeTemplate )
           : undefined,
       expose: {
         setContext: ( arg: any, value?: any ) => this.setContext( arg, value ),

@@ -177,3 +177,66 @@ describe('dynamic template objects', () => {
     await settle( () => q('.cnt')?.textContent === '1' )
   })
 })
+
+/**
+ * `global`: the router follows the browser's URL and history. Two things
+ * it got wrong: the first navigation pushed the URL the page was already
+ * on (Back stayed on the page, and the entry left behind had no state to
+ * route by), and a router that was gone kept answering `popstate`.
+ */
+describe('<router global>', () => {
+  const routes = [
+    { path: '/', template: Home, default: true },
+    { path: '/account', template: Account }
+  ]
+  const mountGlobal = () => lips.render('router-global', {
+    _static: { routes },
+    default: `<main><router global routes=static.routes></router></main>`
+  }).appendTo('#app')
+
+  beforeEach( () => history.replaceState( null, '', '/' ) )
+
+  it('the first navigation replaces the entry the page loaded on', async () => {
+    const before = history.length
+    mountGlobal()
+    await settle( () => !!q('.home') )
+
+    expect( history.length ).toBe( before )
+    expect( history.state ).toEqual({ path: '/' })
+  })
+
+  it('navigate() pushes an entry, and popstate routes back by it', async () => {
+    mountGlobal()
+    await settle( () => !!q('.home') )
+
+    const before = history.length
+    window.navigate('/account?userid=7')
+    await settle( () => !!q('.account') )
+    expect( history.length ).toBe( before + 1 )
+    expect( location.pathname ).toBe('/account')
+
+    window.dispatchEvent( new PopStateEvent( 'popstate', { state: { path: '/' } }) )
+    await settle( () => !!q('.home') )
+  })
+
+  it('once destroyed, it no longer answers popstate, and window.navigate is gone', async () => {
+    const listening = new Set<unknown>()
+    const add = window.addEventListener, remove = window.removeEventListener
+    window.addEventListener = function( this: any, type: string, fn: any, o?: any ){ type === 'popstate' && listening.add( fn ); return add.call( this, type, fn, o ) } as any
+    window.removeEventListener = function( this: any, type: string, fn: any, o?: any ){ type === 'popstate' && listening.delete( fn ); return remove.call( this, type, fn, o ) } as any
+
+    try {
+      const c = mountGlobal()
+      await settle( () => !!q('.home') )
+      expect( listening.size ).toBe( 1 )
+
+      c.destroy()
+      expect( listening.size ).toBe( 0 )
+      expect( window.navigate ).toBeUndefined()
+    }
+    finally {
+      window.addEventListener = add
+      window.removeEventListener = remove
+    }
+  })
+})
