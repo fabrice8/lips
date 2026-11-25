@@ -19,16 +19,10 @@ import { compileStyle } from './ir/style'
 import type { TemplateIR, CompileOptions } from './ir/compiler'
 import type { StyleIR, StylePreprocessor } from './ir/style'
 import type { TemplateDiagnostic } from './ir/parser'
+import type { Template } from './types'
 
-export interface PrecompiledTemplate {
-  ir: TemplateIR
-  /** Compiled stylesheet — replaces `stylesheet` source (RFC-004) */
-  style?: StyleIR
-  state?: Record<string, any>
-  _static?: Record<string, any>
-  context?: string[]
-  handler?: Record<string, ( ...args: any[] ) => any>
-}
+/** What `precompile()` returns: the template it was given, with `ir` (and `style`) for its sources */
+export type PrecompiledTemplate = Omit<Template, 'default' | 'macros' | 'stylesheet'> & { ir: TemplateIR }
 
 export interface PrecompileOptions {
   /**

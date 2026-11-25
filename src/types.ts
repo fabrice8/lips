@@ -113,6 +113,12 @@ export type Handler<MT extends Metavars> = Partial<LifecycleEvents<MT>> & {
 }
 
 export type Template<MT extends Metavars = Metavars> = {
+  /**
+   * The scope of a template placed by value — a route page, or
+   * `<{state.view}/>` — that no `register()` names: its stylesheet's
+   * `rel`. Left out, each such template object gets one of its own.
+   */
+  name?: string
   /** Template source — the component's markup */
   default?: string
   /** Precompiled template IR — used instead of `default` (see `precompile`) */
