@@ -1,0 +1,15 @@
+import type { Handlers, Shape } from '../../src/types'
+
+type State = { title: string, likes: number }
+
+const state: State = { title: 'Card', likes: 0 }
+const handler: Handlers<Shape<{ state: State }>> = {
+  like( by: number ){ this.state.likes += by }
+}
+const unused: number = 'not a number'
+
+<article>
+  <h3>{state.title.toUpperCase()}</h3>
+  <button on-click(like, 1)>{state.likes}</button>
+  <button on-click(like, true)>{state.likez}</button>
+</article>

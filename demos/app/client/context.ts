@@ -6,7 +6,8 @@
 declare module '../../../src/types' {
   interface SharedContext {
     online: boolean
-    getUser: ( name: string, fail?: boolean ) => Promise<{ name: string, email: string, role: string }>
+    /** `attempt` is not used: a template passes it so that bumping it looks the user up again */
+    getUser: ( name: string, fail?: boolean, attempt?: number ) => Promise<{ name: string, email: string, role: string }>
     /** Set by `boot()`, once the root handle exists */
     toast: ( text: string, tone?: string ) => void
     /** Published by <router> on attach */

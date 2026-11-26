@@ -23,8 +23,8 @@
  *   lips.render('counter', counter, { initial: 2 }).state.count   // number
  *
  * The context is the app's, so it is typed once for every component, by
- * augmenting `SharedContext`. What the template strings read is not
- * checked: their expressions are not TypeScript.
+ * augmenting `SharedContext`. What the template strings read is checked by
+ * `lips-check` (`./check`), against these same types.
  */
 import type { MessageFormat, Model } from 'messageformat'
 import type { MessageFunction } from 'messageformat/functions'

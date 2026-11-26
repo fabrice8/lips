@@ -68,21 +68,36 @@
       "types": "./dist/types/parts.d.ts",
       "import": "./dist/parts.min.js",
       "default": "./dist/parts.min.js"
+    },
+    "./check": {
+      "types": "./dist/types/check.d.ts",
+      "import": "./dist/check.mjs",
+      "default": "./dist/check.mjs"
     }
+  },
+  "bin": {
+    "lips-check": "./dist/lips-check.mjs"
   },
   "author": "Fabrice K.E.M",
   "private": false,
   "scripts": {
     "dev": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external --watch",
-    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/runtime.ts --entry-naming runtime.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/precompile.ts --entry-naming precompile.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/stylis.ts --entry-naming stylis.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/mf2.ts --entry-naming mf2.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/untrusted.ts --entry-naming untrusted.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx.ts --entry-naming lynx.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx/main.ts --entry-naming lynx-main.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx/background.ts --entry-naming lynx-background.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/parts.ts --entry-naming parts.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx/plugin.ts --entry-naming lynx-plugin.mjs --outdir ./dist --target node --format esm",
+    "build": "bun build --entrypoints ./src/lips.ts --entry-naming lips.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lips.ts --entry-naming lips.[ext] --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/runtime.ts --entry-naming runtime.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/precompile.ts --entry-naming precompile.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/stylis.ts --entry-naming stylis.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/mf2.ts --entry-naming mf2.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/untrusted.ts --entry-naming untrusted.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx.ts --entry-naming lynx.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx/main.ts --entry-naming lynx-main.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx/background.ts --entry-naming lynx-background.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/parts.ts --entry-naming parts.min.[ext] --minify --outdir ./dist --target browser --format esm --sourcemap=external && bun build --entrypoints ./src/lynx/plugin.ts --entry-naming lynx-plugin.mjs --outdir ./dist --target node --format esm && bun build --entrypoints ./src/check.ts --entry-naming check.mjs --outdir ./dist --target node --format esm --external typescript && bun build --entrypoints ./src/check/cli.ts --entry-naming lips-check.mjs --outdir ./dist --target node --format esm --external typescript",
     "build:declaration": "tsc --project tsconfig.types.json",
     "compile": "bun run build",
-    "typecheck": "tsc --project tsconfig.test.json && tsc --project tests/types/tsconfig.json && tsc --project demos/app/tsconfig.json",
+    "typecheck": "tsc --project tsconfig.test.json && tsc --project tests/types/tsconfig.json && tsc --project demos/app/tsconfig.json && bun run check:templates",
+    "check:templates": "bun src/check/cli.ts -p demos/app/tsconfig.json --lips ./src/types",
     "prepack": "bun run build && bun run build:declaration",
     "test": "vitest run",
     "test:watch": "vitest",
     "size": "node scripts/size-check.mjs",
     "bench:reactivity": "bun bench/reactivity.mjs"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.4"
+  },
+  "peerDependenciesMeta": {
+    "typescript": { "optional": true }
   },
   "dependencies": {
     "messageformat": "^4.1.0",

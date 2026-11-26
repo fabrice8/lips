@@ -75,6 +75,7 @@ import Lips from '@lipsjs/lips'
 | `@lipsjs/lips/lynx/main` | Lynx main thread: the applier over Element PAPI | ~2.8 KB |
 | `@lipsjs/lips/lynx/background` | Lynx background thread: the host Lips renders into | ~5 KB |
 | `@lipsjs/lips/lynx-plugin` | Rspeedy plugin: `*.lips.css` sheets and the page config Lips needs | — |
+| `@lipsjs/lips/check` | `lips-check`: templates type-checked against their components (Node, the project's `typescript`) | — |
 | `@lipsjs/lips/dev` | unminified full build | — |
 
 ## 🔷 TypeScript
@@ -114,8 +115,15 @@ declare module '@lipsjs/lips' {
 }
 ```
 
-The types, and what the template strings do not check, are in the
-[reference](docs/reference.md#types).
+The templates are type-checked too, against the component they belong to,
+by `lips-check` (TypeScript's own checker, the project's `typescript`):
+
+```bash
+npx lips-check -p tsconfig.json
+# src/counter.ts:24:27 - error LIPS-T001: Property 'cuont' does not exist on type 'State'. (TS2551)
+```
+
+The types and the check are in the [reference](docs/reference.md#types).
 
 ## 🧩 Template syntax
 

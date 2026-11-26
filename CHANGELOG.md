@@ -37,6 +37,31 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
   exactly on the work done per write and loosely (2.5×) on time against
   `bench/baseline/reactivity.json`.
 
+### Added — templates type-checked
+
+- `lips-check` (`@lipsjs/lips/check`, `checkTemplates()`): every
+  expression in a component's templates held against that component's
+  declared `state`, `input`, `static` and `context`, its handlers, and the
+  names `<let>`, `<for>`, `<then>`/`<catch>`, macro and slot arguments
+  bring in, by TypeScript's own checker. It reads the `default` template,
+  `macros`, and `.lips` files (their script too), in object form
+  (`component()`, `register`, `render`, `root`) and module form. Reports
+  `LIPS-T001` (a type error, TypeScript's message), `LIPS-T002` (an event
+  naming a handler the component does not have) and `LIPS-T003` (a
+  template it cannot check, and why). Each is mapped to its line and
+  column in the template. `typescript` (5.4 or later) is an optional peer
+  dependency; `bun run typecheck` runs the check over `demos/app` in CI.
+
+### Fixed — what the check found in the demo app
+
+- The composition page's heading for slots read `<{input.renderer}/>` as
+  an interpolation of `input.renderer`, so it never showed the tag. Its
+  braces are now character references.
+- `context.getUser` is called with a third argument that bumps a retry;
+  its type now says so.
+- The stat tile's `Input` was declared but tied to nothing; its handler
+  names it now.
+
 ## [0.6.2] — 2026-11-26
 
 ### Fixed — a `<let>` read out of step with what it is computed from

@@ -144,7 +144,7 @@ export default `
     <section class="panel">
       <header>
         <h2>Slots keep their own scope</h2>
-        <span class="tag">&lt;{input.renderer}/&gt;</span>
+        <span class="tag">&lt;&#123;input.renderer&#125;/&gt;</span>
       </header>
 
       <!-- "total" is declared HERE, and the slot body below still reads it,
