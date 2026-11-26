@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-26
+
 ### Fixed — the reactivity core, held to a conformance suite
 
 - A computed value that threw was left out of date, so a later change to
