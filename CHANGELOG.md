@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Fixed — a `<let>` read out of step with what it is computed from
+
+- A `<let>` was a signal that an effect of its own set. When what it read
+  changed, a bind that read the same source could run before that effect,
+  and read the `<let>` as it was before the change. A combobox whose
+  options shrank past the active one drew `aria-activedescendant` from the
+  old `on` and the new list, and threw. A `<let>` is now a computed value:
+  every change marks the values computed from it out of date before any
+  effect runs, and a read computes it again first. It is still computed at
+  once and on every change, what it throws still reaches `onError` and
+  leaves the value it had, and a change is still an update.
+- A compiled expression read every name in its block's scope as it ran,
+  so each bind depended on every `<let>` there, read or not. It reads now
+  only the names it uses.
+- The combobox lets go of its active option before it shows fewer.
+
+### Added
+
+- `computed( fn )`, from `./runtime` and the IR: a value computed from
+  signals, read with `read()`, computed when read and again only once what
+  it read changed. Read while it is computed, it throws: it reads itself.
+
 ## [0.6.1] — 2026-11-26
 
 ### Fixed — `style=` under a content security policy

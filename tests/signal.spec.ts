@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { signal, effect, untrack, reactive, batch } from '../src/ir/signal'
+import { signal, effect, untrack, reactive, batch, computed } from '../src/ir/signal'
 
 describe('signal', () => {
   it('reads the initial value and writes back', () => {
@@ -85,6 +85,82 @@ describe('effect', () => {
     setB('b2')         // must re-run
 
     expect( seen ).toEqual([ 'a', 'b', 'b2' ])
+  })
+})
+
+describe('computed', () => {
+  it('is computed when read, and again only once what it read changed', () => {
+    const [ n, setN ] = signal( 1 ), [ other, setOther ] = signal( 0 )
+    const fn = vi.fn( () => n() * 2 ), doubled = computed( fn )
+    expect( fn ).not.toHaveBeenCalled()
+
+    expect([ doubled.read(), doubled.read() ]).toEqual([ 2, 2 ])
+    expect( fn ).toHaveBeenCalledTimes( 1 )
+
+    setOther( 1 ); other()
+    expect( doubled.read() ).toBe( 2 )
+    expect( fn ).toHaveBeenCalledTimes( 1 )
+
+    setN( 3 )
+    expect( doubled.read() ).toBe( 6 )
+    expect( fn ).toHaveBeenCalledTimes( 2 )
+  })
+
+  it('an effect reading a source and a value computed from it never sees the value from before the change', () => {
+    const [ list, setList ] = signal([ 'a', 'b', 'c' ]), [ at, setAt ] = signal( 2 )
+    const on = computed( () => at() < list().length ), seen: string[] = []
+    // It reads the list first, so it wakes first: a copy of `on` kept by an effect of its own would still say true
+    effect( () => { const l = list(); seen.push( on.read() ? l[ at() ] : '-' ) })
+    effect( () => { on.read() })
+
+    seen.length = 0
+    setList([ 'a' ])
+    expect( seen ).toEqual([ '-' ])
+    setAt( 0 )
+    expect( seen ).toEqual([ '-', 'a' ])
+  })
+
+  it('wakes what reads it through a value computed from it, and in a batch once', () => {
+    const [ n, setN ] = signal( 1 )
+    const doubled = computed( () => n() * 2 ), more = computed( () => doubled.read() + 1 )
+    const runs = vi.fn( () => more.read() )
+    effect( runs )
+
+    setN( 2 )
+    expect( more.read() ).toBe( 5 )
+    expect( runs ).toHaveBeenCalledTimes( 2 )
+
+    batch( () => { setN( 3 ); setN( 4 ) })
+    expect( more.read() ).toBe( 9 )
+    expect( runs ).toHaveBeenCalledTimes( 3 )
+  })
+
+  it('reads again only what it read last', () => {
+    const [ which, setWhich ] = signal( true ), [ a, setA ] = signal( 'a' ), [ b, setB ] = signal( 'b' )
+    const runs = vi.fn( () => value.read() ), value = computed( () => which() ? a() : b() )
+    effect( runs )
+
+    setB( 'B' )
+    expect( runs ).toHaveBeenCalledTimes( 1 )
+    setWhich( false )
+    setA( 'A' )
+    expect([ value.read(), runs.mock.calls.length ]).toEqual([ 'B', 2 ])
+  })
+
+  it('disposed, it is neither woken nor wakes', () => {
+    const [ n, setN ] = signal( 1 )
+    const fn = vi.fn( () => n() ), value = computed( fn ), runs = vi.fn( () => value.read() )
+    effect( runs )
+    value.dispose()
+
+    setN( 2 )
+    expect([ fn.mock.calls.length, runs.mock.calls.length ]).toEqual([ 1, 1 ])
+  })
+
+  it('read while it is computed, it says it reads itself', () => {
+    const self: { value?: ReturnType<typeof computed<number>> } = {}
+    self.value = computed( () => self.value!.read() + 1 )
+    expect( () => self.value!.read() ).toThrow('reads itself')
   })
 })
 

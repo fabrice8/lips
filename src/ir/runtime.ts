@@ -26,7 +26,7 @@
 import type { TemplateIR, BlockIR, BindIR, ChildIR, ArmIR, CompInput, E, Path } from './compiler'
 import type { ExprEnv, Expr } from './expression'
 import { parseExpression, compileExpression, interpretExpression, splitTopLevel } from './expression'
-import { signal, effect, untrack, reactive } from './signal'
+import { signal, effect, untrack, reactive, computed } from './signal'
 import type { SwapChange, SwapReport } from './swap'
 import type { StyleIR } from './style'
 import type { Host } from './host'
@@ -633,11 +633,14 @@ class IRRenderer {
     let first = true
     return effect( () => {
       try { fn() }
-      catch( error ){
-        this.hooks ? this.hooks.onError( error ) : console.error('[lips:ir]', error )
-      }
+      catch( error ){ this.failed( error ) }
       first ? first = false : this.hooks?.notifyUpdate()
     })
+  }
+
+  /** What a template's effect threw: the component's `onError`, or the console */
+  private failed( error: unknown ){
+    this.hooks ? this.hooks.onError( error ) : console.error('[lips:ir]', error )
   }
 
   /**
@@ -733,10 +736,21 @@ class IRRenderer {
           defineGetter( scope, name, get )
         }
         else {
-          const [ get, set ] = signal<any>( undefined )
-          defineGetter( scope, name, get )
+          /**
+           * Computed, so a bind that reads it and what it reads sees both
+           * as they are now, whichever runs first. Still computed at once,
+           * and again on each change, as an effect of the component: what
+           * it throws reaches `onError`, it keeps the value it had, and a
+           * change is an update, read or not.
+           */
           const run = this.runner( input.e, block.scope )
-          letDisposers.push( this.guarded( () => set( run( benv ) ) ).dispose )
+          let last: any
+          const value = computed( () => {
+            try { return last = run( benv ) }
+            catch( error ){ this.failed( error ); return last }
+          })
+          defineGetter( scope, name, value.read )
+          letDisposers.push( this.guarded( () => value.read() ).dispose, value.dispose )
         }
       }
 

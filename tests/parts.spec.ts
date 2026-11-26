@@ -888,12 +888,15 @@ describe('combobox', () => {
     await settle( () => f.value === 'Ada Lovelace' )
   })
 
-  it('fewer options from the app, past the active one: nothing is active', async () => {
+  it('fewer options from the app, past the active one: nothing is active, and nothing is drawn past them on the way', async () => {
     const f = await field()
     key( f, 'ArrowUp' )
     await settle( () => activeId( f ) === 'edsger' )
+    const failed = vi.spyOn( console, 'error' )
     app.state.people = PEOPLE.slice( 0, 2 )
     await settle( () => options().length === 2 )
+    expect( failed ).not.toHaveBeenCalled()
+    failed.mockRestore()
     expect( f.hasAttribute('aria-activedescendant') ).toBe( false )
     expect( options().some( o => o.className.includes('is-active') ) ).toBe( false )
   })

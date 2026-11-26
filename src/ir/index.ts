@@ -20,4 +20,4 @@ export type { Host } from './host'
 export type { IRInstance, IRComponentDef, RuntimeOptions, RenderSetup } from './runtime'
 export type { SwapReport, SwapChange } from './swap'
 
-export { signal, effect, untrack, reactive, batch } from './signal'
+export { signal, effect, untrack, reactive, batch, computed } from './signal'

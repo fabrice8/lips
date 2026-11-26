@@ -10,6 +10,25 @@ type Effect = {
   run: () => void
   deps: Set<Set<Effect>>
   disposed: boolean
+  /**
+   * A computed value's (`computed`): told its sources changed, it marks
+   * itself out of date, and what reads it in turn, instead of running.
+   * The effects it reaches are added to `run`.
+   */
+  stale?: ( run: Set<Effect> ) => void
+}
+
+/**
+ * What a change reaches: every computed value downstream marked out of
+ * date first, then the effects to run, each once. So no effect runs while
+ * a value it reads is still the one from before the change: an effect that
+ * reads a source and a value computed from it sees both as they are now.
+ */
+function reached( subs: Set<Effect>, run: Set<Effect> ){
+  for( const e of [ ...subs ] ){
+    if( e.disposed ) continue
+    e.stale ? e.stale( run ) : run.add( e )
+  }
 }
 
 let CURRENT: Effect | null = null
@@ -62,12 +81,14 @@ export function signal<T>( value: T ): [ () => T, ( next: T ) => void, () => voi
   const subs = new Set<Effect>()
 
   const notify = () => {
+    // Collected first: effects may retrack while running, and computed values are marked before any runs
+    const run = new Set<Effect>()
+    reached( subs, run )
     if( BATCH_DEPTH ){
-      for( const e of subs ) PENDING.add( e )
+      for( const e of run ) PENDING.add( e )
       return
     }
-    // Copy: effects may retrack while running
-    for( const e of [ ...subs ] )
+    for( const e of run )
       !e.disposed && e.run()
   }
 
@@ -121,6 +142,60 @@ export function effect( fn: () => void ): EffectHandle {
       e.disposed = true
       for( const subs of e.deps ) subs.delete( e )
       e.deps.clear()
+    }
+  }
+}
+
+export interface Computed<T> {
+  /** Its value, computed again first where what it read has changed since */
+  read(): T
+  dispose(): void
+}
+
+/**
+ * A value computed from signals, and read like one: computed when it is
+ * read, and again only once what it read has changed. A change marks it
+ * out of date before any effect runs (`reached`), so an effect never reads
+ * it as it was before the change that woke that effect.
+ */
+export function computed<T>( fn: () => T ): Computed<T> {
+  const subs = new Set<Effect>()
+  let value: T | undefined, dirty = true, computing = false
+  const node: Effect = {
+    deps: new Set(),
+    disposed: false,
+    run(){},
+    stale( run ){
+      if( dirty ) return
+      dirty = true
+      reached( subs, run )
+    }
+  }
+
+  return {
+    read(){
+      if( CURRENT && !CURRENT.disposed ){
+        subs.add( CURRENT )
+        CURRENT.deps.add( subs )
+      }
+      if( dirty && !node.disposed ){
+        if( computing ) throw new Error('A computed value read while it is computed: it reads itself')
+        for( const s of node.deps ) s.delete( node )
+        node.deps.clear()
+        const prev = CURRENT
+        CURRENT = node
+        computing = true
+        try { value = fn() }
+        finally { CURRENT = prev; computing = false }
+        dirty = false
+      }
+      return value as T
+    },
+    dispose(){
+      node.disposed = true
+      for( const s of node.deps ) s.delete( node )
+      node.deps.clear()
+      subs.clear()
     }
   }
 }
