@@ -63,6 +63,33 @@ describe('form controls: what shows is the property', () => {
   })
 })
 
+describe('style= under a content security policy', () => {
+  /**
+   * A policy with no `'unsafe-inline'` in `style-src` refuses a style
+   * attribute set by script, and not `el.style`: so `style=` is written
+   * through the CSSOM. jsdom enforces no policy, so what is held here is
+   * that the attribute is never set by script.
+   */
+  it('writes style= through el.style, never setAttribute, and takes it away the same way', async () => {
+    const set: string[] = []
+    const real = Element.prototype.setAttribute
+    Element.prototype.setAttribute = function( this: Element, name: string, value: string ){ set.push( name ); return real.call( this, name, value ) }
+    try {
+      const c = lips.render('styled', { state: { top: 4, on: true }, default: `<div class="box" style=( state.on ? 'position: fixed; top: ' + state.top + 'px' : null )><span>x</span></div>` }).appendTo('#app')
+      const box = q('.box') as HTMLElement
+      expect([ box.style.position, box.style.top ]).toEqual([ 'fixed', '4px' ])
+      c.state.top = 9
+      await turn()
+      expect( box.style.top ).toBe('9px')
+      c.state.on = false
+      await turn()
+      expect([ box.style.position, box.hasAttribute('style') ]).toEqual([ '', false ])
+      expect( set ).not.toContain('style')
+    }
+    finally { Element.prototype.setAttribute = real }
+  })
+})
+
 describe('a tag no component claims is an element', () => {
   it('@text, @html and @format write its content, as on any element', () => {
     lips.i18n.setDictionary('en', { hi: 'Hi {$name}' })
