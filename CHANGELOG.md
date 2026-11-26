@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-11-26
+
 ### Fixed — a `<let>` read out of step with what it is computed from
 
 - A `<let>` was a signal that an effect of its own set. When what it read
