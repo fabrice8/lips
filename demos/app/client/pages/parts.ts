@@ -21,6 +21,8 @@ type State = {
   opened: number | null
   broken: boolean
   failure: string | null
+  /** Never set, and untyped on purpose: "Break a branch" reads through it, and the throw reaches onError */
+  missing?: any
 }
 type Static = {
   actions: MenuItem[]

@@ -204,8 +204,48 @@ declare module '../../../src/types' {
 | `SharedContext` | the app's context, added to once |
 
 **When not**: a handler typed by `Handlers<…>` reads a sibling handler as
-`any`; only an inferred one knows its siblings. What the template string
-reads is not checked: its expressions are not TypeScript.
+`any`; only an inferred one knows its siblings.
+
+### Type-checking templates
+
+TypeScript does not read a template string, so `lips-check` does. It holds
+every expression in a component's templates against that component's
+`state`, `input`, `static` and `context`, its handlers, and the names
+`<let>`, `<for>`, `<then>`/`<catch>`, macro and slot arguments bring in. It
+reads the `default` template, `macros`, and `.lips` files, by TypeScript's
+own checker, with the project's `typescript` (5.4 or later):
+
+```
+$ npx lips-check -p tsconfig.json
+src/counter.ts:24:27 - error LIPS-T001: Property 'cuont' does not exist on type 'State'. Did you mean 'count'? (TS2551)
+```
+
+Each expression is read as the runtime reads it. A `<for [item, i]>` item
+has the type of what it iterates (an array's element, a `Map`'s key and
+value, an object's key and value, a range's number), and binding more names
+than the runtime gives is an error. A `<let>` has the type of its
+expression, and writing one is an error. A `<case is=…>` the `<switch>`
+value can never equal is an error. `on-click( step, 1 )` checks `1`
+against `step`'s first parameter, leaving the event to fill the rest. A
+`<then [user]>` value is what the promise resolves to.
+
+A component written apart (`export const handler: Handlers<…>`) is held
+to its handlers' own parameters too, and to the names they have:
+
+| Code | Severity | Means |
+|---|---|---|
+| `LIPS-T001` | error | an expression does not type-check; the message is TypeScript's, its code the hint |
+| `LIPS-T002` | error | an event names a handler the component does not have |
+| `LIPS-T003` | warning | a template it cannot check: built with `${…}`, or a handler not written in place |
+
+A template that does not compile is reported with the compiler's own codes.
+A `.lips` file's script is type-checked too, since nothing else reads it.
+From code: `checkTemplates({ project })` from `@lipsjs/lips/check` returns
+the same list. In this repository, `bun run typecheck` runs it over
+`demos/app`.
+
+What it does not do yet: hold a child component's inputs to the child's
+declared `input`. Each input's expression is checked, in the parent's scope.
 
 ---
 
@@ -850,6 +890,8 @@ triggered in `tests/diagnostics.spec.ts`.
 | `LIPS-C024` | error | content inside a macro call |
 | `LIPS-E001` … `LIPS-E012` | error | an expression that does not parse: the message names the token |
 
+Type-check codes (`LIPS-T001`–`T003`) come from `lips-check`, above, each
+triggered in `tests/check.spec.ts`.
 Style codes (`LIPS-S001`–`S008`) are listed in [RFC-004](../design/style-ir.md),
 untrusted ones (`LIPS-U…`) in [RFC-007](../design/untrusted-templates.md),
 Lynx ones (`LIPS-L…`) in [RFC-006](../design/lynx-binding.md).

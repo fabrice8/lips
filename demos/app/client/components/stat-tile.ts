@@ -8,6 +8,8 @@
  * value is one expression binds the AUTHOR's name, so it stays readable
  * in devtools and inheritable by children.
  */
+import type { Handlers, Shape } from '../../../../src/types'
+
 export type Input = {
   label: string
   value: number
@@ -15,6 +17,9 @@ export type Input = {
   unit?: string
   tone?: 'accent' | 'ok' | 'warn'
 }
+
+/** No handlers: this only says what `input` is, for the template's type check */
+export const handler: Handlers<Shape<{ input: Input }>> = {}
 
 export const stylesheet = `
   --tile-ratio: {Math.min( 1, ( input.value || 0 ) / ( input.max || 1 ) )};
