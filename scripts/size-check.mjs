@@ -344,10 +344,20 @@ const KB = 1024
  * measured 36.18, 16.52, 18.91 and 6.74, past or at the budgets the local
  * build fit under: full 36.15→36.3, runtime 16.5→16.6, lynx 18.9→19.05,
  * parts 6.75→6.85, each CI's size and room as the others have.
+ *
+ * 2026-11-26: full 36.3→36.55, runtime 16.6→17.05 — a `<let>` read in
+ * step with what it is computed from. `computed()` in the reactivity
+ * core, its two-phase notify and the `<let>` built on it: +0.20 / +0.20
+ * (full / runtime, 36.12 → 36.32, 16.50 → 16.70 on a local 1.4.0). A
+ * compiled expression passing only the names it reads, `freeRoots`: +0.02
+ * / +0.19, already in the full entry through the style compiler. The
+ * reactivity-core kind of growth the 2026-08-17 note allows; nothing of
+ * the compiler crossed the seam. CI's 1.4.5 reads a little above a local
+ * 1.4.0, so the budgets keep the usual room over 36.34 and 16.89.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 36.3,      // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 16.6,   // precompiled-only: none of the above
+  'dist/lips.min.js': 36.55,     // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 17.05,  // precompiled-only: none of the above
   'dist/precompile.min.js': 15.05, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it

@@ -674,9 +674,12 @@ export function compileExpression( src: string, scopeNames: string[] = [] ): Com
   if( diagnostics.length )
     console.warn( `[lips-ir] expression diagnostics for "${src}":`, diagnostics )
 
+  // Only the names it reads: each is read as it runs, and a `<let>` is computed when read
   const
+  read = new Set( freeRoots( ast ) ),
+  names = scopeNames.filter( name => read.has( name ) ),
   code = `return (${gen( ast )});`,
-  params = [ ...ROOT_PARAMS, '__args__', ...scopeNames ],
+  params = [ ...ROOT_PARAMS, '__args__', ...names ],
   fn = new Function( ...params, code )
 
   const compiled: CompiledExpr = {
@@ -685,7 +688,7 @@ export function compileExpression( src: string, scopeNames: string[] = [] ): Com
       const scope = env.scope || {}
       return fn(
         env.state, env.input, env.context, env.static, env.self, env.arguments,
-        ...scopeNames.map( name => scope[ name ] )
+        ...names.map( name => scope[ name ] )
       )
     }
   }

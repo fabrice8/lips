@@ -420,8 +420,11 @@ has it. A newer await wins: an older result that arrives late is dropped.
 ### `<let>` · `<const>`
 
 Names for the whole block they are in, read before or after where they are
-written, recomputed when what they read changes. Read-only. A spread is
-an error (LIPS-C013): the names must be known when the template compiles.
+written, recomputed when what they read changes. A bind that reads one and
+what it is computed from sees both as they are now, whichever it reads
+first: a list that shrinks and an index kept within it never meet out of
+step. Read-only. A spread is an error (LIPS-C013): the names must be known
+when the template compiles.
 
 <!-- renders "total 22" -->
 ```js
@@ -774,7 +777,10 @@ lips.use( combobox ).use( dialog )
 The core Lips is built on is exported. `signal( v )` is `[ read, write,
 touch ]`; `effect( fn )` runs `fn` and again when what it read changes,
 until `dispose()`; `untrack( fn )` reads without subscribing; `batch( fn )`
-runs `fn` and notifies once at the end; `reactive( obj, deep? )` is a store
+runs `fn` and notifies once at the end; `computed( fn )` is a value read
+with `read()`, computed when read and again only once what it read
+changed, never seen as it was before a change by an effect that change
+wakes; `reactive( obj, deep? )` is a store
 with one signal per key (`deep` reaches nested objects, arrays, `Map` and
 `Set`). `Object.keys( store )` follows the keys there are.
 

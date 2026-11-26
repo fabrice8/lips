@@ -66,8 +66,10 @@ export const combobox: Plugin = {
         onMount(){ partOf( this ).trigger = ( this as any ).refs.el },
         find(){
           const self = this as any, { options = [], match = contains } = self.input, s = self.state
-          s.shown = s.typing ? options.filter( ( o: Option ) => match( o, s.text ) ) : options.slice()
-          s.active >= s.shown.length && ( s.active = -1 )
+          const shown = s.typing ? options.filter( ( o: Option ) => match( o, s.text ) ) : options.slice()
+          // The active one let go before fewer are shown: each write is drawn, and none may name an option no longer there
+          s.active >= shown.length && ( s.active = -1 )
+          s.shown = shown
         },
         typed( e: any ){
           const self = this as any, s = self.state, p = partOf( self )
