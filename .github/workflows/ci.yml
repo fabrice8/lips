@@ -29,3 +29,6 @@ jobs:
 
       - name: Unit & integration tests
         run: bun run test
+
+      - name: Reactivity benchmark
+        run: bun run bench:reactivity

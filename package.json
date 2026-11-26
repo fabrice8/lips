@@ -81,7 +81,8 @@
     "prepack": "bun run build && bun run build:declaration",
     "test": "vitest run",
     "test:watch": "vitest",
-    "size": "node scripts/size-check.mjs"
+    "size": "node scripts/size-check.mjs",
+    "bench:reactivity": "bun bench/reactivity.mjs"
   },
   "dependencies": {
     "messageformat": "^4.1.0",

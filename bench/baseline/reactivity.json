@@ -1,0 +1,40 @@
+{
+  "margin": 2.5,
+  "cases": {
+    "chain": {
+      "work": {
+        "computed": 1000,
+        "effects": 1
+      },
+      "time": 0.229
+    },
+    "fanout": {
+      "work": {
+        "computed": 1000,
+        "effects": 1000
+      },
+      "time": 0.429
+    },
+    "diamond": {
+      "work": {
+        "computed": 501,
+        "effects": 1
+      },
+      "time": 0.17
+    },
+    "pruned": {
+      "work": {
+        "computed": 1000,
+        "effects": 0
+      },
+      "time": 0.295
+    },
+    "batch": {
+      "work": {
+        "computed": 0,
+        "effects": 1001
+      },
+      "time": 0.362
+    }
+  }
+}
