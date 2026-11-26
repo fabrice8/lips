@@ -5,6 +5,38 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Fixed — the reactivity core, held to a conformance suite
+
+- A computed value that threw was left out of date, so a later change to
+  what it read stopped at it: an effect that had read it (a bind, through
+  a `<let>`) was never woken again. What it throws is now kept, like a
+  value, and thrown to each reader until what it read changes.
+- An effect that threw kept the effects after it, woken by the same
+  change, from running, in a batch and outside one. They all run now; the
+  first error is thrown after them.
+- Effects that kept waking one another inside a batch hung the page. The
+  drain now gives up after 10,000 passes and throws: a cycle.
+- An effect woken by a change ran twice when an effect before it wrote
+  something it reads: once inside that write, once more for the change.
+  It runs once.
+- A computed value computed again to the value it had woke everything
+  that read it. It wakes nothing now (by `Object.is`; an object always
+  counts as changed, since stores mutate in place): what reads it is
+  marked to check first, and runs only if a value it read changed.
+
+### Added
+
+- `tests/signal-conformance.spec.ts`: `signal`, `computed`, `effect`,
+  `batch`, `untrack` and `reactive` against cases adapted from the TC39
+  Signals proposal's tests and other established suites, credited in the
+  file (glitches, diamonds, laziness, equality, dynamic dependencies,
+  errors, cycles, disposal, batching). Where Lips deliberately differs, the
+  case says so.
+- `bun run bench:reactivity`, in CI: a deep chain, a wide fan-out, one
+  whose values come out the same, a diamond and a large batch, held
+  exactly on the work done per write and loosely (2.5×) on time against
+  `bench/baseline/reactivity.json`.
+
 ## [0.6.2] — 2026-11-26
 
 ### Fixed — a `<let>` read out of step with what it is computed from

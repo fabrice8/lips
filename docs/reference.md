@@ -784,6 +784,15 @@ wakes; `reactive( obj, deep? )` is a store
 with one signal per key (`deep` reaches nested objects, arrays, `Map` and
 `Set`). `Object.keys( store )` follows the keys there are.
 
+A computed value computed again to the value it had (by `Object.is`)
+wakes nothing; an object always counts as changed, since stores mutate in
+place. What it throws is kept and thrown to each reader until what it read
+changes. A write outside a batch runs what it reaches at once, each effect
+once; an effect that throws does not keep the others from running, and the
+first error is thrown after them. Effects that keep waking one another in
+a batch throw rather than hang. `tests/signal-conformance.spec.ts` holds
+all of it, case by case, to an established body of signal semantics.
+
 <!-- runs -->
 ```js
 const store = reactive({ items: [] }, true )

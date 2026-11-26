@@ -44,6 +44,22 @@ per-key signals) holds the spike prototype's promise with the full pipeline:
 create at ~1.6× vanilla, sub-millisecond updates, at 13 KB gzip. Remaining
 levers to the ≤1.4× create budget: LIS reconciler, bind-walk tuning.
 
+## reactivity.mjs — the signal core, in CI
+
+```bash
+bun run bench:reactivity             # hold to bench/baseline/reactivity.json
+bun bench/reactivity.mjs --update    # take a deliberate change as the baseline
+```
+
+No DOM: `signal`/`computed`/`effect`/`batch` alone, on a deep chain, a wide
+fan-out, a fan-out whose values come out the same, a diamond and a batch of
+1,000 writes. Each is held two ways. The work one write does (computations,
+effect runs) is counted and must match the baseline exactly: it does not
+drift with the machine, so a change there is a change in the algorithm.
+The time is a median over 25 samples divided by a calibration loop timed in
+the same process, so it travels from a laptop to a CI runner; it fails only
+past 2.5× the baseline, a large regression rather than noise.
+
 ## ab.mjs — is a change faster or slower?
 
 `index.html` compares engines. To compare two builds of the same engine, use

@@ -354,10 +354,21 @@ const KB = 1024
  * reactivity-core kind of growth the 2026-08-17 note allows; nothing of
  * the compiler crossed the seam. CI's 1.4.5 reads a little above a local
  * 1.4.0, so the budgets keep the usual room over 36.34 and 16.89.
+ *
+ * 2026-11-26b: full 36.55→36.8, runtime 17.05→17.3 — the reactivity core
+ * held to a conformance suite (`tests/signal-conformance.spec.ts`), and
+ * what it found fixed: a computed value keeps what it threw, so its
+ * readers are woken again; every effect a change reaches runs though one
+ * throws; a batch whose effects wake one another for ever throws instead
+ * of hanging; and a value computed again to the same one wakes nothing,
+ * which takes a `CHECK` state and a settle before each run. +0.25 / +0.25
+ * (36.34 → 36.59, 16.89 → 17.14 on a local 1.4.0). The reactivity-core
+ * kind of growth the 2026-08-17 note allows: nothing of the compiler
+ * crossed the seam. The budgets keep the room the last note gave.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 36.55,     // full: runtime + parser/compiler + style compiler + router
-  'dist/runtime.min.js': 17.05,  // precompiled-only: none of the above
+  'dist/lips.min.js': 36.8,      // full: runtime + parser/compiler + style compiler + router
+  'dist/runtime.min.js': 17.3,   // precompiled-only: none of the above
   'dist/precompile.min.js': 15.05, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it

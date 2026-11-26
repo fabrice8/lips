@@ -4,18 +4,33 @@
  * Minimal per-key signals: no history (that's the opt-in
  * `historySignal` wrapper, later), no deep proxies, no digest.
  * A write notifies exactly the effects that read that signal.
+ *
+ * Held to an established body of signal semantics by
+ * `tests/signal-conformance.spec.ts`, and to its speed by
+ * `bench/reactivity.mjs`.
  */
+
+/** Up to date */
+const CLEAN: number = 0
+/** Something a computed value it read was computed from has changed: that value may have */
+const CHECK: number = 1
+/** Something it read has changed */
+const DIRTY: number = 2
 
 type Effect = {
   run: () => void
   deps: Set<Set<Effect>>
   disposed: boolean
+  state: number
+  /** The computed values it read, in the order it read them: what a `CHECK` asks */
+  reads: Effect[]
   /**
-   * A computed value's (`computed`): told its sources changed, it marks
-   * itself out of date, and what reads it in turn, instead of running.
-   * The effects it reaches are added to `run`.
+   * A computed value's (`computed`): what reads it. A change marks those
+   * `CHECK` rather than running them; they run only if its value changed.
    */
-  stale?: ( run: Set<Effect> ) => void
+  subs?: Set<Effect>
+  /** A computed value's: computed again if what it read has changed */
+  update?: () => void
 }
 
 /**
@@ -23,12 +38,34 @@ type Effect = {
  * date first, then the effects to run, each once. So no effect runs while
  * a value it reads is still the one from before the change: an effect that
  * reads a source and a value computed from it sees both as they are now.
+ *
+ * What read the source is `DIRTY`; what read a value computed from it is
+ * only `CHECK`, and asks that value before it runs (`settle`).
  */
-function reached( subs: Set<Effect>, run: Set<Effect> ){
-  for( const e of [ ...subs ] ){
-    if( e.disposed ) continue
-    e.stale ? e.stale( run ) : run.add( e )
+function reached( subs: Set<Effect>, state: number, run: Set<Effect> ){
+  // Not a copy: marking runs nothing, so nothing subscribes or leaves meanwhile
+  for( const e of subs ){
+    if( e.disposed || e.state >= state ) continue
+    const was = e.state
+    e.state = state
+    // Already reached by an earlier change, and so is what is below it
+    if( was ) continue
+    e.subs ? reached( e.subs, CHECK, run ) : run.add( e )
   }
+}
+
+/**
+ * A `CHECK` is settled by asking the computed values it read, in order,
+ * until one has changed: then it is `DIRTY`. None changed: it is `CLEAN`,
+ * and does not run.
+ */
+function settle( e: Effect ){
+  if( e.state !== CHECK ) return
+  for( const c of e.reads ){
+    c.state && c.update!()
+    if( e.state === DIRTY ) return
+  }
+  e.state = CLEAN
 }
 
 let CURRENT: Effect | null = null
@@ -53,16 +90,46 @@ let BATCH_DEPTH = 0
 const PENDING = new Set<Effect>()
 
 /**
+ * How many passes a drain takes before it gives up: effects that wake one
+ * another for ever are a cycle, and say so rather than hang the page.
+ */
+const PASSES = 1e4
+
+/**
+ * Run what a change reached. An effect run already, by a write nested in
+ * another's run, is `CLEAN` and runs no second time. One that throws does
+ * not keep the rest from running: the first error is thrown after them.
+ */
+function flush( run: Iterable<Effect> ){
+  let failed = false, error: unknown
+  for( const e of run ){
+    if( e.disposed || !e.state ) continue
+    try {
+      settle( e )
+      e.state && e.run()
+    }
+    catch( x ){ failed || ( failed = true, error = x ) }
+  }
+  if( failed ) throw error
+}
+
+/**
  * Drain iteratively: an effect may itself write, queueing more work.
  * Re-enter the batch around each pass so those collapse too, instead of
  * running eagerly one at a time.
  */
 function drain(){
+  let passes = 0
   while( PENDING.size ){
+    if( ++passes > PASSES ){
+      for( const e of PENDING ) e.state = CLEAN
+      PENDING.clear()
+      throw new Error('Effects kept waking one another: a cycle')
+    }
     const queued = [ ...PENDING ]
     PENDING.clear()
     BATCH_DEPTH++
-    try { for( const e of queued ) !e.disposed && e.run() }
+    try { flush( queued ) }
     finally { BATCH_DEPTH-- }
   }
 }
@@ -77,26 +144,37 @@ export function batch<T>( fn: () => T ): T {
   }
 }
 
+/** Subscribe what is running now, if anything, to `subs` */
+function track( subs: Set<Effect> ){
+  if( CURRENT && !CURRENT.disposed ){
+    subs.add( CURRENT )
+    CURRENT.deps.add( subs )
+  }
+}
+
+/** Forget what `e` read, before it reads again or is disposed */
+function untrackAll( e: Effect ){
+  for( const subs of e.deps ) subs.delete( e )
+  e.deps.clear()
+  e.reads.length = 0
+}
+
 export function signal<T>( value: T ): [ () => T, ( next: T ) => void, () => void ] {
   const subs = new Set<Effect>()
 
   const notify = () => {
     // Collected first: effects may retrack while running, and computed values are marked before any runs
     const run = new Set<Effect>()
-    reached( subs, run )
+    reached( subs, DIRTY, run )
     if( BATCH_DEPTH ){
       for( const e of run ) PENDING.add( e )
       return
     }
-    for( const e of run )
-      !e.disposed && e.run()
+    flush( run )
   }
 
   const read = () => {
-    if( CURRENT && !CURRENT.disposed ){
-      subs.add( CURRENT )
-      CURRENT.deps.add( subs )
-    }
+    track( subs )
     return value
   }
   const write = ( next: T ) => {
@@ -120,13 +198,15 @@ export interface EffectHandle {
 export function effect( fn: () => void ): EffectHandle {
   const e: Effect = {
     deps: new Set(),
+    reads: [],
     disposed: false,
+    state: CLEAN,
     run(){
       if( e.disposed ) return
 
       // Re-track from scratch each run
-      for( const subs of e.deps ) subs.delete( e )
-      e.deps.clear()
+      untrackAll( e )
+      e.state = CLEAN
 
       const prev = CURRENT
       CURRENT = e
@@ -140,8 +220,7 @@ export function effect( fn: () => void ): EffectHandle {
   return {
     dispose(){
       e.disposed = true
-      for( const subs of e.deps ) subs.delete( e )
-      e.deps.clear()
+      untrackAll( e )
     }
   }
 }
@@ -157,45 +236,62 @@ export interface Computed<T> {
  * read, and again only once what it read has changed. A change marks it
  * out of date before any effect runs (`reached`), so an effect never reads
  * it as it was before the change that woke that effect.
+ *
+ * Computed again to the value it had, it wakes nothing: what reads it runs
+ * only when it changed. Except an object, which always counts as changed:
+ * Lips's stores mutate in place, so the same reference can hold new
+ * contents (a collection that was touched). What it throws is kept, like
+ * a value, and thrown to each reader until what it read changes.
  */
 export function computed<T>( fn: () => T ): Computed<T> {
-  const subs = new Set<Effect>()
-  let value: T | undefined, dirty = true, computing = false
+  let value: unknown, failed = false, computing = false
   const node: Effect = {
     deps: new Set(),
+    reads: [],
+    subs: new Set(),
     disposed: false,
+    state: DIRTY,
     run(){},
-    stale( run ){
-      if( dirty ) return
-      dirty = true
-      reached( subs, run )
+    update(){
+      if( node.disposed ) return
+      settle( node )
+      node.state && compute()
     }
+  }
+
+  const compute = () => {
+    if( computing ) throw new Error('A computed value read while it is computed: it reads itself')
+    untrackAll( node )
+    const prev = CURRENT
+    CURRENT = node
+    computing = true
+    let next: unknown, threw = false
+    try { next = fn() }
+    catch( x ){ next = x, threw = true }
+    finally { CURRENT = prev; computing = false }
+    node.state = CLEAN
+
+    // An object or a function is its own `Object()`
+    const changed = threw !== failed || !Object.is( next, value ) || next === Object( next )
+    value = next, failed = threw
+    if( changed )
+      for( const s of node.subs! ) s.state === CHECK && ( s.state = DIRTY )
   }
 
   return {
     read(){
+      node.state && node.update!()
       if( CURRENT && !CURRENT.disposed ){
-        subs.add( CURRENT )
-        CURRENT.deps.add( subs )
+        track( node.subs! )
+        CURRENT.reads.push( node )
       }
-      if( dirty && !node.disposed ){
-        if( computing ) throw new Error('A computed value read while it is computed: it reads itself')
-        for( const s of node.deps ) s.delete( node )
-        node.deps.clear()
-        const prev = CURRENT
-        CURRENT = node
-        computing = true
-        try { value = fn() }
-        finally { CURRENT = prev; computing = false }
-        dirty = false
-      }
+      if( failed ) throw value
       return value as T
     },
     dispose(){
       node.disposed = true
-      for( const s of node.deps ) s.delete( node )
-      node.deps.clear()
-      subs.clear()
+      untrackAll( node )
+      node.subs!.clear()
     }
   }
 }
