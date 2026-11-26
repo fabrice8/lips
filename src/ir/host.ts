@@ -149,6 +149,22 @@ export const domHost: Host<Node> = {
   precedes: ( a, b ) => !!( a.compareDocumentPosition( b ) & 4 /* FOLLOWING */ ),
 
   attr( el, name, value ){
+    /**
+     * `style` through the CSSOM, never `setAttribute`: a page whose content
+     * security policy has no `'unsafe-inline'` in `style-src` refuses a
+     * style attribute set by script, and the element is left unstyled,
+     * while `el.style` is not inline style to it. Checked in a browser:
+     * under `style-src 'self'`, `setAttribute('style', 'position: fixed')`
+     * left an element `static`, `style.cssText` made it `fixed`. A part
+     * places itself with `style=` (a layer, a panel), so under such a
+     * policy every one of them drew unplaced.
+     */
+    if( name === 'style' && ( el as HTMLElement ).style ){
+      ( el as HTMLElement ).style.cssText = value ?? ''
+      value === null && ( el as Element ).removeAttribute('style')
+      return
+    }
+
     value === null
       ? ( el as Element ).removeAttribute( name )
       : ( el as Element ).setAttribute( name, value )

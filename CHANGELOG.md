@@ -5,6 +5,23 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-11-26
+
+### Fixed — `style=` under a content security policy
+
+- The DOM host wrote `style=` with `setAttribute`, which a page whose
+  policy has no `'unsafe-inline'` in `style-src` refuses: the element was
+  left unstyled. It is now written through the CSSOM (`el.style.cssText`),
+  which such a policy allows, and taken away the same way. Every part that
+  places itself with `style=` (the layer, a popover's panel, the dialog,
+  the region that folds) drew unplaced in such a page, the page
+  `./runtime` in interpreted mode is made for. Found in a browser under
+  `style-src 'self'`: the layer stayed `static`; it is `fixed` now.
+- What the CSSOM is given it normalises: `style=` read back as an
+  attribute may differ in spelling (`#000` reads `rgb(0, 0, 0)`), and a
+  declaration the browser does not know is dropped, as it is from a style
+  attribute.
+
 ## [0.6.0] — 2026-11-25
 
 Parts in an app that ships no compiler: `precompilePlugins()` compiles a

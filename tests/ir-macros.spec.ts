@@ -45,7 +45,7 @@ describe('macros', () => {
 
     await settle( () => !!q('.card') )
     expect( q('.cname')?.textContent ).toBe('Widget (store)')
-    expect( q('.card')?.getAttribute('style') ).toContain('#000')
+    expect( ( q('.card') as HTMLElement | null )?.style.borderColor ).toBe('rgb(0, 0, 0)')
   })
 
   it('is reactive to call-site expressions', async () => {
@@ -61,7 +61,7 @@ describe('macros', () => {
     await settle( () => q('.cname')?.textContent === 'B (x)' )
 
     c.state.on = true
-    await settle( () => !!q('.card')?.getAttribute('style')?.includes('#000') )
+    await settle( () => ( q('.card') as HTMLElement | null )?.style.borderColor === 'rgb(0, 0, 0)' )
   })
 
   it('is case-insensitive at call sites', async () => {
@@ -82,7 +82,7 @@ describe('macros', () => {
     await settle( () => !!q('.card') )
     // `source` unset → falsy, `active` unset → '#fff' branch
     expect( q('.csrc')?.textContent ).toBe('()')
-    expect( q('.card')?.getAttribute('style') ).toContain('#fff')
+    expect( ( q('.card') as HTMLElement | null )?.style.borderColor ).toBe('rgb(255, 255, 255)')
   })
 
   it('exposes all call-site attributes as `arguments`', async () => {
