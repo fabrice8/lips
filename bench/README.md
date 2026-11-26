@@ -59,6 +59,8 @@ drift with the machine, so a change there is a change in the algorithm.
 The time is a median over 25 samples divided by a calibration loop timed in
 the same process, so it travels from a laptop to a CI runner; it fails only
 past 2.5× the baseline, a large regression rather than noise.
+The committed times are a CI runner's (ubuntu-latest, bun 1.4.5); a laptop
+reads within about 1.3× of them.
 
 ## ab.mjs — is a change faster or slower?
 
