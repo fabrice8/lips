@@ -5,6 +5,8 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-27
+
 ### Fixed
 
 - An element inside an `<svg>`, written in control flow (a `<for>` of
