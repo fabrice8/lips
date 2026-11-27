@@ -27,10 +27,10 @@
 import type { Expr, ExprEnv } from './expression'
 import { parseExpression, splitTopLevel } from './expression'
 import type { TemplateNode, ElementNode, AttrNode, ExprSlot } from './parser'
-import type { BlockIR, CompileOptions } from './compiler'
+import type { BlockIR, BlockNs, CompileOptions } from './compiler'
 import { HTML_TAGS, CONTROL_TAGS, ARM_TAGS } from './tags'
 import type { Host } from './host'
-import { domHost } from './host'
+import { domHost, parsed, nsOf } from './host'
 import type { Guard, RuntimeOptions, IRComponentDef } from './runtime'
 import type { StyleCompileOptions, StyleCompileResult } from './style'
 
@@ -740,9 +740,8 @@ function guardHost( policy: TemplatePolicy, base: Host<Node> = domHost ): Host<N
     }
   }
 
-  const parse = ( markup: string ) => {
-    const tpl = document.createElement('template')
-    tpl.innerHTML = markup
+  const parse = ( markup: string, ns?: BlockNs ) => {
+    const tpl = parsed( markup, ns )
     sweep( tpl.content )
     return tpl
   }
@@ -752,7 +751,7 @@ function guardHost( policy: TemplatePolicy, base: Host<Node> = domHost ): Host<N
 
     clone( block ){
       let tpl = swept.get( block )
-      if( !tpl ) swept.set( block, tpl = parse( block.html ) )
+      if( !tpl ) swept.set( block, tpl = parse( block.html, block.ns ) )
       return tpl.content.cloneNode( true )
     },
 
@@ -765,7 +764,7 @@ function guardHost( policy: TemplatePolicy, base: Host<Node> = domHost ): Host<N
     html( el, value ){
       refused( policy.attr( tagOf( el ), '@html', value ) )
         ? base.content( el, '' )
-        : ( el as Element ).replaceChildren( parse( value ).content )
+        : ( el as Element ).replaceChildren( parse( value, nsOf( el as Element ) ).content )
     },
 
     styleVar( el, prop, value ){

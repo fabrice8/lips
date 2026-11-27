@@ -365,14 +365,23 @@ const KB = 1024
  * (36.34 → 36.59, 16.89 → 17.14 on a local 1.4.0). The reactivity-core
  * kind of growth the 2026-08-17 note allows: nothing of the compiler
  * crossed the seam. The budgets keep the room the last note gave.
+ *
+ * 2026-11-27: full 36.8→36.9, untrusted 9.5→9.6 — a block inside an
+ * `<svg>` parsed as svg (`BlockIR.ns`), without which no element written
+ * in control flow there drew (an `<icon>`'s paths). The compiler marks
+ * the block; the DOM host and the policy host parse it inside an `<svg>`
+ * (`parsed`), and `@html` on an svg element as svg (`nsOf`). On CI: full
+ * 36.80, at its budget; untrusted 9.53, past it. Runtime grows by the
+ * parse alone and stays under its budget; the compiler's part is in the
+ * build-time entries only. The budgets keep the usual room.
  */
 const BUDGETS = {
-  'dist/lips.min.js': 36.8,      // full: runtime + parser/compiler + style compiler + router
+  'dist/lips.min.js': 36.9,      // full: runtime + parser/compiler + style compiler + router
   'dist/runtime.min.js': 17.3,   // precompiled-only: none of the above
   'dist/precompile.min.js': 15.05, // build-time: parser + compiler + style compiler
   'dist/stylis.min.js': 3,       // opt-in preprocessor — not loaded unless asked for
   'dist/mf2.min.js': 7.8,        // opt-in MessageFormat 2 engine for `./runtime` — the full entry carries it
-  'dist/untrusted.min.js': 9.5,  // opt-in policy for templates you did not write (RFC-007) — no entry carries it
+  'dist/untrusted.min.js': 9.6,  // opt-in policy for templates you did not write (RFC-007) — no entry carries it
   'dist/lynx.min.js': 19.05,    // build-time Lynx pass (RFC-006): template vocabulary and style lint — no entry carries it
   'dist/lynx-main.min.js': 2.85, // Lynx main thread: the applier over Element PAPI
   'dist/lynx-background.min.js': 5.1, // Lynx background thread: the host the runtime renders into

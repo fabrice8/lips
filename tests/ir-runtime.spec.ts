@@ -457,3 +457,37 @@ describe('attach queue re-entrancy', () => {
     expect( qa('.leaf') ).toHaveLength( 5 )
   })
 })
+
+describe('blocks inside an svg', () => {
+  const SVG = 'http://www.w3.org/2000/svg', HTML = 'http://www.w3.org/1999/xhtml'
+
+  it('a <for> of paths draws svg paths, not HTML elements', () => {
+    const { state } = mount( `<svg viewBox="0 0 24 24"><for [d] in=state.ds><path d=d/></for></svg>`, { state: { ds: [ 'M1 1h2', 'M3 3h4' ] } })
+    expect( qa('path').map( p => [ p.namespaceURI, p.getAttribute('d') ] ) ).toEqual([ [ SVG, 'M1 1h2' ], [ SVG, 'M3 3h4' ] ])
+
+    state.ds = [ 'M5 5h6' ]
+    expect( qa('path').map( p => p.namespaceURI ) ).toEqual([ SVG ])
+  })
+
+  it('an <if> in a <g>, and a block nested in that block, are svg too', () => {
+    mount( `<svg><g><if( state.on )><circle r=state.r/><for [x] in=state.xs><rect x=x/></for></if></g></svg>`, { state: { on: true, r: 2, xs: [ 1 ] } })
+    expect( q('circle')!.namespaceURI ).toBe( SVG )
+    expect( q('rect')!.namespaceURI ).toBe( SVG )
+  })
+
+  it('a <foreignObject> holds HTML again, and a block beside the svg is HTML', () => {
+    mount( `<svg><foreignObject><if( state.on )><p>{state.t}</p></if></foreignObject></svg><if( state.on )><b>x</b></if>`, { state: { on: true, t: 'hi' } })
+    expect( q('foreignObject')!.namespaceURI ).toBe( SVG )
+    expect( q('p')!.namespaceURI ).toBe( HTML )
+    expect( q('p')!.textContent ).toBe('hi')
+    expect( q('b')!.namespaceURI ).toBe( HTML )
+  })
+
+  it('the compiler marks the blocks beneath, and only those', () => {
+    const { ir } = compileTemplate( `<svg><for [d] in=state.ds><path d=d/></for></svg><if( state.on )><b/></if>` )
+    const [ inSvg, beside ] = ir.root.blocks as any[]
+    expect( ir.root.ns ).toBeUndefined()
+    expect( inSvg.block.ns ).toBe('svg')
+    expect( beside.branches[ 0 ].block.ns ).toBeUndefined()
+  })
+})

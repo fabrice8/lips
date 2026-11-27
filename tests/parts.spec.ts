@@ -645,6 +645,11 @@ describe('icons', () => {
     expect( [ ...svg.querySelectorAll('path') ].map( p => p.getAttribute('d') ) ).toEqual( SET.check.paths )
   })
 
+  it('its paths are svg paths, which draw; not HTML elements, which do not', async () => {
+    await draw( '<icon name="dot"/>' )
+    expect( [ ...q('svg')!.querySelectorAll('path') ].map( p => p.namespaceURI ) ).toEqual([ 'http://www.w3.org/2000/svg', 'http://www.w3.org/2000/svg' ])
+  })
+
   it('a filled icon: filled in the text\'s colour on the web by default, its own box, every path', async () => {
     await draw( '<icon name="dot"/>' )
     const svg = q('svg')!

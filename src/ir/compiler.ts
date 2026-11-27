@@ -59,8 +59,17 @@ export interface TemplateIR {
  */
 export type NodeIR = string | 0 | [ tag: string, attrs?: Record<string, string>, children?: NodeIR[] ]
 
+/** The foreign namespace a block can be drawn in: inside an `<svg>` */
+export type BlockNs = 'svg'
+
 export interface BlockIR {
   html: string
+  /**
+   * Where the block is drawn, when it is inside an `<svg>` (a `<for>` of
+   * paths). An HTML parser reads a skeleton on its own as HTML, so the
+   * host parses this one inside an `<svg>`.
+   */
+  ns?: BlockNs
   /** The skeleton as a tree — present when compiled with `target: 'tree'` */
   nodes?: NodeIR[]
   /**
@@ -252,6 +261,9 @@ class Compiler {
     private tree = false
   ){}
 
+  /** The namespace the element being emitted draws its children in: none for HTML */
+  private ns: BlockNs | undefined
+
   // ---- diagnostics
   private locate( offset: number ){
     if( !this.lineStarts ){
@@ -344,6 +356,8 @@ class Compiler {
     html: string[] = [],
     tree = this.tree,
     roots: NodeIR[] = []
+
+    this.ns && ( block.ns = this.ns )
 
     /**
      * Emit a sibling list at `path` depth. Returns nothing —
@@ -707,8 +721,20 @@ class Compiler {
       key = undefined
     }
 
-    const children: NodeIR[] = []
+    /**
+     * An `<svg>` draws its children in its namespace, and its
+     * `<foreignObject>` in HTML's again: the blocks beneath are parsed
+     * there (`BlockIR.ns`).
+     */
+    const
+    outer = this.ns,
+    children: NodeIR[] = []
+
+    this.ns = node.tag === 'svg' ? 'svg'
+            : node.tag === 'foreignobject' ? undefined
+            : outer
     node.children.length && emitSiblings( node.children, p, children, i18n, key )
+    this.ns = outer
     if( children.length ){
       el[ 1 ] = attrs // `{}` when there are none: children sit at index 2
       el[ 2 ] = children

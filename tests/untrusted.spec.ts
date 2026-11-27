@@ -829,3 +829,26 @@ describe('the untrusted mode', () => {
     ])
   })
 })
+
+describe('untrusted: blocks inside an svg', () => {
+  const SVG = 'http://www.w3.org/2000/svg'
+
+  it('a <for> of paths draws svg paths, swept as any skeleton is', async () => {
+    mount( untrusted(), { state: { ds: [ 'M1 1h2' ] }, default: `<svg class="s"><for [d] in=state.ds><path d=d onclick="x()"/></for></svg>` })
+    await settle( () => !!q('svg.s path') )
+    expect( q('svg.s path')!.namespaceURI ).toBe( SVG )
+    expect( q('svg.s path')!.hasAttribute('onclick') ).toBe( false )
+  })
+
+  it('@html on an svg element parses its markup as svg', async () => {
+    mount( untrusted(), { state: { m: '<circle r="2"></circle>' }, default: `<svg class="h" @html=state.m></svg>` })
+    await settle( () => !!q('svg.h circle') )
+    expect( q('svg.h circle')!.namespaceURI ).toBe( SVG )
+  })
+
+  it('@html on a <foreignObject> parses its markup as HTML', async () => {
+    mount( untrusted(), { state: { m: '<p>x</p>' }, default: `<svg><foreignObject class="f" @html=state.m></foreignObject></svg>` })
+    await settle( () => !!q('.f p') )
+    expect( q('.f p')!.namespaceURI ).toBe('http://www.w3.org/1999/xhtml')
+  })
+})
