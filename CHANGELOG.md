@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com) · Versioning: [SemVer](h
 
 ## [Unreleased]
 
+### Fixed
+
+- An element inside an `<svg>`, written in control flow (a `<for>` of
+  paths, an `<if>` in a `<g>`), was made an HTML element, which draws
+  nothing: its block was parsed on its own, as HTML. So no `<icon>` drew
+  a path. A block inside an `<svg>` is now marked so (`BlockIR.ns`) and
+  parsed inside one; one in a `<foreignObject>` is HTML again. Under a
+  template policy too, and `@html` on an svg element parses its markup as
+  svg.
+
 ## [0.7.0] — 2026-11-26
 
 ### Fixed — the reactivity core, held to a conformance suite

@@ -22,7 +22,31 @@
  * `RuntimeOptions.createStylesheet`, supplied by the facade.
  */
 
-import type { BlockIR } from './compiler'
+import type { BlockIR, BlockNs } from './compiler'
+
+/**
+ * Markup parsed into an inert `<template>`, in the namespace it is drawn
+ * in. The template reads it as HTML, where a lone `<path>` is an element
+ * of HTML's that draws nothing, so markup drawn inside an `<svg>` is
+ * parsed inside one, and its children are the template's.
+ */
+export function parsed( markup: string, ns?: BlockNs ): HTMLTemplateElement {
+  const tpl = document.createElement('template')
+  if( !ns ){
+    tpl.innerHTML = markup
+    return tpl
+  }
+
+  tpl.innerHTML = `<${ ns }>${ markup }</${ ns }>`
+  const wrap = tpl.content.firstChild as Element
+  tpl.content.replaceChildren( ...wrap.childNodes )
+  return tpl
+}
+
+/** The namespace an element draws its children in, as `parsed` takes it */
+export function nsOf( el: Element ): BlockNs | undefined {
+  return el.namespaceURI === 'http://www.w3.org/2000/svg' && el.localName !== 'foreignObject' ? 'svg' : undefined
+}
 
 export interface Host<N = any> {
   /** A detached container holding a fresh copy of the block's skeleton */
@@ -96,11 +120,7 @@ const LIVE: Record<string, Live> = { __proto__: null, value: ( v: string | null 
 export const domHost: Host<Node> = {
   clone( block ){
     let tpl = SKELETONS.get( block )
-    if( !tpl ){
-      tpl = document.createElement('template')
-      tpl.innerHTML = block.html
-      SKELETONS.set( block, tpl )
-    }
+    tpl || SKELETONS.set( block, tpl = parsed( block.html, block.ns ) )
     return tpl.content.cloneNode( true )
   },
   fragment: () => document.createDocumentFragment(),
