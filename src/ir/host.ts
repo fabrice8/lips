@@ -31,21 +31,18 @@ import type { BlockIR, BlockNs } from './compiler'
  * parsed inside one, and its children are the template's.
  */
 export function parsed( markup: string, ns?: BlockNs ): HTMLTemplateElement {
-  const tpl = document.createElement('template')
-  if( !ns ){
-    tpl.innerHTML = markup
-    return tpl
-  }
+  const
+  tpl = document.createElement('template'),
+  content = tpl.content
 
-  tpl.innerHTML = `<${ ns }>${ markup }</${ ns }>`
-  const wrap = tpl.content.firstChild as Element
-  tpl.content.replaceChildren( ...wrap.childNodes )
+  tpl.innerHTML = ns ? `<svg>${ markup }</svg>` : markup
+  ns && content.replaceChildren( ...content.firstChild!.childNodes )
   return tpl
 }
 
 /** The namespace an element draws its children in, as `parsed` takes it */
 export function nsOf( el: Element ): BlockNs | undefined {
-  return el.namespaceURI === 'http://www.w3.org/2000/svg' && el.localName !== 'foreignObject' ? 'svg' : undefined
+  return el instanceof SVGElement && el.localName !== 'foreignObject' ? 'svg' : undefined
 }
 
 export interface Host<N = any> {
